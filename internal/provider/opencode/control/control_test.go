@@ -143,6 +143,10 @@ func runFakeServe() {
 		case "/api/html":
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = io.WriteString(w, "<html>v2 web shell</html>")
+		case "/api/fs/read/notes.md":
+			// fs.read answers the file's bytes in its own type (0214 PLAN P6d).
+			w.Header().Set("Content-Type", "text/markdown")
+			_, _ = io.WriteString(w, rawFile)
 		case "/api/exit":
 			jsonOut(w, http.StatusOK, `{}`)
 			go func() { time.Sleep(50 * time.Millisecond); os.Exit(3) }()
@@ -422,6 +426,73 @@ func TestAnswerMustBeJSON(t *testing.T) {
 	_, err := f.p.Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/html"})
 	if err == nil || !strings.Contains(err.Error(), "text/html") || !strings.Contains(err.Error(), "v2 web shell") {
 		t.Errorf("err = %v, want one naming text/html and the body", err)
+	}
+}
+
+// rawFile is what the fake's fs.read route answers. Its marker must never
+// reach a capture.
+const rawFile = "# notes\nraw-file-marker-7f3a\n"
+
+// TestRawAnswerSkipsTheJSONCheck: a raw request takes a file's bytes in their
+// own content type, where any other request refuses them (D12).
+func TestRawAnswerSkipsTheJSONCheck(t *testing.T) {
+	f := newFake(t, Config{})
+	res := f.do(Request{Method: http.MethodGet, Path: "/api/fs/read/notes.md", Raw: true, MaxBytes: 1 << 10})
+	if string(res.Body) != rawFile || res.ContentType != "text/markdown" || res.Truncated {
+		t.Errorf("raw answer = %q, %q, truncated %v; want the file in text/markdown", res.Body, res.ContentType, res.Truncated)
+	}
+	if _, err := f.p.Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/fs/read/notes.md"}); err == nil {
+		t.Error("the same answer taken as JSON was accepted")
+	}
+}
+
+// TestRawAnswerIsBounded: a raw answer is read to MaxBytes, and one longer is
+// cut there and marked, never passed whole.
+func TestRawAnswerIsBounded(t *testing.T) {
+	f := newFake(t, Config{})
+	res := f.do(Request{Method: http.MethodGet, Path: "/api/fs/read/notes.md", Raw: true, MaxBytes: 7})
+	if string(res.Body) != rawFile[:7] || !res.Truncated {
+		t.Errorf("MaxBytes 7: %q, truncated %v; want the first 7 bytes, truncated", res.Body, res.Truncated)
+	}
+	res = f.do(Request{Method: http.MethodGet, Path: "/api/fs/read/notes.md", Raw: true, MaxBytes: len(rawFile)})
+	if string(res.Body) != rawFile || res.Truncated {
+		t.Errorf("MaxBytes = its length: %q, truncated %v; want it whole", res.Body, res.Truncated)
+	}
+}
+
+// TestRawNeedsABound: a raw request without MaxBytes is refused before
+// anything starts.
+func TestRawNeedsABound(t *testing.T) {
+	f := newFake(t, Config{})
+	if _, err := f.p.Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/fs/read/notes.md", Raw: true}); err == nil {
+		t.Error("a raw request with no MaxBytes was sent")
+	}
+	if n := len(f.launches()); n != 0 {
+		t.Errorf("%d launch(es); want none", n)
+	}
+}
+
+// TestRawBodyIsNotCaptured: with capture on, a raw answer is recorded by its
+// size, and its bytes are not (0214 MADR, added at P6d).
+func TestRawBodyIsNotCaptured(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(wirecap.EnvDir, dir)
+	f := newFake(t, Config{})
+	f.do(Request{Method: http.MethodGet, Path: "/api/fs/read/notes.md", Raw: true, MaxBytes: 1 << 10})
+	f.p.Close()
+	var all strings.Builder
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			b, _ := os.ReadFile(path)
+			all.Write(b)
+		}
+		return nil
+	})
+	if !strings.Contains(all.String(), `"bytes":`+fmt.Sprint(len(rawFile))) {
+		t.Fatalf("no size line was captured; the test proves nothing: %q", all.String())
+	}
+	if strings.Contains(all.String(), "raw-file-marker-7f3a") {
+		t.Error("a capture carries the raw file's bytes")
 	}
 }
 

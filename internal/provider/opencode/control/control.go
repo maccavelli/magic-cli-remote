@@ -162,6 +162,12 @@ type Request struct {
 	// Body is sent as JSON when non-nil. A create body carries the directory
 	// as location.directory: see WithLocation.
 	Body any
+	// Raw takes the answer as it comes, in any content type, for a route that
+	// answers a file's bytes (fs.read). At most MaxBytes are read, and a longer
+	// answer sets Response.Truncated. The body never enters the wire capture,
+	// which records only its size (0214 MADR, added at P6d).
+	Raw      bool
+	MaxBytes int
 }
 
 // WithLocation returns body with location.directory set to dir, as the
@@ -180,6 +186,11 @@ type Response struct {
 	Status int
 	// Body is the answer as the engine sent it.
 	Body []byte
+	// ContentType is the answer's, as sent.
+	ContentType string
+	// Truncated reports a raw answer longer than its MaxBytes; Body holds the
+	// first MaxBytes.
+	Truncated bool
 }
 
 // ErrCredentialRead refuses GET /api/credential: the control plane never
@@ -205,6 +216,9 @@ func (p *Plane) Do(ctx context.Context, req Request) (Response, error) {
 	}
 	if underRoute(req.Path, "/api/provider") || underRoute(req.Path, "/api/model") {
 		return Response{}, ErrProviderRoute
+	}
+	if req.Raw && req.MaxBytes <= 0 {
+		return Response{}, fmt.Errorf("control plane %s %s: a raw request needs a positive MaxBytes", req.Method, req.Path)
 	}
 	eng, err := p.acquire(ctx)
 	if err != nil {
@@ -256,7 +270,11 @@ func (p *Plane) send(ctx context.Context, eng *engine, req Request) (Response, e
 		return Response{}, fmt.Errorf("control plane %s %s: %w", req.Method, req.Path, err)
 	}
 	hr.Header.Set("Authorization", basicAuth(eng.password))
-	hr.Header.Set("Accept", "application/json")
+	if req.Raw {
+		hr.Header.Set("Accept", "*/*")
+	} else {
+		hr.Header.Set("Accept", "application/json")
+	}
 	if req.Directory != "" {
 		hr.Header.Set("x-opencode-directory", req.Directory)
 	}
@@ -268,6 +286,10 @@ func (p *Plane) send(ctx context.Context, eng *engine, req Request) (Response, e
 		return Response{}, fmt.Errorf("control plane %s %s: %w", req.Method, req.Path, err)
 	}
 	defer res.Body.Close()
+	contentType := res.Header.Get("Content-Type")
+	if req.Raw {
+		return p.readRaw(req, res, contentType)
+	}
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 32<<20))
 	if err != nil {
 		return Response{}, fmt.Errorf("control plane %s %s: %w", req.Method, req.Path, err)
@@ -276,12 +298,34 @@ func (p *Plane) send(ctx context.Context, eng *engine, req Request) (Response, e
 	p.log.Debug("control plane request", slog.String("method", req.Method),
 		slog.String("path", req.Path), slog.Int("status", res.StatusCode))
 	if len(bytes.TrimSpace(raw)) > 0 {
-		if err := requireJSON(res.Header.Get("Content-Type"), raw); err != nil {
-			return Response{Status: res.StatusCode, Body: raw},
+		if err := requireJSON(contentType, raw); err != nil {
+			return Response{Status: res.StatusCode, Body: raw, ContentType: contentType},
 				fmt.Errorf("control plane %s %s: %w", req.Method, req.Path, err)
 		}
 	}
-	return Response{Status: res.StatusCode, Body: raw}, nil
+	return Response{Status: res.StatusCode, Body: raw, ContentType: contentType}, nil
+}
+
+// readRaw reads a raw answer: at most MaxBytes, with one byte more read to
+// tell a longer answer from one that ends exactly there. The capture gets a
+// line naming the route and the size, never the bytes: they are a file of the
+// user's, which may hold anything.
+func (p *Plane) readRaw(req Request, res *http.Response, contentType string) (Response, error) {
+	raw, err := io.ReadAll(io.LimitReader(res.Body, int64(req.MaxBytes)+1))
+	if err != nil {
+		return Response{}, fmt.Errorf("control plane %s %s: %w", req.Method, req.Path, err)
+	}
+	out := Response{Status: res.StatusCode, Body: raw, ContentType: contentType}
+	if len(raw) > req.MaxBytes {
+		out.Body, out.Truncated = raw[:req.MaxBytes], true
+	}
+	note, _ := json.Marshal(map[string]any{"raw": map[string]any{
+		"method": req.Method, "path": req.Path, "status": res.StatusCode, "bytes": len(out.Body), "truncated": out.Truncated,
+	}})
+	p.wire.Frame(note)
+	p.log.Debug("control plane raw request", slog.String("method", req.Method),
+		slog.String("path", req.Path), slog.Int("status", res.StatusCode), slog.Int("bytes", len(out.Body)))
+	return out, nil
 }
 
 func basicAuth(password string) string {

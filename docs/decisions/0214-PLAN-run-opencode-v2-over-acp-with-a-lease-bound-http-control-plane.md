@@ -1495,3 +1495,182 @@ P6c is complete with this commit. P6d, workspace, diagnostics, VCS and diff, is 
 `internal/provider/acpagent/acpagent.go`, `session_meta.go`, and `modelcatalog.go` and
 `modelcatalog_test.go` (new); `internal/provider/opencode/acp.go`, and `acp_catalog.go` and
 `acp_catalog_test.go` (new); the MADR; and this plan.
+
+### P6d Deviation 1, 2026-11-03 — `fs.read` answers raw bytes, plugins and skill refresh need records of their own, the control plane starts its own MCP servers, and `session.diff` is one turn. The owner decided: "Raw request, uncaptured", a plugins MADR, a skill-refresh MADR, "Own record; P6d omits MCP" and "Whole session"
+
+C8: `opencode --version` printed `v2.2.3`, at `beb31c3b` and again at `020aa379`.
+
+Found before the first code write. The evidence:
+
+* the opencode source at `b44b7164ba`;
+* probes on isolated homes, sending no prompt (`p6d/probe_surfaces.py`, `p6d/probe_mcp_spawn.py`
+  and `skills/probe_*.py` in the session scratchpad):
+  * the project was a git repository with a committed file changed since, an untracked file, and
+    a symlink out of the project;
+  * `opencode.json` declared a remote MCP server with a made-up bearer token, and a local one with
+    a made-up secret in its environment.
+
+No route echoed either made-up secret.
+
+* **The workspace routes reach outside the project.**
+  * `fs.list?path=.` answers `{location, data:[{path, type}]}`. Paths are relative to the location,
+    and a directory's ends in `/`.
+  * With an absolute path or `..`, it listed the directory above the project, the database
+    included.
+  * `fs.find?query=…&limit=…` answers `data:[{path, type}]`.
+  * As planned, the 1.x guards run before any request (`normalizeWorkspacePath`,
+    `checkNoSymlinkComponents`), and every returned path is re-checked (`validateReturnedPath`). P7
+    keeps those helpers when it retires `workspace.go`.
+* **`fs.read` answers raw bytes.**
+  * `GET /api/fs/read/README.md` answered 200 `text/markdown` with the file's bytes.
+  * A symlink, a missing file and a directory each answered 404 `FileNotFoundError`.
+  * The control plane refuses any answer that is not JSON (D12).
+  * **Decided: "Raw request, uncaptured".**
+    * `control.Request` gains a raw mode: no JSON requirement and a read bound the caller sets.
+      The body never enters the wire capture; only its size is recorded.
+    * The 1.x content rules still apply: NUL or invalid UTF-8 is `binary_content`, and more than
+      262,144 bytes is `result_too_large`, never a partial file.
+    * `internal/provider/opencode/control/control.go` and `control_test.go` join P6d's files.
+* **Plugins.**
+  * `/api/plugin` was in P6d's list.
+  * The owner: "i do want a fully spec's, scoped, hardened, functional, and flexible plugins
+    section … draft a detailed madr."
+  * **Decided:** plugins are `0228-MADR-add-an-agent-neutral-plugins-section-with-declared-read-and-manage-operations.md`
+    (proposed). P6d reads no plugin route.
+* **Skill refresh.**
+  * The owner: "this is core functionality. evaluate the best way to implement this and write an
+    madr."
+  * **Decided:** skill refresh is `0229-MADR-make-skill-discovery-freshness-and-refresh-agent-neutral.md`
+    (proposed). P6d sets no `Ops.RefreshSkills`.
+  * P6d's skill list keeps name and description only, as 1.x does.
+  * The first `/api/skill` in a new location answered 2 of its 3 built-in skills. P6d therefore
+    reads it after `GET /api/integration` in the same location: the route that waits for plugin
+    activation (P6b Deviation 1), and the order 0229 D8 asks for.
+* **The control plane starts the user's local MCP servers.**
+  * A location's boot connects every configured MCP server in the background
+    (`packages/core/src/mcp/index.ts:660-688`). v2 has no switch for MCP as a whole; a server is
+    disabled only by name.
+  * Probed with a local MCP server whose command only writes `<role> <pid>` to a file:
+    * after the engine's `session/new`: `engine 80308`;
+    * after the control plane's `GET /api/integration`: `engine 80308`, `control-plane 80547`.
+  * So since P6b, the first call each auth operation makes starts a second copy of each local MCP
+    server, in a process that runs for up to 10 idle minutes. `/api/mcp` on the control plane
+    reports those copies, not the engine's servers.
+  * **Decided: "Own record; P6d omits MCP".**
+    * P6d's diagnostics carry no MCP state from the control plane, which is said where the Spec
+      builds them, as for LSP and formatter.
+    * The duplicate start is decided in a MADR/PLAN of its own before P7 registers the provider.
+      Nothing registers it until then, so no phone has met it.
+* **`session.diff` is one turn.**
+  * With no `from`, it diffs "the turn of the newest user message"; `to` extends the range
+    through a later turn (`packages/protocol/src/groups/session.ts:519-542`).
+  * Magic's `/diff` and the phone's diff button send no message id
+    (`internal/session/commands.go:661`; `chat_screen.dart:1599`). On 1.x that means the whole
+    session.
+  * `GET /api/session/{id}/message` takes `type`, `order` and `limit`
+    (`packages/protocol/src/groups/message.ts:23-42`). A user message is `{id, type:"user", …}`
+    (`packages/schema/src/session-message.ts:77-84`). Gate G5 read this route live.
+  * **Decided: "Whole session".**
+    * P6d reads the first and the newest user message (`type=user`, `order=asc` and `desc`,
+      `limit=1`), then `session.diff` `from` the first `to` the newest.
+    * A session with no user message is "No file changes".
+    * A message id, when one is sent, is passed as `from` alone.
+* **Unchanged from P6d as planned:** full-text search answers that it is not available, naming
+  #34; LSP and formatter status are dropped by name; and every call carries the session's
+  directory (`Directory: h.CWD()`).
+
+P6d's files are `internal/provider/opencode/acp.go`, a new `acp_surfaces.go` and its test, and
+`internal/provider/opencode/control/control.go` and `control_test.go`.
+
+### P6d — 2026-11-03: workspace, diagnostics, VCS and diff
+
+**What changed.**
+
+* **The control plane's raw mode** (`control.go`). A request with `Raw` and a positive `MaxBytes`:
+  * is sent with `Accept: */*`;
+  * takes the answer in any content type;
+  * reads at most `MaxBytes`, and one byte more to set `Response.Truncated`.
+
+  The wire capture gets a line naming the route, status, size and truncation, never the bytes. A
+  raw request with no bound is refused before anything starts. `Response` also carries the
+  answer's content type.
+* **opencode** (new `acp_surfaces.go`, wired in `acp.go` as `Spec.Ops`). Every call is in the
+  session's directory.
+  * **Workspace.**
+    * The path is checked before any request, by the 1.x guards: an absolute path, a URI or `..`
+      is refused, and so is a path through a symlink.
+    * `fs.list` paths are re-checked, and one that leaves the root is dropped. Directories come
+      first, at most 200 entries.
+    * `fs.read` is a raw request bounded at 262,144 bytes. A longer file is `result_too_large`,
+      and NUL or invalid UTF-8 is `binary_content`.
+    * `fs.find` returns files only (a directory is browsed, not read), with `limit` 100. A full
+      page is marked truncated.
+    * Text search answers that v2 has no route, naming #34, and sends nothing.
+  * **Errors.**
+    * An answer outside 2xx becomes an error naming the route, status and engine tag, never the
+      engine's message, which can name a host path.
+    * `FileNotFoundError` is `invalid_path`.
+  * **Diagnostics.**
+    * The branch and default branch from `/api/vcs`.
+    * An aggregate change count from `/api/vcs/status`: file names are not decoded.
+    * Skills by name and description, read after `GET /api/integration` in the same location.
+      When activation fails, the section is left out, unread.
+    * No MCP, LSP, formatter or plugin route is read. The session's own MCP list fills the MCP
+      section (P6a).
+  * **Diff.**
+    * With no message id: the first and the newest user message
+      (`/api/session/{id}/message?type=user&order=asc|desc&limit=1`), then `session.diff` `from`
+      the first `to` the newest.
+    * No user message is "No file changes", and no diff is asked for.
+    * A message id is `from` alone.
+    * The summary is 1.x's, at most 20 files, then "…and N more", marked truncated.
+  * `Ops.RefreshSkills` stays unset (0229). The session declares workspace and diff, and not
+    skill refresh.
+
+**Tests, each seen failing** (`p6d/plant_p6d.py` in the session scratchpad, 26 deliberate breaks
+on scratch copies, each failing on an assertion; none failed to compile):
+
+| Break | Fails |
+| --- | --- |
+| raw answer JSON-checked | `TestRawAnswerSkipsTheJSONCheck`: "answered "text/markdown", not application/json" |
+| raw answer not cut | `TestRawAnswerIsBounded`: "MaxBytes 7: "# notes\n", truncated false" |
+| raw request without a bound | `TestRawNeedsABound`: "a raw request with no MaxBytes was sent"; "1 launch(es); want none" |
+| raw body captured | `TestRawBodyIsNotCaptured`: "a capture carries the raw file's bytes" |
+| no symlink check; no path normalization | `TestACPWorkspaceRefusesPathsOutsideTheRoot`: "sent [/api/fs/list /api/fs/read/link …]"; "sent [… /api/fs/read/.. …]" |
+| returned paths unchecked; no directory sent | `TestACPWorkspaceListKeepsOnlyPathsInside` (`TestACPDiagnostics` too, for the second) |
+| read not raw; a cut file shown; NUL shown as text | `TestACPWorkspaceReadIsRawAndBounded` |
+| the engine's message kept; a missing file not `invalid_path` | `TestACPWorkspaceErrorsCarryNoEngineText`: "500 UnknownError: failed at /Users/secret/project" for the first |
+| text search sent as file search | `TestACPTextSearchNamesTheIssue`: "sent [/api/fs/find]" |
+| directories kept as matches; a full page not marked | `TestACPFileSearch` |
+| skills read before activation | `TestACPDiagnostics`: "want the integration list before the skill list"; `TestACPDiagnosticsWithoutActivation` |
+| the control plane's MCP read; a changed file's name kept | `TestACPDiagnostics`: "read /api/mcp"; "diagnostics carry a path or content" |
+| the newest turn only | `TestACPDiffIsTheWholeSession`: "diff query map[], want from msg_1 to msg_3" |
+| more than 20 files not marked; a diff with no prompt asked for | `TestACPDiffBounds` |
+| the message id ignored | `TestACPDiffOfOneMessage` |
+| `newACP` offers no workspace; no diagnostics; no diff | `TestACPProviderOffersTheSurfaces` |
+
+The paths shown under `/Users/secret` are the tests' own made-up engine messages.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 47 packages ok, no race |
+| the Linux test host, `go test -race -count=1 ./...` (C7), HEAD plus the 5 changed and new Go files | exit 0, 47 packages ok, `go1.27.3` |
+| the Windows test host, `make ci-windows` (C7), the same tree | exit 0, "ALL SELECTED CHECKS PASSED", 47 packages ok |
+| `make pre-add-check FILES=…` (the 5 Go files) | "5 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags`; `make check-records` | exit 0 each |
+
+**Not done:**
+* Nothing registers the provider until P7, so no phone has used these surfaces.
+* The duplicate MCP start (Deviation 1) waits for its own MADR/PLAN, before P7.
+* Text search (#34), LSP and formatter status, plugins (0228) and skill refresh (0229) are not
+  served.
+* No live run. The routes' shapes are this phase's probes and the source at `b44b7164ba`. The
+  message list's shape is from the source and G5's live read.
+
+P6d is complete with this commit. P6e, revert, unrevert and the `!` shell, is next.
+
+**Files for this commit:** `internal/provider/opencode/control/control.go` and `control_test.go`;
+`internal/provider/opencode/acp.go`, and `acp_surfaces.go` and `acp_surfaces_test.go` (new); the
+MADR; and this plan.

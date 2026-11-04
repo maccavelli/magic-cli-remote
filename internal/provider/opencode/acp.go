@@ -110,8 +110,9 @@ func NewACPWithLogger(cfg acpagent.Config, log *slog.Logger) *acpagent.Provider 
 
 // newACP is the provider on any control plane; tests pass a fake engine. The
 // auth hooks restart the provider's own sessions after a credential change
-// (D8), and the catalog hooks group the model option by vendor (D7,
-// acp_catalog.go).
+// (D8), the catalog hooks group the model option by vendor (D7,
+// acp_catalog.go), and the workspace, diagnostics and diff are the control
+// plane's, in the session's directory (D10, acp_surfaces.go).
 func newACP(cfg acpagent.Config, log *slog.Logger, plane controlPlane) *acpagent.Provider {
 	var p *acpagent.Provider
 	auth := &acpAuth{
@@ -131,6 +132,12 @@ func newACP(cfg acpagent.Config, log *slog.Logger, plane controlPlane) *acpagent
 	spec.ListModels = acpNoHarvest
 	spec.ModelsFromOption = acpModelsFromOption
 	spec.ModelProviders = auth.modelProviders
+	surfaces := &acpSurfaces{plane: plane}
+	spec.Ops.ListWorkspace = surfaces.listWorkspace
+	spec.Ops.ReadWorkspace = surfaces.readWorkspace
+	spec.Ops.SearchWorkspace = surfaces.searchWorkspace
+	spec.Ops.Diagnostics = surfaces.diagnostics
+	spec.Ops.Diff = surfaces.diff
 	p = acpagent.NewWithLogger(spec, cfg, log)
 	return p
 }

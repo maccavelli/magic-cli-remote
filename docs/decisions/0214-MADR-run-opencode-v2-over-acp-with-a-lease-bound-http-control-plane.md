@@ -1061,3 +1061,30 @@ always adds one and makes it active, and removing the active one makes the next 
 * **The model ids are the latest session's.** A Spec can have acpagent keep the latest session's
   `model` option as the provider catalog. The static list is shown only before any session has run.
   *Owner: "Latest session's option".*
+
+### Added at P6d, 2026-11-03 (PLAN P6d Deviation 1)
+
+* **D2: the control plane has a raw mode.** `GET /api/fs/read/*` answers the file's bytes with the
+  file's own content type, not JSON. A raw request skips D12's JSON check, reads at most the bound
+  its caller sets, and keeps the body out of the wire capture, which records only its size.
+  *Owner: "Raw request, uncaptured".*
+* **D10: plugins and skill refresh have records of their own.**
+  * D10's `/api/plugin` is withdrawn from P6d. The plugins section is
+    `0228-MADR-add-an-agent-neutral-plugins-section-with-declared-read-and-manage-operations.md`.
+  * Skill refresh is `0229-MADR-make-skill-discovery-freshness-and-refresh-agent-neutral.md`.
+  * Both are proposed. The skill list stays in P6d and is read after plugin activation in the
+    session's location: a cold location answered 2 of 3 built-in skills.
+* **D10: no MCP state from the control plane.**
+  * The control plane is a second opencode process. When a location boots, it starts every
+    configured MCP server (`packages/core/src/mcp/index.ts:660-688` at `b44b7164ba`).
+  * A probe showed the user's local MCP server started by the engine at `session/new` and again by
+    the control plane at its first `GET /api/integration`. Every P6b auth operation makes that call
+    first.
+  * `/api/mcp` on the control plane therefore reports its own copies, and D10's `/api/mcp` is
+    withdrawn.
+  * This record did not foresee the duplicate start. It is decided in a MADR/PLAN of its own
+    before P7 registers the provider. *Owner: "Own record; P6d omits MCP".*
+* **D10: the diff is the whole session.** `session.diff` with no `from` diffs only the newest turn.
+  Magic's `/diff` and the phone send no message id, which on 1.x means the whole session. The v2
+  diff reads the first and the newest user message from `GET /api/session/{id}/message`, and
+  diffs `from` the first `to` the newest. *Owner: "Whole session".*
