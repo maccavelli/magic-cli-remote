@@ -2637,8 +2637,10 @@ model was refused, and 6 paid turns ran on the owner's key.
     records it). `-race` does not need it: Go turns cgo on itself where gcc is on the path.
   * Plain `make test` and `make race` then passed (the gates above). The repository was not changed
     for it.
-  * Go's own env file on that host (`go env -w`) still holds `CGO_ENABLED=1`. The Makefile passes
-    its own value to every build, so no gate reads it.
+  * Go's own env file on that host (`go env -w`) also held `CGO_ENABLED=1`; `go env -u` removed it
+    (owner: "fix this and disable it"). Go still turns cgo on there by itself, gcc being on the
+    path, so `make race` gets it. The owner chose "Leave it unset" over `go env -w
+    CGO_ENABLED=0`, which would stop `make race` passing on that host.
 * **`make live-opencode`** still omits the control plane's package, and its Makefile comment still
   says "Live OpenCode HTTP suite". Neither is P9's to change.
 * rename, artifacts and fork stay dropped until records of their own.
