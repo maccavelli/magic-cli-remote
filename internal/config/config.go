@@ -442,13 +442,11 @@ type AuthConfig struct {
 // downstream would flag the mistake (MADR 0024).
 const MaxStreamCoalesceMs = 1000
 
-// ProvidersConfig enables individual providers.
+// ProvidersConfig is the providers table. Each providers.<id> section belongs
+// to its provider's package (0208 MADR D6); Load decodes them from
+// LoadOptions.Providers, and a table for any other id fails the load.
 type ProvidersConfig struct {
-	// Sections are the providers.<id> sections each provider's package owns,
-	// decoded by Load from LoadOptions.Providers (0208 MADR D6).
 	Sections ProviderSections `mapstructure:"-"`
-
-	Kilo KiloProviderConfig `mapstructure:"kilo"`
 }
 
 // MCPServerConfig configures one MCP server advertised to an ACP agent at
@@ -534,47 +532,6 @@ type ACPProviderConfig struct {
 	MCPServers []MCPServerConfig `mapstructure:"mcp_servers" env:"-"`
 }
 
-// KiloProviderConfig configures the Kilo CLI provider (shared `kilo serve`
-// engine over httpagent, MADR 0075). Kilo is a fork of OpenCode's 1.x serve
-// architecture, so its keys follow that dialect's: no `transport` (retired in
-// MADR 0019 before kilo existed), no `args`, and no auth keys (the engine
-// spawns un-gated on loopback, MADR 0075 D5 as amended / plan PD1).
-type KiloProviderConfig struct {
-	// Enabled defaults false until MADR 0075 M1–M3 acceptance (plan §6).
-	Enabled       bool   `mapstructure:"enabled"`
-	Bin           string `mapstructure:"bin"`
-	AlwaysApprove bool   `mapstructure:"always_approve"`
-	DefaultCWD    string `mapstructure:"default_cwd"`
-	// Model is a providerID/modelID pair split on the FIRST slash only (plan
-	// PD3): Kilo model ids may themselves contain slashes ("kilo/~anthropic/x"
-	// → provider "kilo", model "~anthropic/x"). Empty uses the engine default,
-	// which is auth-state-dependent (kilo-auto/free vs kilo-auto/balanced —
-	// MADR 0075 §2.6), so no default is hard-coded here.
-	Model string `mapstructure:"model"`
-	// PermissionTimeoutSeconds bounds how long a remote permission request waits
-	// for a decision before the agent stops waiting (treated as cancelled).
-	// 0 disables the timeout. Default 120 (same as OpenCode).
-	PermissionTimeoutSeconds int `mapstructure:"permission_timeout_seconds"`
-	// Prewarm boots the shared `kilo serve` engine at daemon start so the
-	// first session create skips the Bun-class cold start. Default true.
-	Prewarm bool `mapstructure:"prewarm"`
-	// TurnStallNoticeSeconds emits a notice when a running turn produces no
-	// output for this long (0 disables). Default 120 — never 0 in shipped
-	// templates (MADR 0072 lesson).
-	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
-	// SessionTree enables multi-agent session-tree demux. Default FALSE for
-	// kilo (unlike OpenCode): the routes exist but child SSE events are
-	// unproven — flip only after the MADR 0075 Q7 fixtures land (plan PD2).
-	SessionTree bool `mapstructure:"session_tree"`
-	// StreamCoalesceMs is how long assistant/thought text is held so it can be
-	// sent as one event instead of one per model token (MADR 0024). 0 disables
-	// coalescing. Default 80.
-	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
-	// Pure runs kilo serve without loading external third-party plugins
-	// (--pure, live-confirmed on 7.4.20). Default false (match OpenCode).
-	Pure bool `mapstructure:"pure"`
-}
-
 // HeadscaleConfig is documentation/metadata only (no API calls).
 type HeadscaleConfig struct {
 	ControlURL string `mapstructure:"control_url"`
@@ -598,22 +555,6 @@ func Defaults() Config {
 		Auth: AuthConfig{
 			RequireDeviceToken: true,
 			RequireClientKey:   true,
-		},
-		Providers: ProvidersConfig{
-			Kilo: KiloProviderConfig{
-				// Default-on since MADR 0075 acceptance flip (2026-08-10).
-				Enabled:                  true,
-				Bin:                      "kilo",
-				AlwaysApprove:            false,
-				PermissionTimeoutSeconds: 120,
-				// Off (MADR 0089 D5): first session pays the Bun-class
-				// cold start instead of holding an idle engine.
-				Prewarm:                false,
-				TurnStallNoticeSeconds: 120,
-				// Off until child-SSE fixtures prove tree demux (plan PD2).
-				SessionTree:      false,
-				StreamCoalesceMs: 80,
-			},
 		},
 		Headscale: HeadscaleConfig{
 			ControlURL: "http://localhost:8080",
@@ -845,18 +786,6 @@ func (c Config) Validate() error {
 	}
 	if c.Limits.MaxLiveSessions < 0 {
 		return fmt.Errorf("limits.max_live_sessions must be >= 0, got %d", c.Limits.MaxLiveSessions)
-	}
-	if c.Providers.Kilo.PermissionTimeoutSeconds < 0 {
-		return fmt.Errorf("providers.kilo.permission_timeout_seconds must be >= 0, got %d",
-			c.Providers.Kilo.PermissionTimeoutSeconds)
-	}
-	if c.Providers.Kilo.TurnStallNoticeSeconds < 0 {
-		return fmt.Errorf("providers.kilo.turn_stall_notice_seconds must be >= 0, got %d",
-			c.Providers.Kilo.TurnStallNoticeSeconds)
-	}
-	if v := c.Providers.Kilo.StreamCoalesceMs; v < 0 || v > MaxStreamCoalesceMs {
-		return fmt.Errorf("providers.kilo.stream_coalesce_ms must be 0..%d, got %d",
-			MaxStreamCoalesceMs, v)
 	}
 	if err := c.Relay.validate(); err != nil {
 		return err

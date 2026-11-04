@@ -2808,3 +2808,116 @@ duplicate is outside P8.
 
 Next: kilo's commit. The goose warning goes, an unknown provider id fails, and `daemon.go` reads no
 named provider field.
+
+### P8 Deviation 5, 2026-11-04 — the ws prewarm tests built their config from `Defaults()`. The owner decided: "Build their config with config.Load"
+
+**Found.** `go test -race ./...` failed three tests in `internal/ws/prewarm_test.go`, which is outside
+P8's list: `TestSetPrewarmTrueListsAndEnsures`, `TestSetPrewarmFalseWhileLiveLatches` and
+`TestSetPrewarmMissingConfig`, each with "unknown provider: kilo". They built their config from
+`config.Defaults()`, which holds no provider section now that kilo's typed field is gone. A loaded
+config always has every registered section, so the daemon is unaffected.
+
+**Decided.** `loadPrewarmConfig` loads a temp config through `registered.Sections()`, with no host
+`MCREMOTE_*` variable, as the daemon does. The missing-config test loads an empty temp file and then
+clears the path, so it still covers a daemon that booted with no file, without reading the host's
+config.
+
+**File added to P8:** `internal/ws/prewarm_test.go`.
+
+### P8, `kilo` commit, 2026-11-04: kilo's section, unknown providers refused, and no typed provider left
+
+**What changed.**
+* **`internal/provider/kilo/section.go`** (new): `providers.kilo`, with its defaults, validation, the
+  mapping to its provider's config (the daemon's `kiloConfig`, moved), and kilo's descriptor. The
+  comments came with the code, and the struct's comment carries the `model` and `prewarm` notes,
+  whose fields are now `AgentCommon`'s.
+* **`internal/config/sections.go`.** `checkProviderIDs` refuses a `providers.<id>` table, or a
+  `MCREMOTE_PROVIDERS_*` variable, for an id that is not registered. It names each one, for example
+  "providers.goose is not a provider".
+* **`internal/config`.**
+  * `ProvidersConfig` is the sections alone. `KiloProviderConfig`, kilo's defaults, viper defaults,
+    `default_cwd` resolution and validation are gone.
+  * `retired_goose.go` and its test are deleted.
+  * The prewarm toggle reads only sections. `Live.SetPrewarm` now refuses an id the running config
+    has no agent section for before it touches the file. Before, an unknown id was written to disk
+    and then failed in memory.
+* **`internal/daemon/daemon.go`** has no kilo branch and no `kiloConfig`. The "no provider is ready"
+  warning counts what `registerDescribed` built. **Step 3 is met:** no file outside the sections
+  reads a named provider field (`grep 'Providers\.[A-Z]'` finds only `Providers.Sections`, and a
+  test's own YAML struct in `prewarm_write_test.go`).
+* **`internal/cli/doctor.go`** takes every binary from the sections.
+* **The config files.**
+  * All four shipped configs carry one `providers.kilo` block, every key commented.
+  * The guide's goose row says such a config fails to load.
+  * Its Defaults intro names where provider defaults live.
+  * It gained "Provider sections are strict", the note P8's first commit deferred to this one.
+* **[0160-MADR-remove-goose-cli-support.md](0160-MADR-remove-goose-cli-support.md)** carries a
+  superseded-by note above D3, as P8 Deviation 1 named.
+
+**Tests, each seen failing** (`p8/plant_c5.py`, on scratch copies):
+
+| Break | Fails |
+| --- | --- |
+| an unknown provider table accepted | `TestASectionRefusesWhatItDoesNotHave/a_provider_that_is_not_registered` |
+| a variable for an unknown provider accepted | the same, `/a_variable_for_a_provider_that_is_not_registered` |
+| no `ValidateAgent` call in kilo's section | `TestSectionValidate/providers.kilo.permission_timeout_seconds` |
+| no `stream_coalesce_ms` range check | `TestSectionValidate/providers.kilo.stream_coalesce_ms` |
+| the explicit `session_tree` false dropped | `TestSectionReachesTheProvider`: "session tree = <nil>, want an explicit false" |
+| `pure` not copied | the same |
+| `session_tree` defaulting on | `TestSectionDefaults` |
+| kilo missing from the list | `TestTheShippedConfigFilesLoadThroughTheSections`: "providers.kilo is not a provider" |
+| `Live.SetPrewarm` writing before it checks | `TestLiveSetPrewarmRefusesBeforeWriting`: "the file changed although the id was refused" |
+| a `goose` block planted in the seed | `TestTheShippedConfigFilesLoadThroughTheSections`: "providers.goose is not a provider" |
+
+**My mistakes, each fixed before staging.**
+* Two plants first failed to build: a statement inside a struct literal. Both were planted again and
+  failed on their assertions.
+* `TestLiveSetPrewarmRefusesBeforeWriting` first passed with the check removed. It set kilo's
+  prewarm to `true`, which the fixture already held, so a write left the file byte-identical. It now
+  sets `false`, and the plant fails it.
+* The guide's new list used `*` where the guide uses `-`; markdown lint caught it.
+
+**The live configs.** The Linux test host's held a 13-line `providers.goose` block, which this
+commit's loader refuses. Owner: "Back up and migrate". It was copied to
+`config.yaml.bak-0208-p8-goose` beside it, and the block's lines were deleted
+(`p8/migrate_section_block.py`; no value printed). It then loaded with the installed build and
+with this commit's code. This host's and the Windows test host's held no goose block, and loaded
+with this commit's code unchanged.
+
+**Gates and live.**
+
+| Check | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (17 Go files) | clean (gofmt, golint, govulncheck) |
+| `go test -race ./...` | 48 packages ok, after Deviation 5 |
+| `make lint staticcheck vet-tags` | exit 0 |
+| `make ci-windows` on the Windows test host, the two goose files deleted from its tree | all selected checks passed (A2 to A6, 48 packages) |
+| this commit's `mcremote doctor` on this host's live config | exit 0: codex, grok, kilo and opencode ready |
+| `MCREMOTE_LIVE_KILO_MODEL=openrouter/openrouter/free make live-kilo` | passed: 212 passes, 0 failures, 3 opt-in skips (`TestLiveProviderUsageAnswersTheShapeWeParse`, `TestLiveKiloTogetherAIKeyRoundTrip`, `TestLiveRawOutputSamples`), 99 s |
+
+**Not done in P8:**
+* `config.KnownProviderIDs` (`internal/config/prewarm_write.go`) still names the four agents for the
+  prewarm toggle. Its callers are `provider.Controller.Set`, `SetProviderPrewarmFile` and
+  `internal/ws/server.go:2254`. The last is P9's file, so the list goes there, when the daemon acts
+  on capabilities.
+* The daemon's codex terminal-output hookup (`daemon.go`) is not a config read; P9 as well.
+* The MADR's Confirmation item "adding the fixture ACP agent touches only its package and the
+  registration list" is P10's, which builds on the list this phase made.
+
+**P8 is complete with this commit.** Every provider registers through one descriptor. Its section,
+defaults, variables, validation, construction, prewarm, credential adapter and doctor floor live in
+its package, and `daemon.go`, `doctor` and the loader iterate the list. Across P8, the grok,
+opencode, codex and kilo live suites passed, each with the owner's approval. P9, the daemon and the
+phone act on capabilities, is next.
+
+**Files for this commit:**
+* `internal/config/config.go`, `load.go`, `prewarm_write.go`, `sections.go`, `config_test.go`,
+  `prewarm_write_test.go` and `sections_test.go`, and `retired_goose.go` and `retired_goose_test.go`
+  (deleted);
+* `internal/provider/registered/registered.go`, `internal/provider/prewarm_test.go`, and
+  `internal/provider/kilo/section.go` and `section_test.go` (new);
+* `internal/daemon/daemon.go`, `notify_unix_test.go`, `shutdown_unix_test.go` and
+  `prewarm_boot_test.go`;
+* `internal/cli/doctor.go` and `internal/ws/prewarm_test.go`;
+* the four shipped configs and `docs/guides/config.md`;
+* this plan, and 0160's MADR note.

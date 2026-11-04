@@ -110,6 +110,9 @@ func sectionEnvName(id, key string) string {
 // otherwise be ignored without a word.
 func decodeSections(v *viper.Viper, specs []ProviderSectionSpec, environ []string) (ProviderSections, error) {
 	providers, _ := v.AllSettings()["providers"].(map[string]any)
+	if err := checkProviderIDs(providers, specs, environ); err != nil {
+		return nil, err
+	}
 	out := make(ProviderSections, len(specs))
 	for _, spec := range specs {
 		sec := spec.New()
@@ -158,6 +161,39 @@ func unknownSectionKeys(raw map[string]any, leaves []sectionLeaf, prefix string)
 	}
 	sort.Strings(out)
 	return out
+}
+
+// checkProviderIDs refuses a providers.<id> table, or a MCREMOTE_PROVIDERS_*
+// variable, for a provider that is not registered: a retired one such as
+// goose (MADR 0160), or a typo. Ignoring it would leave the operator believing
+// a setting applies.
+func checkProviderIDs(providers map[string]any, specs []ProviderSectionSpec, environ []string) error {
+	known := func(id string) bool {
+		return slices.ContainsFunc(specs, func(s ProviderSectionSpec) bool { return s.ID == id })
+	}
+	var bad []string
+	for id := range providers {
+		if !known(id) {
+			bad = append(bad, "providers."+id+" is not a provider")
+		}
+	}
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		rest, ok := strings.CutPrefix(name, providerEnvPrefix)
+		if !ok {
+			continue
+		}
+		if !slices.ContainsFunc(specs, func(s ProviderSectionSpec) bool {
+			return strings.HasPrefix(rest, strings.ToUpper(s.ID)+"_")
+		}) {
+			bad = append(bad, name+" names no provider")
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	sort.Strings(bad)
+	return fmt.Errorf("%s", strings.Join(bad, "; "))
 }
 
 // checkSectionEnv refuses a MCREMOTE_PROVIDERS_<ID>_* variable that names no

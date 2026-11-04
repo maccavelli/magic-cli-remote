@@ -210,12 +210,10 @@ func versionIn(out string) (string, bool) {
 	return "", false
 }
 
-// engineBins is each engine's configured binary, as its provider resolves it.
-// A described provider's comes from its section, when it is an agent's.
+// engineBins is each engine's configured binary, as its provider resolves it:
+// an agent's, from its section.
 func engineBins(cfg config.Config) map[provider.ID]string {
-	bins := map[provider.ID]string{
-		provider.IDKilo: cfg.Providers.Kilo.Bin,
-	}
+	bins := map[provider.ID]string{}
 	for _, d := range registered.Descriptors() {
 		if agent, ok := d.SectionIn(cfg).(config.AgentSection); ok {
 			bins[d.ID] = agent.Agent().Bin

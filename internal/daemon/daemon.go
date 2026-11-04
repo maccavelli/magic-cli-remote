@@ -26,7 +26,6 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 	"github.com/maccavelli/magic-cli-remote/internal/receipt"
@@ -49,29 +48,6 @@ type Options struct {
 	Shutdown func()
 }
 
-// kiloConfig maps daemon configuration onto the kilo provider's config.
-func kiloConfig(cfg config.Config) kilo.Config {
-	sessionTree := cfg.Providers.Kilo.SessionTree
-	streamCoalesce := time.Duration(
-		cfg.Providers.Kilo.StreamCoalesceMs) * time.Millisecond
-	return kilo.Config{
-		Bin:           cfg.Providers.Kilo.Bin,
-		AlwaysApprove: cfg.Providers.Kilo.AlwaysApprove,
-		DefaultCWD:    cfg.Providers.Kilo.DefaultCWD,
-		Model:         cfg.Providers.Kilo.Model,
-		PermissionTimeout: time.Duration(
-			cfg.Providers.Kilo.PermissionTimeoutSeconds) * time.Second,
-		TurnStallNotice: time.Duration(
-			cfg.Providers.Kilo.TurnStallNoticeSeconds) * time.Second,
-		// Explicit pointer so the false default (plan PD2) is distinct
-		// from zero Config; kilo flips this only after MADR 0075 Q7.
-		SessionTree: &sessionTree,
-		// Likewise explicit: 0 means "stream one event per token".
-		StreamCoalesce: &streamCoalesce,
-		Pure:           cfg.Providers.Kilo.Pure,
-	}
-}
-
 // InspectProviders builds the providers cfg enables, for inspection only
 // (mcremote doctor, MADR 0201 D32): no credential coordination, no orphan
 // reaping, no engine, no prewarm. Constructing them starts nothing; callers
@@ -79,9 +55,6 @@ func kiloConfig(cfg config.Config) kilo.Config {
 func InspectProviders(cfg config.Config, version string, log *slog.Logger) *provider.Registry {
 	reg := provider.NewRegistry()
 	registerDescribed(reg, cfg, buildBase(cfg, version, log), nil, false)
-	if cfg.Providers.Kilo.Enabled {
-		reg.Register(kilo.NewHTTPWithLogger(kiloConfig(cfg), log))
-	}
 	return reg
 }
 
@@ -275,24 +248,6 @@ func Run(ctx context.Context, opts Options) error {
 			}
 			return nil, nil
 		}, true)
-	if cfg.Providers.Kilo.Enabled {
-		// One shared long-lived `kilo serve` engine (HTTP + SSE) drives every
-		// Kilo session, same architecture as OpenCode — kilo is an OpenCode
-		// fork with a distinct dialect (MADR 0075 D2/D4). Spawned un-gated on
-		// loopback like the opencode engine (D5 as amended, plan PD1).
-		kp := kilo.NewHTTPWithLogger(kiloConfig(cfg), log)
-		reg.Register(kp)
-		if !kp.Ready() {
-			log.Warn("kilo provider enabled but binary not found in PATH",
-				slog.String("bin", cfg.Providers.Kilo.Bin),
-			)
-		}
-		if prewarmWants(cfg, provider.IDKilo) {
-			// Boot the engine now so the first session create is instant
-			// (Bun-class cold start, same rationale as opencode).
-			kp.EnsureServer()
-		}
-	}
 	// Release pre-warmed spare processes on shutdown (live sessions are closed
 	// by the manager; spares are provider-owned).
 	defer func() {
@@ -304,10 +259,9 @@ func Run(ctx context.Context, opts Options) error {
 	}()
 
 	// Operator signal when every enabled provider is missing its binary (Phase 4.1).
-	// Keep this OR-chain in sync with ProvidersConfig — a provider missing here
-	// silently skips the warning instead of just being ready=false (MADR 0076 M3).
-	// A described provider is counted by registerDescribed.
-	if anyEnabled := described > 0 || cfg.Providers.Kilo.Enabled; anyEnabled {
+	// registerDescribed counts every enabled provider, so none can be missed
+	// (MADR 0076 M3).
+	if described > 0 {
 		ready := 0
 		for _, p := range reg.All() {
 			if p.Ready() {
@@ -664,9 +618,6 @@ func prewarmPlan(cfg config.Config) []provider.ID {
 		if agent, ok := d.SectionIn(cfg).(config.AgentSection); ok && agent.Agent().Enabled && agent.Agent().Prewarm {
 			out = append(out, d.ID)
 		}
-	}
-	if cfg.Providers.Kilo.Enabled && cfg.Providers.Kilo.Prewarm {
-		out = append(out, provider.IDKilo)
 	}
 	return out
 }

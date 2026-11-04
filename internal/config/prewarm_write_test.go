@@ -152,17 +152,40 @@ func TestLiveSetPrewarmUpdatesMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := Defaults()
-	cfg.Providers.Kilo.Prewarm = true
+	sec := &agentSection{}
+	sec.Prewarm = true
+	cfg.Providers.Sections = ProviderSections{"kilo": sec}
 	live := &Live{Path: path, Cfg: &cfg}
 	if err := live.SetPrewarm("kilo", false); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Providers.Kilo.Prewarm {
+	if sec.Prewarm {
 		t.Fatal("in-memory kilo prewarm still true")
 	}
 	got, ok := live.GetPrewarm("kilo")
 	if !ok || got {
 		t.Fatalf("GetPrewarm = %v %v", got, ok)
+	}
+}
+
+// TestLiveSetPrewarmRefusesBeforeWriting: an id the running config has no
+// agent section for fails before the file changes (0208 PLAN P8).
+func TestLiveSetPrewarmRefusesBeforeWriting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(prewarmFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Defaults()
+	live := &Live{Path: path, Cfg: &cfg}
+	if err := live.SetPrewarm("kilo", false); !errors.Is(err, ErrUnknownProvider) {
+		t.Fatalf("SetPrewarm = %v, want ErrUnknownProvider", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != prewarmFixture {
+		t.Fatalf("the file changed although the id was refused:\n%s", raw)
 	}
 }
 

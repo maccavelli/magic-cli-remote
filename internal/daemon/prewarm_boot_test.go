@@ -6,6 +6,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 )
 
 func TestPrewarmPlanDefaultsEmpty(t *testing.T) {
@@ -17,8 +18,10 @@ func TestPrewarmPlanDefaultsEmpty(t *testing.T) {
 
 func TestPrewarmPlanHonoursExplicitTrue(t *testing.T) {
 	cfg := config.Defaults()
-	cfg.Providers.Kilo.Enabled = true
-	cfg.Providers.Kilo.Prewarm = true
+	sec := &kilo.Section{}
+	sec.Enabled = true
+	sec.Prewarm = true
+	cfg.Providers.Sections = config.ProviderSections{"kilo": sec}
 	got := prewarmPlan(cfg)
 	if len(got) != 1 || got[0] != provider.IDKilo {
 		t.Fatalf("prewarmPlan = %v, want [kilo]", got)
@@ -33,8 +36,9 @@ func TestPrewarmPlanHonoursExplicitTrue(t *testing.T) {
 
 func TestPrewarmPlanSkipsDisabled(t *testing.T) {
 	cfg := config.Defaults()
-	cfg.Providers.Kilo.Enabled = false
-	cfg.Providers.Kilo.Prewarm = true
+	sec := &kilo.Section{}
+	sec.Prewarm = true
+	cfg.Providers.Sections = config.ProviderSections{"kilo": sec}
 	if prewarmWants(cfg, provider.IDKilo) {
 		t.Fatal("disabled provider must not prewarm")
 	}

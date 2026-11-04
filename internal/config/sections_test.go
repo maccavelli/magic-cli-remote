@@ -87,6 +87,10 @@ func TestASectionRefusesWhatItDoesNotHave(t *testing.T) {
 			"MCREMOTE_PROVIDERS_PROBE_ROOTS sets providers.probe.roots, which is config-file only"},
 		{"the section's own validation", "providers:\n  probe:\n    limits:\n      max: -1\n", [2]string{},
 			"providers.probe.limits.max must be 0 or more"},
+		{"a provider that is not registered", "providers:\n  goose:\n    enabled: true\n", [2]string{},
+			"providers.goose is not a provider"},
+		{"a variable for a provider that is not registered", "", [2]string{"MCREMOTE_PROVIDERS_GOOSE_ENABLED", "true"},
+			"MCREMOTE_PROVIDERS_GOOSE_ENABLED names no provider"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

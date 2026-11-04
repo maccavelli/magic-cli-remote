@@ -9,6 +9,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 )
 
@@ -19,6 +20,7 @@ func Descriptors() []provider.Descriptor {
 		grok.Descriptor(),
 		opencode.Descriptor(),
 		codex.Descriptor(),
+		kilo.Descriptor(),
 	}
 }
 

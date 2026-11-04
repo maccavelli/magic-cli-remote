@@ -84,8 +84,10 @@ daemon resolves.
 
 ## Defaults
 
-Values match `config.Defaults()` in `internal/config/config.go`. Keep
-`configs/*.yaml` in sync when keys change.
+Values match `config.Defaults()` in `internal/config/config.go`, and each
+`providers.<id>` section's defaults in `internal/provider/<id>/section.go`. Keep
+`configs/*.yaml` in sync when keys change: a test loads every shipped config
+through the provider sections.
 
 | Key | Default |
 |-----|---------|
@@ -130,7 +132,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.fs_roots` | `[]` — confine the agent's `fs/read_text_file` & `fs/write_text_file` callbacks to these roots (plus the session cwd). Empty = unrestricted. Defense-in-depth/audit only: the agent has terminal access as the same user, so this is not a sandbox |
 | `providers.grok.auth_method_id` | *(empty)* — ACP auth method to invoke if the agent reports it needs authentication |
 | `providers.grok.mcp_servers` | `[]` — MCP servers advertised to the agent (config-file only; not env/flags) |
-| `providers.goose.*` | Retired (MADR 0160), as is every `MCREMOTE_PROVIDERS_GOOSE_*` variable. Ignored: the daemon logs a warning and `mcremote paths` reports `retired_provider_goose`. Delete the setting. |
+| `providers.goose.*` | Retired (MADR 0160), as is every `MCREMOTE_PROVIDERS_GOOSE_*` variable. A config or variable that still sets one fails to load: goose is not a provider ([0208 PLAN](../decisions/0208-PLAN-make-the-provider-layer-agent-neutral.md) P8). Delete the setting. |
 | `providers.opencode.enabled` | `true` — pick OpenCode per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.opencode.bin` | `opencode` — OpenCode 2.1.0 or later; an older engine is refused by name ([MADR 0214](../decisions/0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) D3) |
 | `providers.opencode.args` | `[]` — empty runs the built-in argv, `acp` (config-file only) |
@@ -197,6 +199,20 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `receipts.allow_patterns` | `[]` — shell-glob patterns (`*`, `?`, `[set]`) matched against `"<tool_name> <detail>"`; a match triggers a device-signed, hash-chained receipt for that decision |
 | `receipts.deny_patterns` | `[]` — same syntax; a match here wins over `allow_patterns` on the same decision |
 | `receipts.handoffs` | `true` — when receipts are enabled, sign a receipt for each device-to-device session handoff (release + claim, MADR 0078). Only consulted when `receipts.enabled`. The handoff feature is always available; this gates only its attestation. |
+
+### Provider sections are strict
+
+Each `providers.<id>` section belongs to its provider ([0208 PLAN](../decisions/0208-PLAN-make-the-provider-layer-agent-neutral.md) P8).
+A config fails to load, naming what it found, when it has:
+
+- a key the section does not have, at any depth, for example a retired or
+  misspelled one;
+- a `providers.<id>` table for an id that is not a provider, such as `goose`;
+- an `MCREMOTE_PROVIDERS_*` variable that names no provider, or no key of
+  one, or a key that is config-file only (the lists: `args`, `fs_roots`,
+  `mcp_servers`, codex's `environments`).
+
+Delete the setting the error names. Nothing is ignored silently.
 
 ### Grok's tool allow/deny lists were removed
 

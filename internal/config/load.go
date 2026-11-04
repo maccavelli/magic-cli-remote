@@ -132,7 +132,6 @@ func Load(opts LoadOptions) (Config, error) {
 	cfg.DisplayName = strings.TrimSpace(cfg.DisplayName)
 	cfg.Diagnostics = diags
 	cfg.ConfigFile = usedConfigFile
-	noteRetiredGoose(v, os.Environ(), &cfg)
 
 	// The config may hold relay.secret, which is the same registration
 	// credential mcrelay stores as hosts[].secret and guards at read time.
@@ -241,9 +240,6 @@ func (cfg *Config) finalizePaths(basePaths appdirs.Paths, opts LoadOptions) erro
 			return fmt.Errorf("providers.%s.default_cwd: %w", id, err)
 		}
 	}
-	if cfg.Providers.Kilo.DefaultCWD, err = rel(cfg.Providers.Kilo.DefaultCWD); err != nil {
-		return fmt.Errorf("providers.kilo.default_cwd: %w", err)
-	}
 	return nil
 }
 
@@ -309,17 +305,6 @@ func setDefaults(v *viper.Viper) {
 	// MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES is silently ignored
 	// (AutomaticEnv only resolves known keys).
 	v.SetDefault("tls.letsencrypt.route53.max_retries", d.TLS.LetsEncrypt.Route53.MaxRetries)
-	v.SetDefault("providers.kilo.enabled", d.Providers.Kilo.Enabled)
-	v.SetDefault("providers.kilo.bin", d.Providers.Kilo.Bin)
-	v.SetDefault("providers.kilo.always_approve", d.Providers.Kilo.AlwaysApprove)
-	v.SetDefault("providers.kilo.default_cwd", d.Providers.Kilo.DefaultCWD)
-	v.SetDefault("providers.kilo.model", d.Providers.Kilo.Model)
-	v.SetDefault("providers.kilo.permission_timeout_seconds", d.Providers.Kilo.PermissionTimeoutSeconds)
-	v.SetDefault("providers.kilo.prewarm", d.Providers.Kilo.Prewarm)
-	v.SetDefault("providers.kilo.turn_stall_notice_seconds", d.Providers.Kilo.TurnStallNoticeSeconds)
-	v.SetDefault("providers.kilo.session_tree", d.Providers.Kilo.SessionTree)
-	v.SetDefault("providers.kilo.stream_coalesce_ms", d.Providers.Kilo.StreamCoalesceMs)
-	v.SetDefault("providers.kilo.pure", d.Providers.Kilo.Pure)
 	v.SetDefault("headscale.control_url", d.Headscale.ControlURL)
 	v.SetDefault("limits.max_ws_clients", d.Limits.MaxWSClients)
 	v.SetDefault("limits.max_live_sessions", d.Limits.MaxLiveSessions)

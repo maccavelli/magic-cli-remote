@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/ws"
 )
@@ -31,6 +33,25 @@ func (p *prewarmEngine) Start(context.Context, provider.StartOptions) (provider.
 }
 func (p *prewarmEngine) EnsureServer() { p.ensures++ }
 func (p *prewarmEngine) Shutdown()     { p.shutdowns++ }
+
+// loadPrewarmConfig loads path as the daemon does, through the registered
+// providers' sections, with none of the host's MCREMOTE_* variables. A config
+// built from config.Defaults() holds no section, so no prewarm toggle could
+// reach one (0208 PLAN P8 Deviation 5).
+func loadPrewarmConfig(t *testing.T, path string) config.Config {
+	t.Helper()
+	for _, kv := range os.Environ() {
+		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "MCREMOTE_") {
+			t.Setenv(name, "")
+			_ = os.Unsetenv(name)
+		}
+	}
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path, Providers: registered.Sections()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
 
 func startPrewarmServer(t *testing.T, liveCount func(provider.ID) int) (*authWS, *prewarmEngine, *provider.Controller) {
 	t.Helper()
@@ -50,7 +71,7 @@ func startPrewarmServer(t *testing.T, liveCount func(provider.ID) int) (*authWS,
 	eng := &prewarmEngine{}
 	reg := provider.NewRegistry()
 	reg.Register(eng)
-	cfg := config.Defaults()
+	cfg := loadPrewarmConfig(t, cfgPath)
 	live := &config.Live{Path: cfgPath, Cfg: &cfg}
 	if liveCount == nil {
 		liveCount = func(provider.ID) int { return 0 }
@@ -194,7 +215,13 @@ func TestSetPrewarmMissingConfig(t *testing.T) {
 	}
 	reg := provider.NewRegistry()
 	reg.Register(&prewarmEngine{})
-	cfg := config.Defaults()
+	// A daemon that booted with no config file: the sections hold their
+	// defaults, and there is no file to write.
+	empty := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadPrewarmConfig(t, empty)
 	live := &config.Live{Path: "", Cfg: &cfg}
 	ctrl := provider.NewController(live, reg, nil)
 	srv := ws.New(ws.Options{

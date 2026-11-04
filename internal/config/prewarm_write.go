@@ -37,30 +37,21 @@ func (c *Config) SetProviderPrewarm(id string, prewarm bool) error {
 	if c == nil {
 		return errors.New("nil config")
 	}
-	if sec, ok := c.Providers.Sections[id].(AgentSection); ok {
-		sec.Agent().Prewarm = prewarm
-		return nil
-	}
-	switch id {
-	case "kilo":
-		c.Providers.Kilo.Prewarm = prewarm
-	default:
+	sec, ok := c.Providers.Sections[id].(AgentSection)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrUnknownProvider, id)
 	}
+	sec.Agent().Prewarm = prewarm
 	return nil
 }
 
 // ProviderPrewarm returns the in-memory flag and whether id is known.
 func (c Config) ProviderPrewarm(id string) (prewarm bool, ok bool) {
-	if sec, ok := c.Providers.Sections[id].(AgentSection); ok {
-		return sec.Agent().Prewarm, true
-	}
-	switch id {
-	case "kilo":
-		return c.Providers.Kilo.Prewarm, true
-	default:
+	sec, ok := c.Providers.Sections[id].(AgentSection)
+	if !ok {
 		return false, false
 	}
+	return sec.Agent().Prewarm, true
 }
 
 // Live is the running config plus its file path. SetPrewarm writes one YAML
@@ -78,6 +69,11 @@ func (l *Live) SetPrewarm(id string, prewarm bool) error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	// Refuse before the file is touched: an id the running config has no agent
+	// section for would otherwise be written to disk and then fail in memory.
+	if _, ok := l.Cfg.ProviderPrewarm(id); !ok {
+		return fmt.Errorf("%w: %s", ErrUnknownProvider, id)
+	}
 	if err := SetProviderPrewarmFile(l.Path, id, prewarm); err != nil {
 		return err
 	}

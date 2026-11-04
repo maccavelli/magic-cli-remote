@@ -23,12 +23,21 @@ func (p *fakeEngine) Start(context.Context, StartOptions) (Session, error) {
 func (p *fakeEngine) EnsureServer() { p.ensures++ }
 func (p *fakeEngine) Shutdown()     { p.shutdowns++ }
 
+// agentSection is an agent's section, as a provider's package defines one
+// (0208 MADR D6); this package cannot import a provider's.
+type agentSection struct {
+	config.AgentCommon `mapstructure:",squash"`
+}
+
+func (s *agentSection) Validate() error { return nil }
+
 func TestControllerSetTable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("providers:\n  kilo:\n    prewarm: false\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.Defaults()
+	cfg.Providers.Sections = config.ProviderSections{"kilo": &agentSection{}}
 	live := &config.Live{Path: path, Cfg: &cfg}
 	eng := &fakeEngine{id: IDKilo}
 	reg := NewRegistry()

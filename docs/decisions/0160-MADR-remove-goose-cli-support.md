@@ -558,6 +558,13 @@ all four YAML `goose:` blocks, `make live-goose`, and `-tags live_goose` from
 the same commit.** They are one unit. A future ACP-over-HTTP agent starts from
 git history / MADR 0025.
 
+*D3 superseded 2026-11-04 by
+[0208-MADR-make-the-provider-layer-agent-neutral.md](0208-MADR-make-the-provider-layer-agent-neutral.md)'s
+amendment of that date (owner: "Fail the load by name"). Each provider's section is strict, and a
+`providers.goose` table or `MCREMOTE_PROVIDERS_GOOSE_*` variable now fails the load as "not a
+provider". `internal/config/retired_goose.go` and its test were deleted in 0208 PLAN P8's kilo
+commit.*
+
 **D3 — Ignore a leftover Goose config, and say so (L2).** At load:
 
 * detect `v.InConfig("providers.goose")` (any non-null file shape) and any

@@ -289,32 +289,44 @@ providers:
     # allows none. Secret-looking names are rejected at load: upstream Codex
     # logs argv at debug level, so secrets do not belong on this path.
     standalone_process_env_allowlist: []
-  # Kilo CLI (kilo.ai, npm @kilocode/cli). An OpenCode fork with its own
-  # Gateway, agents, and model aliases — driven through one shared
-  # `kilo serve` engine (HTTP + SSE), same architecture as opencode
-  # (MADR 0075). Known-good CLI: kilo 7.4.22 (MADR 0088).
+  # Kilo CLI (kilo.ai, npm @kilocode/cli): an OpenCode fork with its own
+  # Gateway, agents and model aliases, driven through one shared `kilo serve`
+  # engine (HTTP + SSE) (MADR 0075). Known-good CLI: kilo 7.4.22 (MADR 0088).
   kilo:
+    # Register Kilo. Harmless when the binary is absent: it lists as not ready.
     enabled: true
+    # The kilo executable, by name on PATH or by path.
     bin: "kilo"
+    # true answers every permission request with its allow option instead of
+    # asking the phone. Keep false so the phone approves.
     always_approve: false
-    default_cwd: ""          # empty = the daemon user's home directory
-    # Empty uses Kilo's own default, which depends on Gateway auth state
-    # (kilo-auto/free logged out, kilo-auto/balanced with a Gateway session).
-    # Pin providerID/modelID, split on the FIRST slash — model ids may
+    # A session's working directory when the phone names none. Empty = the
+    # daemon user's home directory; a relative path is resolved against this
+    # file's directory.
+    default_cwd: ""
+    # providerID/modelID, split on the FIRST slash, since model ids may
     # themselves contain slashes: e.g. kilo/kilo-auto/free,
-    # openrouter/openrouter/free, kilo/~anthropic/claude-sonnet-4-5.
+    # openrouter/openrouter/free, kilo/~anthropic/claude-sonnet-4-5. Empty =
+    # Kilo's own default, which depends on Gateway auth state (kilo-auto/free
+    # logged out, kilo-auto/balanced with a Gateway session).
     model: ""
+    # How long a permission request waits for the phone, in seconds, before
+    # Kilo is told it was cancelled. 0 = wait forever.
     permission_timeout_seconds: 120
-    # Off: engine starts on first session. Turn on from the phone
-    # (Settings → Providers) or set true here.
+    # true boots the shared engine at daemon start, so the first session skips
+    # the Bun-class cold start (MADR 0089 D5). The phone can turn it on and off
+    # too.
     prewarm: false
+    # A notice on the phone when a running turn produces no output for this
+    # many seconds. 0 = off.
     turn_stall_notice_seconds: 120
-    # Same coalescing as other providers (MADR 0024). 0 disables; max 1000.
+    # Hold streamed text this many milliseconds so it ships as one event, not
+    # one per token (MADR 0024). 0 = one event per token; max 1000.
     stream_coalesce_ms: 80
     # Session-tree demux stays OFF for kilo until child-event fixtures prove
-    # it (MADR 0075 Q7) — the routes exist but are unverified on this fork.
+    # it (MADR 0075 Q7): the routes exist but are unverified on this fork.
     session_tree: false
-    # Run kilo serve with --pure (skip loading external third-party plugins)
+    # true runs kilo serve with --pure: no external third-party plugins.
     pure: false
 
 headscale:
