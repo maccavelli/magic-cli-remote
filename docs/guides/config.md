@@ -120,10 +120,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.reasoning_effort` | *(empty — still passed as `--reasoning-effort <EFFORT>` (ACP no-op on grok 1.0.5) and applied as session/new\|load `_meta.reasoningEffort`. Live models advertise the set: grok-4.6 is `low`, `medium`, `high`, `xhigh`; grok-4.5 is `low`, `medium`, `high`)* |
 | `providers.grok.permission_mode` | **`default`** — passed as `--permission-mode <MODE>`. Valid: `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`; empty inherits grok's own config. Rejected at load if unrecognised. **Process-wide and launch-scoped**: applies to every grok session, changing it needs an engine restart. Distinct from the per-session `auto` **mode** in the app's mode menu, which is daemon-enforced (MADR 0049). See the note below on why this is pinned. |
 | `providers.grok.sandbox` | *(empty — grok's own default)* — OS-level sandbox profile (`--sandbox <PROFILE>`). Built-ins: `off`, `workspace`, `devbox`, `read-only`, `strict`. Any other value is treated as a custom profile name and resolved by grok from `~/.grok/sandbox.toml` or `.grok/sandbox.toml`; grok errors clearly if it is missing. Also settable via the `GROK_SANDBOX` env var. See the sandbox note below. |
-| `providers.grok.allowed_tools` | `[]` — whitelist of built-in tool names (`--tools a,b`). **Measured no-op for remote sessions** — see the note below |
-| `providers.grok.disallowed_tools` | `[]` — blacklist of built-in tool names (`--disallowed-tools a,b`). **Measured no-op for remote sessions** |
-| `providers.grok.allow_rules` | `[]` — persistent permission allow rules (`--allow <rule>`). **Measured no-op for remote sessions** |
-| `providers.grok.deny_rules` | `[]` — persistent permission deny rules (`--deny <rule>`). **Measured no-op for remote sessions** |
+| `providers.grok.allowed_tools`, `.disallowed_tools`, `.allow_rules`, `.deny_rules` | Removed ([0208 PLAN](../decisions/0208-PLAN-make-the-provider-layer-agent-neutral.md) P8): grok ignores them over ACP, so a config that still sets one fails to load and names it. Delete the setting. See the note below |
 | `providers.grok.no_subagents` | `false` — disable subagent spawning (`--no-subagents`) |
 | `providers.grok.disable_web_search` | `false` — disable built-in web search (`--disable-web-search`) |
 | `providers.grok.permission_timeout_seconds` | `120` (`0` = wait forever). Also bounds how long a phone permission notification stays actionable: at expiry the daemon answers cancelled and the phone replaces the Allow/Deny alert with a "timed out" notice (MADR 0101) |
@@ -193,33 +190,35 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `receipts.deny_patterns` | `[]` — same syntax; a match here wins over `allow_patterns` on the same decision |
 | `receipts.handoffs` | `true` — when receipts are enabled, sign a receipt for each device-to-device session handoff (release + claim, MADR 0078). Only consulted when `receipts.enabled`. The handoff feature is always available; this gates only its attestation. |
 
-### Grok tool allow/deny lists do not apply to remote sessions
+### Grok's tool allow/deny lists were removed
 
-`allowed_tools`, `disallowed_tools`, `allow_rules` and `deny_rules` are
-accepted on grok's command line and the agent starts cleanly with them, but
-they have **no observable effect on sessions driven over ACP**
-(`grok agent stdio`), which is how mcremote runs grok.
+`allowed_tools`, `disallowed_tools`, `allow_rules` and `deny_rules` passed
+grok's `--tools`, `--disallowed-tools`, `--allow` and `--deny`. grok accepts
+the flags and starts cleanly with them, but they have **no observable effect
+on sessions driven over ACP** (`grok agent stdio`), which is how mcremote runs
+grok. [0208 PLAN](../decisions/0208-PLAN-make-the-provider-layer-agent-neutral.md) P8 removed them, and a config that still sets one
+fails to load and names it.
 
-Measured against grok **0.2.114** on 2026-07-29, asking the agent to write a
-file in each configuration:
+Measured by asking the agent to write a file in each configuration, on grok
+**0.2.114** (2026-07-29) and again on **1.0.70** (2026-11-04):
 
-| config | result |
+| config | result on both |
 |---|---|
-| control (no tool policy) | writes the file |
+| control, `always_approve: true` | writes the file |
 | `disallowed_tools: [Write]` | writes the file |
 | `allowed_tools: [Read]` | writes the file |
-| `deny_rules: [Write]` / `[Write(*)]` | writes the file |
+| `deny_rules: [Write]` (0.2.114 also `[Write(*)]`) | writes the file |
+| `allow_rules: [Write]`, prompting (1.0.70) | still asks, as the control does |
 
-Repeated under a prompting mode (`permission_mode: default`), all four
-configurations produced an identical permission request — the deny rules did
-not short-circuit it. grok's own reference marks `--tools`/`--disallowed-tools`
-as headless-only, which is consistent with this.
+On 0.2.114, repeated under a prompting mode (`permission_mode: default`), all
+four configurations produced an identical permission request — the deny rules
+did not short-circuit it. grok's own reference marks `--tools` and
+`--disallowed-tools` as headless-only, which is consistent with this.
 
 Use `permission_mode`, the per-session `auto` mode, or `sandbox` for policy
-that actually binds remote sessions. These four keys are retained because they
-are harmless and may become effective in a later grok; re-measure before
-relying on them. Tracked in
-[MADR 0050](../decisions/0050-MADR-grok-cli-surface-drift.md) §4.
+that binds remote sessions. The live test
+`TestLiveGrokToolPolicyFlagsStillHaveNoEffect` passes each flag by hand and
+fails if grok starts honouring one; the keys come back only then.
 
 ### Grok sandbox profiles
 

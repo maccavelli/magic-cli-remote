@@ -8,8 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
+	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
 
@@ -71,17 +70,16 @@ func newAuthRecoveryCmd() *cobra.Command {
 // coordinatorsFromFlags builds the same adapters and data directory `serve`
 // would, so a locally run command serializes with a running daemon through the
 // same coordinator and native locks rather than working on a different view.
+// The adapters come from daemon.CredentialAdapters, as serve's do, with codex's
+// configured binary (MADR 0134); unlike serve's, they include a provider that
+// is disabled now, so its stored credential can still be recovered.
 func coordinatorsFromFlags(cmd *cobra.Command) (map[string]*providerauth.Coordinator, error) {
 	cfg, err := loadConfigFromFlags(cmd)
 	if err != nil {
 		return nil, err
 	}
 	out := map[string]*providerauth.Coordinator{}
-	adapters := map[string]providerauth.Adapter{
-		"codex": codex.NewCredentialAdapter("codex"),
-		"grok":  grok.NewCredentialAdapter("grok"),
-	}
-	for id, ad := range adapters {
+	for id, ad := range daemon.CredentialAdapters(cfg, false) {
 		c, err := providerauth.NewCoordinator(cfg.DataDir, ad, providerauth.CoordinatorOptions{})
 		if err != nil {
 			return nil, err
@@ -98,9 +96,14 @@ func resolveOne(cmd *cobra.Command, provider string) (*providerauth.Coordinator,
 	}
 	c, ok := coords[provider]
 	if !ok {
+		known := make([]string, 0, len(coords))
+		for id := range coords {
+			known = append(known, id)
+		}
+		sort.Strings(known)
 		return nil, &exitCodeError{
 			code: authRecoveryExitUsage,
-			err:  fmt.Errorf("unknown provider %q (known: codex, grok)", provider),
+			err:  fmt.Errorf("unknown provider %q (known: %v)", provider, known),
 		}
 	}
 	return c, nil

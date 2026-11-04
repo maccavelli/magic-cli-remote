@@ -27,7 +27,7 @@ func (s *probeSection) IsEnabled() bool { return s.Enabled }
 
 func (s *probeSection) Validate() error {
 	if s.Limits.Max < 0 {
-		return errors.New("limits.max must be 0 or more")
+		return errors.New("providers.probe.limits.max must be 0 or more")
 	}
 	return nil
 }
@@ -86,7 +86,7 @@ func TestASectionRefusesWhatItDoesNotHave(t *testing.T) {
 		{"a variable for a config-file-only key", "", [2]string{"MCREMOTE_PROVIDERS_PROBE_ROOTS", "/a"},
 			"MCREMOTE_PROVIDERS_PROBE_ROOTS sets providers.probe.roots, which is config-file only"},
 		{"the section's own validation", "providers:\n  probe:\n    limits:\n      max: -1\n", [2]string{},
-			"providers.probe: limits.max must be 0 or more"},
+			"providers.probe.limits.max must be 0 or more"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

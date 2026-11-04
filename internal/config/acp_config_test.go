@@ -19,12 +19,34 @@ func writeConfig(t *testing.T, body string) string {
 	return path
 }
 
-// The shared ACP options (auth method + MCP servers) parse for grok, and are
-// reused by any provider that embeds ACPProviderConfig.
-func TestGrokACPConfigParse(t *testing.T) {
-	path := writeConfig(t, `
+// acpSection is a section holding only the shared ACP keys, as an ACP agent's
+// section embeds them (0208 MADR D6).
+type acpSection struct {
+	config.ACPProviderConfig `mapstructure:",squash"`
+}
+
+func (s *acpSection) Validate() error { return config.ValidateACPProvider("acp", s.ACPProviderConfig) }
+
+var acpSpecs = []config.ProviderSectionSpec{{
+	ID:  "acp",
+	New: func() config.ProviderSection { return &acpSection{} },
+}}
+
+func loadACP(t *testing.T, body string) (*acpSection, error) {
+	t.Helper()
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: writeConfig(t, body), Providers: acpSpecs})
+	if err != nil {
+		return nil, err
+	}
+	return cfg.Providers.Sections["acp"].(*acpSection), nil
+}
+
+// The shared ACP options (auth method + MCP servers) parse for any provider
+// whose section embeds ACPProviderConfig.
+func TestACPConfigParse(t *testing.T) {
+	s, err := loadACP(t, `
 providers:
-  grok:
+  acp:
     enabled: true
     auth_method_id: "oauth"
     mcp_servers:
@@ -34,107 +56,78 @@ providers:
         headers:
           Authorization: "Bearer x"
 `)
-	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := cfg.Providers.Grok
-	if g.AuthMethodID != "oauth" {
-		t.Fatalf("auth_method_id = %q, want oauth", g.AuthMethodID)
+	if s.AuthMethodID != "oauth" {
+		t.Fatalf("auth_method_id = %q, want oauth", s.AuthMethodID)
 	}
-	if len(g.MCPServers) != 1 {
-		t.Fatalf("mcp_servers = %+v, want 1", g.MCPServers)
+	if len(s.MCPServers) != 1 {
+		t.Fatalf("mcp_servers = %+v, want 1", s.MCPServers)
 	}
-	m := g.MCPServers[0]
+	m := s.MCPServers[0]
 	// viper lowercases map keys; HTTP header names are case-insensitive so this
 	// is harmless, but assert the actual (lowercased) key.
 	if m.Name != "docs" || m.Transport != "http" || m.URL == "" || m.Headers["authorization"] != "Bearer x" {
 		t.Fatalf("mcp_servers[0] = %+v", m)
 	}
-	// Existing squashed fields still parse via embedding.
-	if !g.Enabled {
-		t.Fatal("grok.enabled lost through squash embedding")
+	// The keys every agent has parse through two levels of squash embedding.
+	if !s.Enabled {
+		t.Fatal("enabled lost through squash embedding")
 	}
 }
 
-func TestGrokMCPTransportValidation(t *testing.T) {
-	path := writeConfig(t, `
+func TestACPMCPTransportValidation(t *testing.T) {
+	_, err := loadACP(t, `
 providers:
-  grok:
+  acp:
     mcp_servers:
       - name: bad
         transport: stdio
         url: x
 `)
-	_, err := config.Load(config.LoadOptions{ConfigFile: path})
-	if err == nil || !strings.Contains(err.Error(), "transport must be http|sse") {
+	if err == nil || !strings.Contains(err.Error(), "providers.acp.mcp_servers[0].transport must be http|sse") {
 		t.Fatalf("want transport validation error, got %v", err)
 	}
 }
 
-func TestGrokMCPMissingURLValidation(t *testing.T) {
-	path := writeConfig(t, `
+func TestACPMCPMissingURLValidation(t *testing.T) {
+	_, err := loadACP(t, `
 providers:
-  grok:
+  acp:
     mcp_servers:
       - name: nourl
         transport: sse
 `)
-	_, err := config.Load(config.LoadOptions{ConfigFile: path})
 	if err == nil || !strings.Contains(err.Error(), "url must not be empty") {
 		t.Fatalf("want url validation error, got %v", err)
 	}
 }
 
-func TestGrokAuthMethodEnvOverride(t *testing.T) {
+func TestACPAuthMethodEnvOverride(t *testing.T) {
 	isolateConfig(t)
-	t.Setenv("MCREMOTE_PROVIDERS_GROK_AUTH_METHOD_ID", "envauth")
-	cfg, err := config.Load(config.LoadOptions{})
+	t.Setenv("MCREMOTE_PROVIDERS_ACP_AUTH_METHOD_ID", "envauth")
+	cfg, err := config.Load(config.LoadOptions{Providers: acpSpecs})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Providers.Grok.AuthMethodID != "envauth" {
-		t.Fatalf("auth_method_id env override = %q, want envauth", cfg.Providers.Grok.AuthMethodID)
+	if got := cfg.Providers.Sections["acp"].(*acpSection).AuthMethodID; got != "envauth" {
+		t.Fatalf("auth_method_id env override = %q, want envauth", got)
 	}
 }
 
-func TestGrokPolicyFlagsParse(t *testing.T) {
-	path := writeConfig(t, `
-providers:
-  grok:
-    enabled: true
-    permission_mode: acceptEdits
-    allowed_tools: ["bash", "read"]
-    disallowed_tools: ["write"]
-    allow_rules: ["Bash(git status)"]
-    deny_rules: ["Bash(rm -rf *)"]
-    no_subagents: true
-    disable_web_search: true
-`)
-	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
-	if err != nil {
-		t.Fatal(err)
-	}
-	g := cfg.Providers.Grok
-	if g.PermissionMode != "acceptEdits" {
-		t.Errorf("permission_mode = %q, want acceptEdits", g.PermissionMode)
-	}
-	if len(g.AllowedTools) != 2 || g.AllowedTools[0] != "bash" {
-		t.Errorf("allowed_tools = %v", g.AllowedTools)
-	}
-	if len(g.DisallowedTools) != 1 || g.DisallowedTools[0] != "write" {
-		t.Errorf("disallowed_tools = %v", g.DisallowedTools)
-	}
-	if len(g.AllowRules) != 1 || g.AllowRules[0] != "Bash(git status)" {
-		t.Errorf("allow_rules = %v", g.AllowRules)
-	}
-	if len(g.DenyRules) != 1 || g.DenyRules[0] != "Bash(rm -rf *)" {
-		t.Errorf("deny_rules = %v", g.DenyRules)
-	}
-	if !g.NoSubagents {
-		t.Error("no_subagents = false, want true")
-	}
-	if !g.DisableWebSearch {
-		t.Error("disable_web_search = false, want true")
+// The shared list keys are config-file only: a variable would split an entry
+// on its commas.
+func TestACPListKeysAreConfigFileOnly(t *testing.T) {
+	for _, name := range []string{"MCREMOTE_PROVIDERS_ACP_ARGS", "MCREMOTE_PROVIDERS_ACP_FS_ROOTS",
+		"MCREMOTE_PROVIDERS_ACP_MCP_SERVERS"} {
+		t.Run(name, func(t *testing.T) {
+			isolateConfig(t)
+			t.Setenv(name, "x")
+			_, err := config.Load(config.LoadOptions{Providers: acpSpecs})
+			if err == nil || !strings.Contains(err.Error(), "config-file only") {
+				t.Fatalf("Load error = %v, want %s refused as config-file only", err, name)
+			}
+		})
 	}
 }

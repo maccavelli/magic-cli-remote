@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
 
 // Descriptor is how a provider registers (0208 MADR D6). Each provider's
@@ -19,6 +20,9 @@ type Descriptor struct {
 	DevOnly bool
 	// Section returns a fresh providers.<id> section holding its defaults.
 	Section func() config.ProviderSection
+	// Credentials, when set, returns the provider's credential adapter, so
+	// the daemon coordinates its credential transactions (MADR 0074 D21).
+	Credentials func(config.ProviderSection) providerauth.Adapter
 	// New builds the provider from its section. Building starts nothing.
 	New func(Build) Provider
 }
@@ -27,7 +31,15 @@ type Descriptor struct {
 type Build struct {
 	// Section is the provider's own section, as Section returned it.
 	Section config.ProviderSection
+	// Version is mcremote's own version.
+	Version string
 	Log     *slog.Logger
+	// Credentials is the provider's credential coordinator, nil when it has
+	// none or the daemon is only inspecting (mcremote doctor).
+	Credentials *providerauth.Coordinator
+	// Busy reports how many of the provider's sessions are live, for a
+	// credential activation to ask; nil with no Credentials.
+	Busy func() int
 }
 
 // SectionSpec is d's section in the form config.Load takes.

@@ -878,7 +878,7 @@ the full defaults table and env map.
 | `auth` | `require_device_token`, `require_client_key`, `allowed_origins` |
 | `pair` | `advertise_host` |
 | `providers.fake` | `enabled` |
-| `providers.grok` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `reasoning_effort`, `permission_mode`, `allowed_tools`, `disallowed_tools`, `allow_rules`, `deny_rules`, `no_subagents`, `disable_web_search`, `sandbox`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `fs_roots`, `auth_method_id`, `mcp_servers` |
+| `providers.grok` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `reasoning_effort`, `permission_mode`, `no_subagents`, `disable_web_search`, `sandbox`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `fs_roots`, `auth_method_id`, `mcp_servers` |
 | `providers.opencode` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `fs_roots`, `auth_method_id`, `mcp_servers`, `allow_remote_shell` |
 | `providers.codex` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds` (default `900`), `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `approval_policy`, `sandbox_mode`, `allow_full_access` |
 | `providers.kilo` | `enabled` (default `true`), `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree` (default `false`), `pure` |
@@ -1022,8 +1022,6 @@ app (MADR 0044 / 0049), distinct from config `always_approve`.
 | `reasoning_effort` | `low` \| `medium` \| `high` \| `xhigh` applied as `_meta.reasoningEffort` when set. Also emitted as `--reasoning-effort` (ACP no-op on 1.0.5). The live model advertises the set (`xhigh` is grok-4.6 only) |
 | `permission_mode` | Default **`default`**. Valid: `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`. Process-wide / launch-scoped |
 | `sandbox` | OS-level sandbox profile (`--sandbox`): `off`, `workspace`, `devbox`, `read-only`, `strict`, or a custom name from `~/.grok/sandbox.toml` |
-| `allowed_tools` / `disallowed_tools` | Whitelist or blacklist built-in tools |
-| `allow_rules` / `deny_rules` | Persistent permission allow / deny rules |
 | `no_subagents` | Disables subagent spawning when true |
 | `disable_web_search` | Disables built-in web search when true |
 | `fs_roots` | Confine `fs/read_text_file` / `fs/write_text_file` to these roots (+ session cwd). Empty = unrestricted. Defense-in-depth, not a sandbox |
@@ -1032,9 +1030,10 @@ app (MADR 0044 / 0049), distinct from config `always_approve`.
 | `prewarm` | Default `false` — keep one spare initialized agent process; off until the phone or config turns it on (MADR 0089 D5) |
 | `stream_coalesce_ms` | Default `80` |
 
-Some tool allow/deny flags are **measured no-ops for remote sessions** — see
-notes in [docs/guides/config.md](docs/guides/config.md). Prefer `permission_mode`, session
-modes, or `sandbox` for real policy.
+grok's tool allow/deny lists (`allowed_tools`, `disallowed_tools`, `allow_rules`,
+`deny_rules`) were removed: grok ignores them over ACP, and a config that still
+sets one fails to load. See [docs/guides/config.md](docs/guides/config.md). Use
+`permission_mode`, session modes, or `sandbox` for policy.
 
 ---
 

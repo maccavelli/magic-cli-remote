@@ -183,3 +183,28 @@ func mustLoadPrewarm(t *testing.T, raw []byte) (kilo, grok bool) {
 	}
 	return doc.Providers.Kilo.Prewarm, doc.Providers.Grok.Prewarm
 }
+
+// agentSection is a described agent's section, as a provider's package defines
+// one (0208 MADR D6).
+type agentSection struct {
+	AgentCommon `mapstructure:",squash"`
+}
+
+func (s *agentSection) Validate() error { return nil }
+
+// TestPrewarmTogglesADescribedAgentsSection is 0208 PLAN P8: the phone's
+// prewarm toggle reaches a provider whose section its own package owns.
+func TestPrewarmTogglesADescribedAgentsSection(t *testing.T) {
+	sec := &agentSection{}
+	cfg := Defaults()
+	cfg.Providers.Sections = ProviderSections{"grok": sec}
+	if err := cfg.SetProviderPrewarm("grok", true); err != nil {
+		t.Fatal(err)
+	}
+	if !sec.Prewarm {
+		t.Fatal("SetProviderPrewarm did not reach the section")
+	}
+	if got, ok := cfg.ProviderPrewarm("grok"); !ok || !got {
+		t.Fatalf("ProviderPrewarm = %v %v, want true true", got, ok)
+	}
+}

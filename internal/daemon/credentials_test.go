@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
@@ -27,11 +30,43 @@ func quietLog() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
 }
 
+// adapters is codex's credential adapter for codexBin, and grok's when
+// withGrok, as credentialAdapters builds them for an enabled provider.
+func adapters(codexBin string, withGrok bool) map[string]providerauth.Adapter {
+	out := map[string]providerauth.Adapter{"codex": codex.NewCredentialAdapter("codex", codexBin)}
+	if withGrok {
+		out["grok"] = grok.NewCredentialAdapter("grok")
+	}
+	return out
+}
+
+// TestCredentialAdaptersFollowTheSections is 0208 PLAN P8: a described
+// provider's credential adapter comes from its descriptor. serve builds one
+// only while its section is enabled; auth-recovery builds every one.
+func TestCredentialAdaptersFollowTheSections(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Providers.Codex.Enabled = false
+	if _, ok := CredentialAdapters(cfg, true)["grok"]; !ok {
+		t.Error("grok's defaults enable it, but it has no credential adapter")
+	}
+	cfg.Providers.Sections = config.ProviderSections{"grok": &grok.Section{}}
+	if got := CredentialAdapters(cfg, true); len(got) != 0 {
+		t.Errorf("adapters = %v with grok and codex disabled, want none", got)
+	}
+	all := CredentialAdapters(cfg, false)
+	if _, ok := all["grok"]; !ok {
+		t.Error("auth-recovery has no adapter for a disabled grok")
+	}
+	if _, ok := all["codex"]; !ok {
+		t.Error("auth-recovery has no adapter for a disabled codex")
+	}
+}
+
 // TestGuardIsAbsentWhenNoTransactionalProviderIsEnabled proves a host running
 // neither Codex nor Grok carries none of this machinery and advertises no
 // transactional capability (MADR 0074 P20 step 12).
 func TestGuardIsAbsentWhenNoTransactionalProviderIsEnabled(t *testing.T) {
-	g, err := newCredentialGuard(t.TempDir(), false, false, "", quietLog())
+	g, err := newCredentialGuard(t.TempDir(), nil, quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +86,7 @@ func TestGuardIsAbsentWhenNoTransactionalProviderIsEnabled(t *testing.T) {
 func TestGuardBuildsOnlyEnabledProviders(t *testing.T) {
 	testexec.SkipIfNoPOSIXModes(t)
 	dataDir := t.TempDir()
-	g, err := newCredentialGuard(dataDir, true, false, "codex", quietLog())
+	g, err := newCredentialGuard(dataDir, adapters("codex", false), quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +124,7 @@ func TestGuardRecoverReportsEveryProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	g, err := newCredentialGuard(dataDir, true, true, "codex", quietLog())
+	g, err := newCredentialGuard(dataDir, adapters("codex", true), quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +151,7 @@ func TestGuardRecoverReportsEveryProvider(t *testing.T) {
 func TestGuardWatcherFailureIsNotFatal(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("CODEX_HOME", t.TempDir())
-	g, err := newCredentialGuard(dataDir, true, false, "codex", quietLog())
+	g, err := newCredentialGuard(dataDir, adapters("codex", false), quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +169,7 @@ func TestGuardWatcherFailureIsNotFatal(t *testing.T) {
 // startup failed partway.
 func TestGuardCloseIsSafeBeforeStart(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
-	g, err := newCredentialGuard(t.TempDir(), true, false, "codex", quietLog())
+	g, err := newCredentialGuard(t.TempDir(), adapters("codex", false), quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +215,7 @@ func TestCredentialGuardPassesTheCodexBinary(t *testing.T) {
 		keyringReport + "\nEOF\nexit 1\nfi\nexit 0"
 	stub := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "codex-stub"), script)
 
-	g, err := newCredentialGuard(t.TempDir(), true, false, stub, quietLog())
+	g, err := newCredentialGuard(t.TempDir(), adapters(stub, false), quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +266,7 @@ func TestCredentialGuardEscalatesABrokenCredential(t *testing.T) {
 		brokenReport + "\nEOF\nexit 1\nfi\nexit 0"
 	stub := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "codex-stub"), script)
 
-	g, err := newCredentialGuard(t.TempDir(), true, false, stub, quietLog())
+	g, err := newCredentialGuard(t.TempDir(), adapters(stub, false), quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}

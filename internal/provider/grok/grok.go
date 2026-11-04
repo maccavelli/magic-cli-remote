@@ -74,10 +74,6 @@ var spec = acpagent.Spec{
 			ReasoningEffort:  cfg.ReasoningEffort,
 			PermissionMode:   cfg.PermissionMode,
 			Sandbox:          cfg.Sandbox,
-			AllowedTools:     cfg.AllowedTools,
-			DisallowedTools:  cfg.DisallowedTools,
-			AllowRules:       cfg.AllowRules,
-			DenyRules:        cfg.DenyRules,
 			NoSubagents:      cfg.NoSubagents,
 			DisableWebSearch: cfg.DisableWebSearch,
 		})
@@ -214,18 +210,6 @@ func defaultArgs(cfg Config) []string {
 	}
 	if cfg.Sandbox != "" {
 		args = append(args, "--sandbox", cfg.Sandbox)
-	}
-	if len(cfg.AllowedTools) > 0 {
-		args = append(args, "--tools", strings.Join(cfg.AllowedTools, ","))
-	}
-	if len(cfg.DisallowedTools) > 0 {
-		args = append(args, "--disallowed-tools", strings.Join(cfg.DisallowedTools, ","))
-	}
-	for _, r := range cfg.AllowRules {
-		args = append(args, "--allow", r)
-	}
-	for _, r := range cfg.DenyRules {
-		args = append(args, "--deny", r)
 	}
 	if cfg.NoSubagents {
 		args = append(args, "--no-subagents")

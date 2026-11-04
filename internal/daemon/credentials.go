@@ -4,9 +4,10 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
 
@@ -22,34 +23,41 @@ type credentialGuard struct {
 	log      *slog.Logger
 }
 
-// newCredentialGuard builds coordinators for the enabled transactional
-// providers. It performs no I/O beyond creating the private store directories.
-// codexBin is the configured Codex binary. It is REQUIRED, not optional: the
-// reality probe that distinguishes "no credential anywhere" from "a credential
-// this coordinator cannot see" asks the CLI, and an adapter built without a
-// binary answers RealityUnknown for both (MADR 0134). Passing "" here silently
-// routes every such host back to the pre-0134 escalation.
+// CredentialAdapters returns the credential adapter of each provider that has
+// one, by provider id: a descriptor's own (0208 MADR D6), and codex's.
+// enabledOnly limits it to the providers cfg enables, as serve does. mcremote
+// auth-recovery passes false, so a provider disabled since its credential was
+// stored can still be recovered.
+//
+// codex's adapter is built with the configured binary. It is REQUIRED, not
+// optional: the reality probe that distinguishes "no credential anywhere" from
+// "a credential this coordinator cannot see" asks the CLI, and an adapter
+// built without a binary answers RealityUnknown for both (MADR 0134).
+func CredentialAdapters(cfg config.Config, enabledOnly bool) map[string]providerauth.Adapter {
+	out := map[string]providerauth.Adapter{}
+	for _, d := range registered.Descriptors() {
+		if sec := d.SectionIn(cfg); d.Credentials != nil && (sec.IsEnabled() || !enabledOnly) {
+			out[string(d.ID)] = d.Credentials(sec)
+		}
+	}
+	if cfg.Providers.Codex.Enabled || !enabledOnly {
+		out["codex"] = codex.NewCredentialAdapter("codex", cfg.Providers.Codex.Bin)
+	}
+	return out
+}
+
+// newCredentialGuard builds a coordinator for each adapter, by provider id.
+// It performs no I/O beyond creating the private store directories.
 func newCredentialGuard(
-	dataDir string, codexEnabled, grokEnabled bool, codexBin string, log *slog.Logger,
+	dataDir string, adapters map[string]providerauth.Adapter, log *slog.Logger,
 ) (*credentialGuard, error) {
 	g := &credentialGuard{coords: map[string]*providerauth.Coordinator{}, log: log}
-	add := func(id string, ad providerauth.Adapter) error {
+	for id, ad := range adapters {
 		c, err := providerauth.NewCoordinator(dataDir, ad, providerauth.CoordinatorOptions{})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		g.coords[id] = c
-		return nil
-	}
-	if codexEnabled {
-		if err := add("codex", codex.NewCredentialAdapter("codex", codexBin)); err != nil {
-			return nil, err
-		}
-	}
-	if grokEnabled {
-		if err := add("grok", grok.NewCredentialAdapter("grok")); err != nil {
-			return nil, err
-		}
 	}
 	if len(g.coords) == 0 {
 		return nil, nil

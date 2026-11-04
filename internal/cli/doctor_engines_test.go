@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 )
@@ -127,5 +129,17 @@ func TestVersionInReadsWhatTheBinaryPrints(t *testing.T) {
 		if got, ok := versionIn(out); got != want || ok != (want != "") {
 			t.Errorf("versionIn(%q) = %q, %v; want %q", out, got, ok, want)
 		}
+	}
+}
+
+// TestEngineBinsReadADescribedAgentsSection is 0208 PLAN P8: doctor resolves a
+// described agent's binary from its own section.
+func TestEngineBinsReadADescribedAgentsSection(t *testing.T) {
+	cfg := config.Defaults()
+	sec := &grok.Section{}
+	sec.Bin = "/opt/grok-under-test"
+	cfg.Providers.Sections = config.ProviderSections{"grok": sec}
+	if got := engineBins(cfg)[provider.IDGrok]; got != "/opt/grok-under-test" {
+		t.Fatalf("grok's bin = %q, want its section's", got)
 	}
 }

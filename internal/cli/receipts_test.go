@@ -22,8 +22,23 @@ import (
 // receiptsFixture registers one real device key in a real auth.Store —
 // matching PublicKeyFor's actual code path, not a stub — under a fresh
 // temp data_dir the `--data-dir` flag points every subcommand at.
+// hermeticConfig points config.Load at an empty config file for the rest of t,
+// so a command run with --data-dir alone reads no host's live config.yaml. A
+// host's config is not this test's input: before this, these tests passed or
+// failed with whatever the host running them had configured (0208 PLAN P8
+// Deviation 3).
+func hermeticConfig(t *testing.T) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MCREMOTE_CONFIG", path)
+}
+
 func receiptsFixture(t *testing.T) (dir, deviceID string, devicePriv *ecdsa.PrivateKey, rs *receipt.Store) {
 	t.Helper()
+	hermeticConfig(t)
 	dir = t.TempDir()
 
 	devicePriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

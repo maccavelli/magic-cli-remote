@@ -732,3 +732,28 @@ it. Asked whether the `providers.<id>` keys may change, the owner answered: "hon
   deleted. The owner's own config is the only one, and it is migrated first.
 * Neutral, because D6's "the config file format does not change" was already relaxed by the
   2026-10-21 greenfield direction; this amendment says what changes.
+
+### Added at P8's grok commit, 2026-11-04: grok's four filter keys, measured again [grok 1.0.70]
+
+The owner's rule was to measure grok's `allowed_tools`, `disallowed_tools`, `allow_rules` and
+`deny_rules` on the current grok, and keep a key only if it now binds. Asked to create a file with
+its file-writing tool, through Magic's grok provider over ACP, `permission_mode: default`:
+
+| Configuration | Prompts | File written |
+| --- | --- | --- |
+| control, `always_approve: true` | 0 | yes |
+| `disallowed_tools: [Write]`, `always_approve: true` | 0 | yes |
+| `allowed_tools: [Read]`, `always_approve: true` | 0 | yes |
+| `deny_rules: [Write]`, `always_approve: true` | 0 | yes |
+| control, prompting (the prompt refused) | 1 | no |
+| `allow_rules: [Write]`, prompting (the prompt refused) | 1 | no |
+
+`Write` is the tool name grok 1.0.70 reports on the wire (`rawInput.variant`). No key changed the
+outcome, as on grok 0.2.114. So:
+* the four keys and their flags are removed: from grok's section, from grok's argv, and from
+  `acpagent.Config`, which carried them for grok alone;
+* `TestLiveGrokToolPolicyFlagsStillHaveNoEffect` passes each flag by hand and fails if grok starts
+  honouring one;
+* this supersedes the retention in
+  [0050-MADR-grok-cli-surface-drift.md](0050-MADR-grok-cli-surface-drift.md) §4 ("retained because
+  they are harmless and may become effective in a later grok").

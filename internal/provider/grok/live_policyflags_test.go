@@ -14,7 +14,9 @@ import (
 
 // Run with: go test -tags live_grok ./internal/provider/grok/ -run PolicyFlags -count=1
 //
-// Pins D4: asserts grok agent --help lists policy flags.
+// Pins D4: asserts grok --help lists the policy flags Magic passes. --tools,
+// --disallowed-tools, --allow and --deny are no longer passed (0208 PLAN P8):
+// live_toolpolicy_test.go pins that they still do nothing over ACP.
 func TestLiveGrokPolicyFlagsWireContract(t *testing.T) {
 	p := grok.New(grok.Config{})
 	if !p.Ready() {
@@ -32,10 +34,6 @@ func TestLiveGrokPolicyFlagsWireContract(t *testing.T) {
 
 	flags := []string{
 		"--permission-mode",
-		"--tools",
-		"--disallowed-tools",
-		"--allow",
-		"--deny",
 		"--no-subagents",
 		"--disable-web-search",
 	}

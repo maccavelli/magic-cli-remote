@@ -5,6 +5,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 )
 
 func TestPrewarmPlanDefaultsEmpty(t *testing.T) {
@@ -36,5 +37,21 @@ func TestPrewarmPlanSkipsDisabled(t *testing.T) {
 	cfg.Providers.Kilo.Prewarm = true
 	if prewarmWants(cfg, provider.IDKilo) {
 		t.Fatal("disabled provider must not prewarm")
+	}
+}
+
+// TestPrewarmPlanReadsADescribedAgentsSection is 0208 PLAN P8: a described
+// agent prewarms from its own section, and only while it is enabled.
+func TestPrewarmPlanReadsADescribedAgentsSection(t *testing.T) {
+	cfg := config.Defaults()
+	sec := &grok.Section{}
+	sec.Prewarm = true
+	cfg.Providers.Sections = config.ProviderSections{"grok": sec}
+	if prewarmWants(cfg, provider.IDGrok) {
+		t.Fatal("a disabled grok must not prewarm")
+	}
+	sec.Enabled = true
+	if !prewarmWants(cfg, provider.IDGrok) {
+		t.Fatalf("prewarmPlan = %v, want grok", prewarmPlan(cfg))
 	}
 }

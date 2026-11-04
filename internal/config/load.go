@@ -239,8 +239,14 @@ func (cfg *Config) finalizePaths(basePaths appdirs.Paths, opts LoadOptions) erro
 	if cfg.TLS.LetsEncrypt.CacheDir, err = rel(cfg.TLS.LetsEncrypt.CacheDir); err != nil {
 		return fmt.Errorf("tls.letsencrypt.cache_dir: %w", err)
 	}
-	if cfg.Providers.Grok.DefaultCWD, err = rel(cfg.Providers.Grok.DefaultCWD); err != nil {
-		return fmt.Errorf("providers.grok.default_cwd: %w", err)
+	for id, sec := range cfg.Providers.Sections {
+		agent, ok := sec.(AgentSection)
+		if !ok {
+			continue
+		}
+		if agent.Agent().DefaultCWD, err = rel(agent.Agent().DefaultCWD); err != nil {
+			return fmt.Errorf("providers.%s.default_cwd: %w", id, err)
+		}
 	}
 	if cfg.Providers.Opencode.DefaultCWD, err = rel(cfg.Providers.Opencode.DefaultCWD); err != nil {
 		return fmt.Errorf("providers.opencode.default_cwd: %w", err)
@@ -316,26 +322,6 @@ func setDefaults(v *viper.Viper) {
 	// MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES is silently ignored
 	// (AutomaticEnv only resolves known keys).
 	v.SetDefault("tls.letsencrypt.route53.max_retries", d.TLS.LetsEncrypt.Route53.MaxRetries)
-	v.SetDefault("providers.grok.enabled", d.Providers.Grok.Enabled)
-	v.SetDefault("providers.grok.bin", d.Providers.Grok.Bin)
-	v.SetDefault("providers.grok.always_approve", d.Providers.Grok.AlwaysApprove)
-	v.SetDefault("providers.grok.default_cwd", d.Providers.Grok.DefaultCWD)
-	v.SetDefault("providers.grok.model", d.Providers.Grok.Model)
-	v.SetDefault("providers.grok.reasoning_effort", d.Providers.Grok.ReasoningEffort)
-	v.SetDefault("providers.grok.permission_mode", d.Providers.Grok.PermissionMode)
-	v.SetDefault("providers.grok.sandbox", d.Providers.Grok.Sandbox)
-	v.SetDefault("providers.grok.no_subagents", d.Providers.Grok.NoSubagents)
-	v.SetDefault("providers.grok.disable_web_search", d.Providers.Grok.DisableWebSearch)
-	// Without a default the key is absent from viper's key set and the
-	// MCREMOTE_PROVIDERS_*_PERMISSION_TIMEOUT_SECONDS env vars are silently
-	// ignored (AutomaticEnv only resolves known keys).
-	v.SetDefault("providers.grok.permission_timeout_seconds", d.Providers.Grok.PermissionTimeoutSeconds)
-	v.SetDefault("providers.grok.prewarm", d.Providers.Grok.Prewarm)
-	v.SetDefault("providers.grok.turn_stall_notice_seconds", d.Providers.Grok.TurnStallNoticeSeconds)
-	// Known so AutomaticEnv resolves MCREMOTE_PROVIDERS_GROK_AUTH_METHOD_ID.
-	// mcp_servers is a list of tables — config-file only, no env/default.
-	v.SetDefault("providers.grok.auth_method_id", d.Providers.Grok.AuthMethodID)
-	v.SetDefault("providers.grok.stream_coalesce_ms", d.Providers.Grok.StreamCoalesceMs)
 	v.SetDefault("providers.opencode.enabled", d.Providers.Opencode.Enabled)
 	// No default for providers.opencode.transport: it was retired in MADR 0019
 	// and Config.validate rejects it if a config still sets one. Seeding a

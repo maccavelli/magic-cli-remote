@@ -37,9 +37,11 @@ func (c *Config) SetProviderPrewarm(id string, prewarm bool) error {
 	if c == nil {
 		return errors.New("nil config")
 	}
+	if sec, ok := c.Providers.Sections[id].(AgentSection); ok {
+		sec.Agent().Prewarm = prewarm
+		return nil
+	}
 	switch id {
-	case "grok":
-		c.Providers.Grok.Prewarm = prewarm
 	case "opencode":
 		c.Providers.Opencode.Prewarm = prewarm
 	case "codex":
@@ -54,9 +56,10 @@ func (c *Config) SetProviderPrewarm(id string, prewarm bool) error {
 
 // ProviderPrewarm returns the in-memory flag and whether id is known.
 func (c Config) ProviderPrewarm(id string) (prewarm bool, ok bool) {
+	if sec, ok := c.Providers.Sections[id].(AgentSection); ok {
+		return sec.Agent().Prewarm, true
+	}
 	switch id {
-	case "grok":
-		return c.Providers.Grok.Prewarm, true
 	case "opencode":
 		return c.Providers.Opencode.Prewarm, true
 	case "codex":

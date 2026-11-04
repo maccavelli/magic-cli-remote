@@ -440,10 +440,10 @@ type AuthConfig struct {
 	AllowedOrigins []string `mapstructure:"allowed_origins"`
 }
 
-// maxStreamCoalesceMs bounds providers.{opencode,codex,grok}.stream_coalesce_ms.
+// MaxStreamCoalesceMs bounds every providers.<id>.stream_coalesce_ms.
 // Past about a second the stream stops reading as live typing, and nothing
 // downstream would flag the mistake (MADR 0024).
-const maxStreamCoalesceMs = 1000
+const MaxStreamCoalesceMs = 1000
 
 // ProvidersConfig enables individual providers.
 type ProvidersConfig struct {
@@ -451,7 +451,6 @@ type ProvidersConfig struct {
 	// decoded by Load from LoadOptions.Providers (0208 MADR D6).
 	Sections ProviderSections `mapstructure:"-"`
 
-	Grok     GrokProviderConfig     `mapstructure:"grok"`
 	Opencode OpencodeProviderConfig `mapstructure:"opencode"`
 	Codex    CodexProviderConfig    `mapstructure:"codex"`
 	Kilo     KiloProviderConfig     `mapstructure:"kilo"`
@@ -467,76 +466,77 @@ type MCPServerConfig struct {
 	Headers   map[string]string `mapstructure:"headers"`
 }
 
-// ACPProviderConfig is the configuration shared by every ACP CLI agent provider
-// (grok). Each provider config embeds it squashed,
-// so the agents share one config shape and a new ACP option is added here once.
-type ACPProviderConfig struct {
-	Enabled       bool     `mapstructure:"enabled"`
-	Bin           string   `mapstructure:"bin"`
-	Args          []string `mapstructure:"args"`
-	AlwaysApprove bool     `mapstructure:"always_approve"`
-	DefaultCWD    string   `mapstructure:"default_cwd"`
-	Model         string   `mapstructure:"model"`
+// AgentCommon is the keys every agent CLI provider's section has. A section
+// embeds it squashed, so the keys sit directly under providers.<id>, and gets
+// IsEnabled and Agent from it (0208 MADR D6).
+type AgentCommon struct {
+	// Enabled registers the provider.
+	Enabled bool `mapstructure:"enabled"`
+	// Bin is the agent executable, by name on PATH or by path.
+	Bin string `mapstructure:"bin"`
+	// AlwaysApprove answers every permission request with its allow option,
+	// without asking the phone.
+	AlwaysApprove bool `mapstructure:"always_approve"`
+	// DefaultCWD is a session's working directory when the phone names none.
+	// Empty is the daemon user's home directory. A relative path is resolved
+	// against the config file's directory.
+	DefaultCWD string `mapstructure:"default_cwd"`
+	// Model is the model a session starts on. Empty is the agent's own default.
+	Model string `mapstructure:"model"`
 	// PermissionTimeoutSeconds bounds how long a remote permission request waits
 	// for a decision before the agent stops waiting (treated as cancelled).
-	// 0 disables the timeout. Default 120 — long enough to unlock the phone
-	// and answer, short enough that a missed notification doesn't leave the
-	// agent looking dead for a quarter hour.
+	// 0 disables the timeout.
 	PermissionTimeoutSeconds int `mapstructure:"permission_timeout_seconds"`
-	// Prewarm keeps one spare initialized agent process ready so session
-	// create/resume/relaunch skips the engine cold start.
+	// Prewarm starts the agent's engine, or one spare agent process, at daemon
+	// start, so the first session skips the cold start (MADR 0089 D5).
 	Prewarm bool `mapstructure:"prewarm"`
 	// TurnStallNoticeSeconds emits a notice when a running turn produces no
 	// output for this long (0 disables).
 	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
+}
+
+// IsEnabled reports providers.<id>.enabled.
+func (a *AgentCommon) IsEnabled() bool { return a.Enabled }
+
+// Agent returns the keys every agent has, for the daemon, doctor and prewarm.
+func (a *AgentCommon) Agent() *AgentCommon { return a }
+
+// ValidateAgent checks the keys every agent has. id names the section in
+// errors.
+func (a *AgentCommon) ValidateAgent(id string) error {
+	if a.PermissionTimeoutSeconds < 0 {
+		return fmt.Errorf("providers.%s.permission_timeout_seconds must be >= 0, got %d",
+			id, a.PermissionTimeoutSeconds)
+	}
+	if a.TurnStallNoticeSeconds < 0 {
+		return fmt.Errorf("providers.%s.turn_stall_notice_seconds must be >= 0, got %d",
+			id, a.TurnStallNoticeSeconds)
+	}
+	return nil
+}
+
+// ACPProviderConfig is the configuration shared by every ACP CLI agent
+// provider. Each provider's section embeds it squashed, so the agents share
+// one config shape and a new ACP option is added here once.
+type ACPProviderConfig struct {
+	AgentCommon `mapstructure:",squash"`
+	// Args replaces the agent's built-in argv when non-empty. Config-file only:
+	// an entry may contain a comma, which an environment value would split.
+	Args []string `mapstructure:"args" env:"-"`
 	// FSRoots optionally confines the agent's fs read/write callbacks to these
 	// roots (plus the session cwd). Empty (default) is unrestricted. This is
 	// defense-in-depth and an audit surface, not a sandbox — the agent has
-	// terminal access as the same user regardless.
-	FSRoots []string `mapstructure:"fs_roots"`
+	// terminal access as the same user regardless. Config-file only.
+	FSRoots []string `mapstructure:"fs_roots" env:"-"`
 	// AuthMethodID is an optional pin of the ACP authenticate method.
-	// Empty (default) is correct for grok: MADR 0085 D2 auto-selects a
-	// headless-safe advertised method. It is not "grok needs none".
+	// Empty (default) lets MADR 0085 D2 auto-select a headless-safe advertised
+	// method.
 	AuthMethodID string `mapstructure:"auth_method_id"`
 	// MCPServers are MCP servers to advertise to the agent, extending it with
 	// extra tools/context. Each is forwarded only when the agent advertises the
 	// matching transport (mcpCapabilities.http / .sse); others are dropped.
-	MCPServers []MCPServerConfig `mapstructure:"mcp_servers"`
-}
-
-// GrokProviderConfig configures the Grok Build ACP adapter.
-type GrokProviderConfig struct {
-	ACPProviderConfig `mapstructure:",squash"`
-	// ReasoningEffort is still emitted as --reasoning-effort (ACP no-op on
-	// grok 1.0.5) and applied via session/new|load `_meta.reasoningEffort`
-	// (MADR 0106).
-	ReasoningEffort string `mapstructure:"reasoning_effort"`
-	// PermissionMode sets Grok's permission mode (--permission-mode <MODE>).
-	PermissionMode string `mapstructure:"permission_mode"`
-	// Sandbox selects Grok's OS-level sandbox profile (--sandbox <PROFILE>):
-	// off, workspace, devbox, read-only, strict, or a custom profile name
-	// resolved from ~/.grok/sandbox.toml or .grok/sandbox.toml. Empty leaves
-	// grok's own default. Deliberately not enum-validated beyond the built-ins
-	// being documented: custom profiles are a supported grok feature and a hard
-	// enum would break the day grok adds one (MADR 0050 D4).
-	Sandbox string `mapstructure:"sandbox"`
-	// AllowedTools whitelists built-in tools (--tools <csv>).
-	AllowedTools []string `mapstructure:"allowed_tools"`
-	// DisallowedTools blacklists built-in tools (--disallowed-tools <csv>).
-	DisallowedTools []string `mapstructure:"disallowed_tools"`
-	// AllowRules adds persistent permission allow rules (--allow <rule>).
-	AllowRules []string `mapstructure:"allow_rules"`
-	// DenyRules adds persistent permission deny rules (--deny <rule>).
-	DenyRules []string `mapstructure:"deny_rules"`
-	// NoSubagents disables subagent spawning (--no-subagents).
-	NoSubagents bool `mapstructure:"no_subagents"`
-	// DisableWebSearch disables built-in web search (--disable-web-search).
-	DisableWebSearch bool `mapstructure:"disable_web_search"`
-	// StreamCoalesceMs is how long assistant/thought text is held so it can be
-	// emitted as one event instead of one per model token (MADR 0024 / 0057 H-1).
-	// The first chunk of a run and the tail before any control event are never
-	// delayed. 0 disables coalescing. Default 80. Max maxStreamCoalesceMs.
-	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
+	// Config-file only: a list of tables.
+	MCPServers []MCPServerConfig `mapstructure:"mcp_servers" env:"-"`
 }
 
 // OpencodeProviderConfig configures the OpenCode provider: `opencode acp`
@@ -698,17 +698,6 @@ func configLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// validGrokPermissionMode returns true for recognized Grok permission modes.
-// Empty means "inherit grok's own configuration" — legal, but see the default
-// in Defaults() for why the daemon pins it (MADR 0050 D3).
-func validGrokPermissionMode(s string) bool {
-	switch s {
-	case "", "default", "acceptEdits", "auto", "dontAsk", "bypassPermissions", "plan":
-		return true
-	}
-	return false
-}
-
 // HeadscaleConfig is documentation/metadata only (no API calls).
 type HeadscaleConfig struct {
 	ControlURL string `mapstructure:"control_url"`
@@ -734,36 +723,11 @@ func Defaults() Config {
 			RequireClientKey:   true,
 		},
 		Providers: ProvidersConfig{
-			Grok: GrokProviderConfig{
-				// Pinned rather than left empty. Empty means "whatever this
-				// host's grok resolves to" — ~/.grok/config.toml, project
-				// config, or (since grok 0.2.102) fleet-wide remote config —
-				// which the daemon cannot see. It advertises session modes and
-				// a `dangerous` flag on the assumption it knows the approval
-				// posture, so an unknown one makes the mode chip describe a
-				// policy nobody set. `default` makes grok ask, which is what
-				// gives the modes (and MADR 0049's `auto`) meaning.
-				// Opt out with `bypassPermissions` (MADR 0050 D3).
-				PermissionMode: "default",
-				// ~12 mid-stream updates/sec instead of one per token
-				// (MADR 0057 H-1). Matches opencode/codex defaults.
-				StreamCoalesceMs: 80,
-				ACPProviderConfig: ACPProviderConfig{
-					Enabled:                  true,
-					Bin:                      "grok",
-					AlwaysApprove:            false,
-					PermissionTimeoutSeconds: 120,
-					// Off (MADR 0089 D5): engine starts on first session.
-					// Turn on from the phone or set true here if RAM allows.
-					Prewarm:                false,
-					TurnStallNoticeSeconds: 120,
-				},
-			},
 			// OpenCode is enabled by default and selectable from the phone's
 			// new-session provider menu. Registration is harmless when the
 			// binary is absent — the provider just lists as not ready (with a
 			// startup warning); grok stays the default selection.
-			Opencode: OpencodeProviderConfig{ACPProviderConfig: ACPProviderConfig{
+			Opencode: OpencodeProviderConfig{ACPProviderConfig: ACPProviderConfig{AgentCommon: AgentCommon{
 				Enabled:                  true,
 				Bin:                      "opencode",
 				AlwaysApprove:            false,
@@ -772,7 +736,7 @@ func Defaults() Config {
 				// instead of holding an idle engine.
 				Prewarm:                false,
 				TurnStallNoticeSeconds: 120,
-			}},
+			}}},
 			Codex: CodexProviderConfig{
 				Enabled:                  true,
 				Bin:                      "codex",
@@ -987,10 +951,9 @@ func (c Config) ACMECacheDir() string {
 	return filepath.Join(c.DataDir, "acme")
 }
 
-// Validate checks configuration for obvious errors.
-// validateACPProvider checks the shared ACP options (MCP servers). name is the
-// provider key ("grok", …) for error messages.
-func validateACPProvider(name string, c ACPProviderConfig) error {
+// ValidateACPProvider checks the shared ACP options (MCP servers). name is the
+// provider key for error messages.
+func ValidateACPProvider(name string, c ACPProviderConfig) error {
 	for i, m := range c.MCPServers {
 		switch m.Transport {
 		case "http", "sse":
@@ -1038,25 +1001,7 @@ func (c Config) Validate() error {
 	if c.Limits.MaxLiveSessions < 0 {
 		return fmt.Errorf("limits.max_live_sessions must be >= 0, got %d", c.Limits.MaxLiveSessions)
 	}
-	if c.Providers.Grok.PermissionTimeoutSeconds < 0 {
-		return fmt.Errorf("providers.grok.permission_timeout_seconds must be >= 0, got %d",
-			c.Providers.Grok.PermissionTimeoutSeconds)
-	}
-	if v := c.Providers.Grok.StreamCoalesceMs; v < 0 || v > maxStreamCoalesceMs {
-		return fmt.Errorf("providers.grok.stream_coalesce_ms must be 0..%d, got %d",
-			maxStreamCoalesceMs, v)
-	}
-	if c.Providers.Grok.TurnStallNoticeSeconds < 0 {
-		return fmt.Errorf("providers.grok.turn_stall_notice_seconds must be >= 0, got %d",
-			c.Providers.Grok.TurnStallNoticeSeconds)
-	}
-	if c.Providers.Grok.ReasoningEffort != "" && strings.TrimSpace(c.Providers.Grok.ReasoningEffort) == "" {
-		return fmt.Errorf("providers.grok.reasoning_effort must not be whitespace-only")
-	}
-	if err := validateACPProvider("grok", c.Providers.Grok.ACPProviderConfig); err != nil {
-		return err
-	}
-	if err := validateACPProvider("opencode", c.Providers.Opencode.ACPProviderConfig); err != nil {
+	if err := ValidateACPProvider("opencode", c.Providers.Opencode.ACPProviderConfig); err != nil {
 		return err
 	}
 	// providers.opencode.transport was retired in MADR 0019. Fail loudly —
@@ -1083,9 +1028,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("providers.codex.turn_stall_notice_seconds must be >= 0, got %d",
 			c.Providers.Codex.TurnStallNoticeSeconds)
 	}
-	if v := c.Providers.Codex.StreamCoalesceMs; v < 0 || v > maxStreamCoalesceMs {
+	if v := c.Providers.Codex.StreamCoalesceMs; v < 0 || v > MaxStreamCoalesceMs {
 		return fmt.Errorf("providers.codex.stream_coalesce_ms must be 0..%d, got %d",
-			maxStreamCoalesceMs, v)
+			MaxStreamCoalesceMs, v)
 	}
 	if !validApprovalPolicy(c.Providers.Codex.ApprovalPolicy) {
 		return fmt.Errorf("providers.codex.approval_policy must be empty, untrusted, on-request, or never, got %q",
@@ -1142,16 +1087,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("providers.kilo.turn_stall_notice_seconds must be >= 0, got %d",
 			c.Providers.Kilo.TurnStallNoticeSeconds)
 	}
-	if v := c.Providers.Kilo.StreamCoalesceMs; v < 0 || v > maxStreamCoalesceMs {
+	if v := c.Providers.Kilo.StreamCoalesceMs; v < 0 || v > MaxStreamCoalesceMs {
 		return fmt.Errorf("providers.kilo.stream_coalesce_ms must be 0..%d, got %d",
-			maxStreamCoalesceMs, v)
-	}
-	// Rejected at load rather than at session start: grok exits with
-	// `error: unexpected argument` for an unknown value, which surfaces as a
-	// provider that never becomes ready (MADR 0050).
-	if !validGrokPermissionMode(c.Providers.Grok.PermissionMode) {
-		return fmt.Errorf("providers.grok.permission_mode must be empty, default, acceptEdits, auto, dontAsk, bypassPermissions, or plan, got %q",
-			c.Providers.Grok.PermissionMode)
+			MaxStreamCoalesceMs, v)
 	}
 	if err := c.Relay.validate(); err != nil {
 		return err

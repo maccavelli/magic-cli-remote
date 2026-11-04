@@ -3,7 +3,6 @@ package daemon
 import (
 	"crypto/tls"
 	"testing"
-	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
@@ -11,94 +10,6 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 )
-
-func TestAcpAgentConfigMinimal(t *testing.T) {
-	cfg := config.ACPProviderConfig{
-		Bin: "/usr/bin/grok",
-	}
-	got := acpAgentConfig(cfg)
-	if got.Bin != "/usr/bin/grok" {
-		t.Fatalf("Bin = %q, want /usr/bin/grok", got.Bin)
-	}
-	if got.PermissionTimeout != 0 {
-		t.Fatalf("PermissionTimeout = %v, want 0", got.PermissionTimeout)
-	}
-}
-
-func TestAcpAgentConfigFull(t *testing.T) {
-	cfg := config.ACPProviderConfig{
-		Bin:                      "/usr/bin/agent",
-		Args:                     []string{"--debug"},
-		AlwaysApprove:            true,
-		DefaultCWD:               "/home/user/project",
-		Model:                    "gpt-4o",
-		PermissionTimeoutSeconds: 120,
-		Prewarm:                  true,
-		TurnStallNoticeSeconds:   30,
-		FSRoots:                  []string{"/home/user"},
-		AuthMethodID:             "github",
-		MCPServers: []config.MCPServerConfig{
-			{Name: "fs", Transport: "stdio", URL: "", Headers: nil},
-			{Name: "web", Transport: "sse", URL: "http://localhost:8080", Headers: map[string]string{"Auth": "token"}},
-		},
-	}
-	got := acpAgentConfig(cfg)
-	if got.Bin != cfg.Bin {
-		t.Fatalf("Bin = %q, want %q", got.Bin, cfg.Bin)
-	}
-	if len(got.Args) != 1 || got.Args[0] != "--debug" {
-		t.Fatalf("Args = %v", got.Args)
-	}
-	if !got.AlwaysApprove {
-		t.Fatal("AlwaysApprove should be true")
-	}
-	if got.DefaultCWD != "/home/user/project" {
-		t.Fatalf("DefaultCWD = %q", got.DefaultCWD)
-	}
-	if got.Model != "gpt-4o" {
-		t.Fatalf("Model = %q", got.Model)
-	}
-	if got.PermissionTimeout != 120*time.Second {
-		t.Fatalf("PermissionTimeout = %v", got.PermissionTimeout)
-	}
-	if !got.Prewarm {
-		t.Fatal("Prewarm should be true")
-	}
-	if got.TurnStallNotice != 30*time.Second {
-		t.Fatalf("TurnStallNotice = %v", got.TurnStallNotice)
-	}
-	if len(got.FSRoots) != 1 || got.FSRoots[0] != "/home/user" {
-		t.Fatalf("FSRoots = %v", got.FSRoots)
-	}
-	if got.AuthMethodID != "github" {
-		t.Fatalf("AuthMethodID = %q", got.AuthMethodID)
-	}
-	if len(got.McpServers) != 2 {
-		t.Fatalf("McpServers count = %d, want 2", len(got.McpServers))
-	}
-	if got.McpServers[0].Transport != acpagent.McpTransport("stdio") {
-		t.Fatalf("McpServers[0].Transport = %q", got.McpServers[0].Transport)
-	}
-	if got.McpServers[1].URL != "http://localhost:8080" {
-		t.Fatalf("McpServers[1].URL = %q", got.McpServers[1].URL)
-	}
-}
-
-func TestAcpAgentConfigEmptyMcpServers(t *testing.T) {
-	cfg := config.ACPProviderConfig{Bin: "agent"}
-	got := acpAgentConfig(cfg)
-	if len(got.McpServers) != 0 {
-		t.Fatalf("McpServers = %v, want empty", got.McpServers)
-	}
-}
-
-func TestAcpAgentConfigPermissionTimeoutZero(t *testing.T) {
-	cfg := config.ACPProviderConfig{Bin: "agent", PermissionTimeoutSeconds: 0}
-	got := acpAgentConfig(cfg)
-	if got.PermissionTimeout != 0 {
-		t.Fatalf("PermissionTimeout = %v, want 0", got.PermissionTimeout)
-	}
-}
 
 func TestEventHubBroadcastNilServerNoPanic(t *testing.T) {
 	hub := &eventHub{}

@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	yaml "go.yaml.in/yaml/v3"
 )
 
@@ -253,7 +254,7 @@ func TestTemplatesSpellEveryConfigKey(t *testing.T) {
 // YAML "" overwrites Defaults() (MADR 0073 finding 3 / 0050 D3). The
 // seed and the example must ship the pinned value, not an empty string.
 func TestTemplateGrokPermissionModeIsDefault(t *testing.T) {
-	want := config.Defaults().Providers.Grok.PermissionMode
+	want := grok.Descriptor().Section().(*grok.Section).PermissionMode
 	if want != "default" {
 		t.Fatalf("Defaults().permission_mode = %q, want default", want)
 	}

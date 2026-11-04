@@ -6,6 +6,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 )
 
 // Every case loads an explicit file under t.TempDir() (MADR 0160 C8): a bare
@@ -26,7 +27,7 @@ func findDiag(cfg config.Config, code string) (appdirs.Diagnostic, bool) {
 
 func loadRetiredGoose(t *testing.T, body string) config.Config {
 	t.Helper()
-	cfg, err := config.Load(config.LoadOptions{ConfigFile: writeConfig(t, body)})
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: writeConfig(t, body), Providers: registered.Sections()})
 	if err != nil {
 		t.Fatalf("Load must not fail on a leftover goose setting (MADR 0160 D3): %v", err)
 	}
@@ -110,7 +111,7 @@ func TestRetiredGooseSeededTemplateLoads(t *testing.T) {
 	if _, ok := findDiag(cfg, retiredGooseDiag); !ok {
 		t.Fatalf("no %s diagnostic; got %+v", retiredGooseDiag, cfg.Diagnostics)
 	}
-	if !cfg.Providers.Grok.Enabled {
+	if !cfg.Providers.Sections["grok"].IsEnabled() {
 		t.Fatal("a leftover goose block must not disturb the other providers")
 	}
 }

@@ -85,7 +85,6 @@ func TestProviderEnvOverrides(t *testing.T) {
 	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_ENABLED", "true")
 	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_MODEL", "anthropic/claude-sonnet-4-5")
 	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_PERMISSION_TIMEOUT_SECONDS", "120")
-	t.Setenv("MCREMOTE_PROVIDERS_GROK_PERMISSION_TIMEOUT_SECONDS", "60")
 	cfg, err := config.Load(config.LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -93,10 +92,6 @@ func TestProviderEnvOverrides(t *testing.T) {
 	oc := cfg.Providers.Opencode
 	if !oc.Enabled || oc.Model != "anthropic/claude-sonnet-4-5" || oc.PermissionTimeoutSeconds != 120 {
 		t.Fatalf("opencode env overrides not applied: %+v", oc)
-	}
-	if cfg.Providers.Grok.PermissionTimeoutSeconds != 60 {
-		t.Fatalf("grok timeout env override not applied: %d",
-			cfg.Providers.Grok.PermissionTimeoutSeconds)
 	}
 	if oc.Bin != "opencode" {
 		t.Fatalf("untouched opencode defaults should survive: %+v", oc)
@@ -603,20 +598,9 @@ func TestRelayValidateAdvertiseWithoutSecret(t *testing.T) {
 
 func TestValidateRejectsNegativeStallSeconds(t *testing.T) {
 	cfg := config.Defaults()
-	cfg.Providers.Grok.TurnStallNoticeSeconds = -1
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected error for negative grok stall")
-	}
-	cfg = config.Defaults()
 	cfg.Providers.Opencode.TurnStallNoticeSeconds = -5
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected error for negative opencode stall")
-	}
-}
-
-func TestDefaultsGrokPrewarm(t *testing.T) {
-	if config.Defaults().Providers.Grok.Prewarm {
-		t.Fatal("grok prewarm should default false (MADR 0089 D5)")
 	}
 }
 
@@ -626,7 +610,6 @@ func TestDefaultsAllPrewarmFalse(t *testing.T) {
 		id      string
 		prewarm bool
 	}{
-		{"grok", d.Providers.Grok.Prewarm},
 		{"opencode", d.Providers.Opencode.Prewarm},
 		{"codex", d.Providers.Codex.Prewarm},
 		{"kilo", d.Providers.Kilo.Prewarm},
@@ -706,20 +689,6 @@ func TestValidateRejectsBadKiloRanges(t *testing.T) {
 	cfg.Providers.Kilo.StreamCoalesceMs = 5000
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected error for out-of-range kilo stream_coalesce_ms")
-	}
-}
-
-func TestValidateGrokReasoningEffort(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.Providers.Grok.ReasoningEffort = "  "
-	err := cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "providers.grok.reasoning_effort") {
-		t.Fatalf("expected error naming providers.grok.reasoning_effort for whitespace value, got %v", err)
-	}
-
-	cfg.Providers.Grok.ReasoningEffort = "high"
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("valid reasoning_effort rejected: %v", err)
 	}
 }
 
@@ -969,9 +938,6 @@ func TestLoadWithoutTransportKeySucceeds(t *testing.T) {
 	if cfg.Providers.Opencode.Prewarm {
 		t.Fatal("prewarm should default to false")
 	}
-	if got := cfg.Providers.Grok.StreamCoalesceMs; got != 80 {
-		t.Fatalf("providers.grok.stream_coalesce_ms = %d, want the 80ms default", got)
-	}
 }
 
 func TestCodexTransportDefaultsAndValidation(t *testing.T) {
@@ -1009,36 +975,6 @@ func TestLoadRejectsRetiredOpencodeTransportFromEnv(t *testing.T) {
 		t.Fatal("expected an error for MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT")
 	} else if !strings.Contains(err.Error(), "transport is no longer supported") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-// grok's permission mode is pinned rather than inherited: with it empty the
-// daemon cannot know the session's approval posture (grok resolves it from its
-// own config, project config, or fleet-wide remote config), yet it advertises
-// modes and a `dangerous` flag as if it did (MADR 0050 D3).
-func TestGrokPermissionModeDefaultsToDefault(t *testing.T) {
-	if got := config.Defaults().Providers.Grok.PermissionMode; got != "default" {
-		t.Fatalf("providers.grok.permission_mode default = %q, want \"default\"", got)
-	}
-}
-
-func TestGrokPermissionModeValidation(t *testing.T) {
-	for _, ok := range []string{"", "default", "acceptEdits", "auto", "dontAsk", "bypassPermissions", "plan"} {
-		c := config.Defaults()
-		c.Providers.Grok.PermissionMode = ok
-		if err := c.Validate(); err != nil {
-			t.Errorf("%q must be accepted: %v", ok, err)
-		}
-	}
-	// Rejected at load, not at session start: grok exits with
-	// `error: unexpected argument` on an unknown value, which would surface as
-	// a provider that never becomes ready.
-	for _, bad := range []string{"nonsense", "Default", "yolo"} {
-		c := config.Defaults()
-		c.Providers.Grok.PermissionMode = bad
-		if err := c.Validate(); err == nil {
-			t.Errorf("%q must fail config validation", bad)
-		}
 	}
 }
 

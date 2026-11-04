@@ -208,13 +208,19 @@ func versionIn(out string) (string, bool) {
 }
 
 // engineBins is each engine's configured binary, as its provider resolves it.
+// A described provider's comes from its section, when it is an agent's.
 func engineBins(cfg config.Config) map[provider.ID]string {
-	return map[provider.ID]string{
-		provider.IDGrok:     cfg.Providers.Grok.Bin,
+	bins := map[provider.ID]string{
 		provider.IDOpencode: cfg.Providers.Opencode.Bin,
 		provider.IDCodex:    cfg.Providers.Codex.Bin,
 		provider.IDKilo:     cfg.Providers.Kilo.Bin,
 	}
+	for _, d := range registered.Descriptors() {
+		if agent, ok := d.SectionIn(cfg).(config.AgentSection); ok {
+			bins[d.ID] = agent.Agent().Bin
+		}
+	}
+	return bins
 }
 
 // renderEngineDoctor reports each enabled engine (MADR 0201 D32): the binary

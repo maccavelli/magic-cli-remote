@@ -21,8 +21,16 @@ import (
 type ProviderSection interface {
 	// IsEnabled reports providers.<id>.enabled.
 	IsEnabled() bool
-	// Validate checks the section once it is decoded.
+	// Validate checks the section once it is decoded. Its errors name each
+	// key in full, providers.<id>.<key>.
 	Validate() error
+}
+
+// AgentSection is the section of an agent CLI provider: one that embeds
+// AgentCommon.
+type AgentSection interface {
+	ProviderSection
+	Agent() *AgentCommon
 }
 
 // ProviderSectionSpec names one section and builds it holding its defaults.
@@ -120,8 +128,9 @@ func decodeSections(v *viper.Viper, specs []ProviderSectionSpec, environ []strin
 		if err := sub.Unmarshal(sec); err != nil {
 			return nil, fmt.Errorf("providers.%s: %w", spec.ID, err)
 		}
+		// A section names its own keys in full, as Config.Validate does.
 		if err := sec.Validate(); err != nil {
-			return nil, fmt.Errorf("providers.%s: %w", spec.ID, err)
+			return nil, err
 		}
 		out[spec.ID] = sec
 	}

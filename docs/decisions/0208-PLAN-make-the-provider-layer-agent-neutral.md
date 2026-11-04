@@ -2431,3 +2431,193 @@ to 5); the guide's note on strict sections, which lands when every section is st
 * this plan and the MADR's amendment of 2026-11-04.
 
 Next: grok's commit, after the four filter keys are measured on grok 1.0.70.
+
+### P8 Deviation 3, 2026-11-04 — cli tests read the host's config. The owner decided: "Make them hermetic" and "Migrate both"
+
+**Found.** The first `make ci-windows` of grok's commit failed 13 tests in `internal/cli`, each with
+"providers.grok has no key allow_rules, allowed_tools, deny_rules, disallowed_tools":
+`TestPairListShowsKeyColumn` (`pair_test.go:388`), eight `TestReceipts*` tests and four
+`TestAuthRecovery*` tests. They pass `--data-dir` and no config, so `config.Load` read the
+test host's own config, and the Windows test host's still had the four keys. This predates P8: these
+tests have always loaded the host's config, and grok's strict section exposed it. On this host they
+had passed only because the owner's config had just been migrated.
+
+**Decided:**
+* `hermeticConfig` (`receipts_test.go`) points `MCREMOTE_CONFIG` at an empty file for the test.
+  `receiptsFixture`, `runAuthRecovery` and `TestPairListShowsKeyColumn` call it.
+* The Linux and Windows test hosts' configs are backed up and migrated, as the owner's was.
+
+**Files added to P8:** `internal/cli/receipts_test.go`, `auth_recovery_test.go` and `pair_test.go`.
+
+### P8, `grok` commit, 2026-11-04: grok's section, its auth adapter, and the four filter keys removed
+
+**The measurement** (owner: "Re-measure on 1.0.70 first") is in the MADR's note of this date: no key
+changed the outcome, so all four are removed.
+
+**What changed.**
+* **`internal/config`.**
+  * `AgentCommon` (new, `config.go`) holds the keys every agent has: `enabled`, `bin`,
+    `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm` and
+    `turn_stall_notice_seconds`. It gives a section `IsEnabled`, `Agent` and `ValidateAgent`.
+    `ACPProviderConfig` embeds it squashed, and marks `args`, `fs_roots` and `mcp_servers`
+    config-file only.
+  * `AgentSection` (`sections.go`) is a section that embeds it. `finalizePaths` resolves each one's
+    `default_cwd`, and the prewarm toggle (`prewarm_write.go`) reaches it.
+  * `GrokProviderConfig`, grok's defaults, viper defaults and validation are gone, with
+    `validGrokPermissionMode`. `ValidateACPProvider` and `MaxStreamCoalesceMs` are exported for
+    sections to use. A stray comment line above `ValidateACPProvider` was removed when golint read
+    it as the exported function's doc.
+  * A section's `Validate` errors are no longer wrapped: a section names its keys in full,
+    `providers.<id>.<key>`, as `Config.Validate` does.
+* **`internal/provider/grok/section.go`** (new): `providers.grok`, its defaults (the pinned
+  `permission_mode` and its reason moved with it), validation, the mapping to grok's provider
+  config, and grok's descriptor, whose auth adapter makes the daemon build the coordinated provider.
+* **`internal/provider/acpagent/fromconfig.go`** (new). `ConfigFrom` is the daemon's
+  `acpAgentConfig`, moved so every ACP section shares it. Its tests moved with it.
+* **The four filter keys.** They are gone from `acpagent.Config`, grok's argv and `ModelArgs`,
+  `grok_test.go`, `live_argv_test.go`, and `live_policyflags_test.go`'s flag list.
+  `live_toolpolicy_test.go` (new) is the pin.
+* **`internal/provider/descriptor.go`.** `Descriptor.Credentials`, and `Build.Version`,
+  `Build.Credentials` and `Build.Busy`. `prewarm.go` exports `Warm`.
+* **`internal/daemon`.**
+  * `registerDescribed` builds each described provider with its coordinator and live-session count.
+    It warns when the binary is missing, and warms it when its section asks.
+  * `credentialAdapters` (`credentials.go`) builds the guard's adapters from the descriptors, plus
+    codex until codex's commit. `newCredentialGuard` takes them.
+  * `prewarmPlan` reads described sections.
+  * `grokConfig` and `acpAgentConfig` are gone.
+* **`internal/cli/doctor.go`.** `engineBins` takes a described agent's binary from its section.
+* **The config files.** All four shipped configs carry one identical `providers.grok` block, every
+  key commented, and a note that the four keys are gone. The guide's four rows became one "Removed"
+  row. Its note now records both measurements and the pin. `README.md`'s key table and grok table
+  dropped the keys.
+
+**Tests, each seen failing** (`p8/plant_c2.py` with `p8/plant_c1_harness.py`, on scratch copies):
+
+| Break | Fails |
+| --- | --- |
+| `allowed_tools` back in grok's section | `TestSectionRefusesTheRemovedFilterKeys/allowed_tools` |
+| no `ValidateAgent` call | `TestSectionValidate/negative_stall` |
+| no `stream_coalesce_ms` range check | `TestSectionValidate/stream_coalesce_too_long` |
+| no `reasoning_effort` check | `TestSectionValidate/whitespace_reasoning_effort` |
+| no `ValidateACPProvider` call | `TestSectionValidate/an_MCP_server_without_a_url` |
+| no `permission_mode` check | `TestSectionValidate/unknown_permission_mode` |
+| `permission_mode` defaulting empty | `TestSectionDefaults` |
+| `sandbox` not copied to the provider | `TestSectionReachesTheProvider` |
+| the coordinator ignored | `TestDescriptorCoordinatesWhenGivenACoordinator` |
+| `AgentCommon` not squashed | `TestSectionLoadsThroughConfig` |
+| `fs_roots` settable from a variable | `TestACPListKeysAreConfigFileOnly/MCREMOTE_PROVIDERS_ACP_FS_ROOTS` |
+| an MCP `stdio` transport accepted | `TestACPMCPTransportValidation` |
+| adapters built for a disabled provider | `TestCredentialAdaptersFollowTheSections` |
+| grok missing from the list | the same: "grok's defaults enable it, but it has no credential adapter" |
+| a disabled agent prewarmed | `TestPrewarmPlanReadsADescribedAgentsSection` |
+| the prewarm toggle missing the section | `TestPrewarmTogglesADescribedAgentsSection` |
+| doctor ignoring a described agent's binary | `TestEngineBinsReadADescribedAgentsSection` |
+| `default_cwd` not resolved for a section | `TestSectionDefaultCWDIsResolvedAgainstTheConfigFile` |
+| `deny_rules: []` planted in the seed | `TestTheShippedConfigFilesLoadThroughTheSections`: "providers.grok has no key deny_rules" |
+| `MCREMOTE_PROVIDERS_GROK_ALLOWED_TOOLS` planted in the guide | `TestEveryDocumentedProviderVariableNamesAKey` |
+| the pin's `deny` case expecting a prompt | the live pin, one turn: `TestLiveGrokToolPolicyFlagsStillHaveNoEffect/deny`: "no prompt under --deny: grok may now honour it over ACP" |
+
+Deviation 3's fix was seen working (`p8/plant_c2_hermetic.py`). With a host config holding
+`providers.grok.allowed_tools`, 13 tests failed without `hermeticConfig` and none failed with it.
+
+The shipped-config test caught the templates before they were edited: all four configs failed with
+"providers.grok has no key allow_rules, allowed_tools, deny_rules, disallowed_tools".
+
+**My mistakes, each fixed before a gate ran:**
+* An over-wide cut in `config_test.go` deleted five unrelated tests, from
+  `TestResolveListenHostTailscaleSentinel` to `TestLoadWithoutTransportKeySucceeds`. They were
+  restored from `HEAD` (`p8/restore_c2_cfgtests.py`), and the file's diff is grok's lines only.
+* Grok's section test cleared `MCREMOTE_*` after it had set its own variable, and failed. Clearing
+  now comes first.
+
+**Live.**
+
+| Run | Result |
+| --- | --- |
+| the measurement (`p8/grok_probe_live_test.go`, scratch only, never committed) | six configurations, table in the MADR |
+| `TestLiveGrokToolPolicyFlagsStillHaveNoEffect` | passed: `disallowed-tools`, `tools` and `deny` each wrote `probe.txt` with 0 prompts; `allow` prompted once and wrote nothing |
+| `make live-grok` (both parts, which include the pin and `TestLiveGrokArgvAcceptsEveryConfiguredFlag`) | passed: both parts ok (356 s and 542 s), 248 passes, 0 failures, 1 opt-in skip (`TestLiveRawOutputSamples`) |
+
+**The live configs.** This host's, the Linux test host's and the Windows test host's each held the
+four keys, one line each. Each was copied to `config.yaml.bak-0208-p8` beside it, and those lines
+were deleted (`p8/migrate_live_grok.py`, then `p8/migrate_grok_keys.py` over ssh; no value
+printed). Each then loaded with the installed build, and with this commit's code (`mcremote paths`).
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (33 Go files) | "33 file(s) clean (gofmt, golint, govulncheck)", after the stray comment above |
+| `go test -race ./...` | 48 packages ok |
+| `make lint staticcheck vet-tags` | exit 0 |
+| `make ci-windows` on the Windows test host | all selected checks passed (A2 to A6, 48 packages), on the second run; `go run ./cmd/mcremote paths` there loaded the migrated config, exit 0 |
+
+**Not done here:**
+* ~~`internal/cli/auth_recovery.go:80-83` still lists grok's and codex's credential adapters by
+  hand. It is outside P8's list.~~ *Done in this commit: P8 Deviation 4.*
+* ~~`TestGrokClearMethodsAreIndependent` (`methods_test.go`, unchanged) starts the installed grok to
+  read its model catalog, outside the live tag. This was seen in the logs and predates P8.~~ *Done
+  in this commit: P8 Deviation 4.*
+
+**Files for this commit:**
+* `internal/config/config.go`, `load.go`, `prewarm_write.go` and `sections.go`, and their tests
+  `acp_config_test.go`, `config_test.go`, `prewarm_write_test.go`, `retired_goose_test.go`,
+  `sections_test.go` and `viper_defaults_test.go`;
+* `internal/provider/descriptor.go`, `prewarm.go` and `registered/registered.go`;
+* `internal/provider/acpagent/config.go`, and `fromconfig.go` and `fromconfig_test.go` (new);
+* `internal/provider/grok/grok.go`, `grok_test.go`, `live_argv_test.go` and
+  `live_policyflags_test.go`, and `section.go`, `section_test.go` and `live_toolpolicy_test.go` (new);
+* `internal/daemon/daemon.go`, `credentials.go`, and `daemon_test.go`, `credentials_test.go`,
+  `notify_unix_test.go`, `shutdown_unix_test.go` and `prewarm_boot_test.go`;
+* `internal/cli/doctor.go`, `doctor_engines_test.go`, `receipts_test.go`, `auth_recovery_test.go`,
+  `pair_test.go` and `service/template_parity_test.go`;
+* the four shipped configs, `docs/guides/config.md` and `README.md`;
+* this plan and the MADR's note.
+
+Next: opencode's commit, in which the 1.x and `transport` warnings go.
+
+### P8 Deviation 4, 2026-11-04 — the grok commit's two leftovers. The owner decided: "address these now"
+
+**Found** (the grok record's "Not done"):
+* `internal/cli/auth_recovery.go` built its own adapters: codex's and grok's, by hand, whether
+  enabled or not, and codex's without the configured binary. Its comment says it builds "the
+  same adapters … `serve` would", and MADR 0134 makes codex's binary required. The error text named
+  the two providers by hand too.
+* `TestGrokClearMethodsAreIndependent`'s first subtest built grok's provider on `Bin: "grok"`.
+  Clearing the API key resolves the credential model through `ListModels`, which on a ready provider
+  spawns the agent to read its catalog. The unit test started this host's installed grok 1.0.70,
+  which signed in. It was the only grok unit test in `go test -v` that reached the binary.
+
+**Changed** (in the grok commit):
+* `internal/daemon/credentials.go`: `credentialAdapters` is exported as `CredentialAdapters(cfg,
+  enabledOnly)`. serve passes `true`. `auth-recovery` passes `false`, so a provider disabled since
+  its credential was stored can still be inspected and recovered, as before.
+* `internal/cli/auth_recovery.go` builds its coordinators from `daemon.CredentialAdapters`. Codex's
+  adapter now gets the configured binary, as serve's does. The "unknown provider" error lists the
+  providers it has.
+* `internal/cli/auth_recovery_test.go`: `runAuthRecoveryWith` writes the test's own providers
+  section, and `TestAuthRecoveryReachesADisabledProvider` is new.
+* `internal/provider/grok/methods_test.go`: the subtest's provider names a binary that does not
+  exist, so it is not ready and uses grok's static catalog.
+
+**Seen failing and seen working** (`p8/plant_dev4.py`, on scratch copies):
+
+| Break or experiment | Result |
+| --- | --- |
+| `auth-recovery` passing `enabledOnly` true | `TestAuthRecoveryReachesADisabledProvider`: "status with both disabled = \"\", want both listed" |
+| a descriptor's adapter only while enabled | `TestCredentialAdaptersFollowTheSections`: "auth-recovery has no adapter for a disabled grok" |
+| codex's adapter only while enabled | the same: "no adapter for a disabled codex" |
+| the grok subtest as it was | passes, and logs "spawning a short-lived agent to read the model catalog" |
+| the grok subtest as fixed | passes, and starts no agent |
+| a recording stub configured as codex's binary | all `TestAuthRecovery*` pass, and the stub never runs |
+
+**My mistake.** I first gave the `auth-recovery` tests a codex binary that did not exist, on the
+assumption that the configured binary would now run. The stub experiment showed no test path runs
+it, so that change and its comment were dropped before any gate.
+
+**Gates.** `make pre-add-check` on the six changed Go files: "6 file(s) clean". `go test -race ./...`:
+48 packages ok. `make lint staticcheck vet-tags`: exit 0. `make ci-windows` on the Windows test host:
+all selected checks passed (A2 to A6, 48 packages).
+
+**Files added to P8:** `internal/cli/auth_recovery.go` and `internal/provider/grok/methods_test.go`.

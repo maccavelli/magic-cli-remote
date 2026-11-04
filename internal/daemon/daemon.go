@@ -27,10 +27,10 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
+	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 	"github.com/maccavelli/magic-cli-remote/internal/receipt"
 	"github.com/maccavelli/magic-cli-remote/internal/relayhost"
 	"github.com/maccavelli/magic-cli-remote/internal/sdnotify"
@@ -59,31 +59,9 @@ type Options struct {
 // documented and tested at the config layer but never copied here would be a
 // default in name only (MADR 0112 A9).
 func opencodeConfig(cfg config.Config) acpagent.Config {
-	acpCfg := acpAgentConfig(cfg.Providers.Opencode.ACPProviderConfig)
+	acpCfg := acpagent.ConfigFrom(cfg.Providers.Opencode.ACPProviderConfig)
 	// Off unless an operator turned it on for this host (MADR 0112 A9).
 	acpCfg.AllowRemoteShell = cfg.Providers.Opencode.AllowRemoteShell
-	return acpCfg
-}
-
-// grokConfig maps daemon configuration onto the grok provider's config.
-// daemon.Run and InspectProviders share it, so they cannot drift (MADR 0201
-// D32).
-func grokConfig(cfg config.Config, version string) grok.Config {
-	acpCfg := acpAgentConfig(cfg.Providers.Grok.ACPProviderConfig)
-	acpCfg.ReasoningEffort = cfg.Providers.Grok.ReasoningEffort
-	acpCfg.PermissionMode = cfg.Providers.Grok.PermissionMode
-	acpCfg.Sandbox = cfg.Providers.Grok.Sandbox
-	acpCfg.AllowedTools = cfg.Providers.Grok.AllowedTools
-	acpCfg.DisallowedTools = cfg.Providers.Grok.DisallowedTools
-	acpCfg.AllowRules = cfg.Providers.Grok.AllowRules
-	acpCfg.DenyRules = cfg.Providers.Grok.DenyRules
-	acpCfg.NoSubagents = cfg.Providers.Grok.NoSubagents
-	acpCfg.DisableWebSearch = cfg.Providers.Grok.DisableWebSearch
-	acpCfg.ClientVersion = version
-	// Explicit pointer so 0 means "one event per token" (pre-0057), not
-	// "use the transport default".
-	streamCoalesce := time.Duration(cfg.Providers.Grok.StreamCoalesceMs) * time.Millisecond
-	acpCfg.StreamCoalesce = &streamCoalesce
 	return acpCfg
 }
 
@@ -152,10 +130,7 @@ func kiloConfig(cfg config.Config) kilo.Config {
 // must not call Start. Ready reports what daemon.Run's providers would.
 func InspectProviders(cfg config.Config, version string, log *slog.Logger) *provider.Registry {
 	reg := provider.NewRegistry()
-	registerDescribed(reg, cfg, log)
-	if cfg.Providers.Grok.Enabled {
-		reg.Register(grok.NewWithLogger(grokConfig(cfg, version), log))
-	}
+	registerDescribed(reg, cfg, provider.Build{Version: version, Log: log}, nil, false)
 	if cfg.Providers.Opencode.Enabled {
 		reg.Register(opencode.NewACPWithLogger(opencodeConfig(cfg), log))
 	}
@@ -170,15 +145,37 @@ func InspectProviders(cfg config.Config, version string, log *slog.Logger) *prov
 
 // registerDescribed builds and registers each enabled provider of the
 // registration list (0208 MADR D6), and returns how many it registered.
-func registerDescribed(reg *provider.Registry, cfg config.Config, log *slog.Logger) int {
+//
+// base carries what every provider is built with. coordinate, when set,
+// returns a provider's credential coordinator and its live-session count
+// (MADR 0074 D21). live is false for inspection (mcremote doctor), which
+// warns of nothing and warms nothing.
+func registerDescribed(reg *provider.Registry, cfg config.Config, base provider.Build,
+	coordinate func(provider.ID) (*providerauth.Coordinator, func() int), live bool) int {
 	n := 0
 	for _, d := range registered.Descriptors() {
 		sec := d.SectionIn(cfg)
 		if !sec.IsEnabled() {
 			continue
 		}
-		reg.Register(d.New(provider.Build{Section: sec, Log: log}))
+		b := base
+		b.Section = sec
+		if coordinate != nil {
+			b.Credentials, b.Busy = coordinate(d.ID)
+		}
+		p := d.New(b)
+		reg.Register(p)
 		n++
+		if !live {
+			continue
+		}
+		if agent, ok := sec.(config.AgentSection); ok && !p.Ready() {
+			base.Log.Warn(d.Name+" provider enabled but binary not found in PATH",
+				slog.String("bin", agent.Agent().Bin))
+		}
+		if prewarmWants(cfg, d.ID) {
+			provider.Warm(p)
+		}
 	}
 	return n
 }
@@ -299,12 +296,10 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	reg := provider.NewRegistry()
-	described := registerDescribed(reg, cfg, log)
 	// Credential transactions (MADR 0074 D21). Built before any provider so a
 	// coordinated provider can be constructed with its coordinator, and before
 	// any mutation so startup recovery runs first.
-	guard, guardErr := newCredentialGuard(cfg.DataDir, cfg.Providers.Codex.Enabled,
-		cfg.Providers.Grok.Enabled, cfg.Providers.Codex.Bin, log)
+	guard, guardErr := newCredentialGuard(cfg.DataDir, CredentialAdapters(cfg, true), log)
 	if guardErr != nil {
 		return fmt.Errorf("credential coordinator: %w", guardErr)
 	}
@@ -324,25 +319,13 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 
-	if cfg.Providers.Grok.Enabled {
-		acpCfg := grokConfig(cfg, opts.Version)
-		gp := grok.NewWithLogger(acpCfg, log)
-		if gc := guard.coordinator("grok"); gc != nil {
-			// The coordinated wrapper owns the transactional device-auth and
-			// method-clearing contracts; the underlying provider is unchanged.
-			reg.Register(grok.NewCoordinated(gp, cfg.Providers.Grok.Bin, log, gc, busyFor(provider.IDGrok)))
-		} else {
-			reg.Register(gp)
-		}
-		if !gp.Ready() {
-			log.Warn("grok provider enabled but binary not found in PATH",
-				slog.String("bin", cfg.Providers.Grok.Bin),
-			)
-		}
-		if prewarmWants(cfg, provider.IDGrok) {
-			gp.EnsureWarm()
-		}
-	}
+	described := registerDescribed(reg, cfg, provider.Build{Version: opts.Version, Log: log},
+		func(id provider.ID) (*providerauth.Coordinator, func() int) {
+			if c := guard.coordinator(string(id)); c != nil {
+				return c, busyFor(id)
+			}
+			return nil, nil
+		}, true)
 	if cfg.Providers.Opencode.Enabled {
 		// Each OpenCode session is its own `opencode acp`; one lease-bound
 		// control plane serves what ACP does not carry (0214 MADR).
@@ -411,7 +394,7 @@ func Run(ctx context.Context, opts Options) error {
 	// Keep this OR-chain in sync with ProvidersConfig — a provider missing here
 	// silently skips the warning instead of just being ready=false (MADR 0076 M3).
 	// A described provider is counted by registerDescribed.
-	if anyEnabled := described > 0 || cfg.Providers.Grok.Enabled || cfg.Providers.Opencode.Enabled || cfg.Providers.Codex.Enabled || cfg.Providers.Kilo.Enabled; anyEnabled {
+	if anyEnabled := described > 0 || cfg.Providers.Opencode.Enabled || cfg.Providers.Codex.Enabled || cfg.Providers.Kilo.Enabled; anyEnabled {
 		ready := 0
 		for _, p := range reg.All() {
 			if p.Ready() {
@@ -764,8 +747,10 @@ func (h *eventHub) BroadcastTerminalOutput(sessionID string, chunk provider.Term
 // serve boot (MADR 0089 D5). Empty when every default is off.
 func prewarmPlan(cfg config.Config) []provider.ID {
 	var out []provider.ID
-	if cfg.Providers.Grok.Enabled && cfg.Providers.Grok.Prewarm {
-		out = append(out, provider.IDGrok)
+	for _, d := range registered.Descriptors() {
+		if agent, ok := d.SectionIn(cfg).(config.AgentSection); ok && agent.Agent().Enabled && agent.Agent().Prewarm {
+			out = append(out, d.ID)
+		}
 	}
 	if cfg.Providers.Opencode.Enabled && cfg.Providers.Opencode.Prewarm {
 		out = append(out, provider.IDOpencode)
@@ -781,34 +766,6 @@ func prewarmPlan(cfg config.Config) []provider.ID {
 
 func prewarmWants(cfg config.Config, id provider.ID) bool {
 	return slices.Contains(prewarmPlan(cfg), id)
-}
-
-// acpAgentConfig builds an acpagent.Config from the shared ACP provider config.
-// Every ACP CLI agent (grok, opencode) is constructed through this one converter so
-// they stay identical in how config maps to the adapter.
-func acpAgentConfig(c config.ACPProviderConfig) acpagent.Config {
-	mcp := make([]acpagent.McpServer, 0, len(c.MCPServers))
-	for _, m := range c.MCPServers {
-		mcp = append(mcp, acpagent.McpServer{
-			Name:      m.Name,
-			Transport: acpagent.McpTransport(m.Transport),
-			URL:       m.URL,
-			Headers:   m.Headers,
-		})
-	}
-	return acpagent.Config{
-		Bin:               c.Bin,
-		Args:              c.Args,
-		AlwaysApprove:     c.AlwaysApprove,
-		DefaultCWD:        c.DefaultCWD,
-		Model:             c.Model,
-		PermissionTimeout: time.Duration(c.PermissionTimeoutSeconds) * time.Second,
-		Prewarm:           c.Prewarm,
-		TurnStallNotice:   time.Duration(c.TurnStallNoticeSeconds) * time.Second,
-		FSRoots:           c.FSRoots,
-		McpServers:        mcp,
-		AuthMethodID:      c.AuthMethodID,
-	}
 }
 
 // newHTTPServer builds the daemon's HTTP server.

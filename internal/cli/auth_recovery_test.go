@@ -18,6 +18,23 @@ import (
 // returns stdout plus the resolved exit code.
 func runAuthRecovery(t *testing.T, dataDir string, args ...string) (string, int) {
 	t.Helper()
+	return runAuthRecoveryWith(t, dataDir, "", args...)
+}
+
+// runAuthRecoveryWith is runAuthRecovery with a providers section: providers
+// is YAML at that level, and empty means none. The config is the test's own,
+// never the host's (0208 PLAN P8 Deviation 3).
+func runAuthRecoveryWith(t *testing.T, dataDir, providers string, args ...string) (string, int) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := ""
+	if providers != "" {
+		body = "providers:\n" + providers
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MCREMOTE_CONFIG", path)
 	root := &cobra.Command{Use: "mcremote", SilenceErrors: true, SilenceUsage: true}
 	root.PersistentFlags().String("config", "", "")
 	root.PersistentFlags().String("data-dir", "", "")
@@ -80,6 +97,21 @@ func TestAuthRecoveryStatusPrintsPublicStateOnly(t *testing.T) {
 		if strings.Contains(out, banned) {
 			t.Fatalf("status leaked %q: %s", banned, out)
 		}
+	}
+}
+
+// TestAuthRecoveryReachesADisabledProvider is 0208 PLAN P8 Deviation 4: the
+// adapters are serve's, from daemon.CredentialAdapters, but a provider disabled
+// since its credential was stored can still be inspected and recovered.
+func TestAuthRecoveryReachesADisabledProvider(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("GROK_HOME", t.TempDir())
+	out, code := runAuthRecoveryWith(t, t.TempDir(), "  codex:\n    enabled: false\n  grok:\n    enabled: false\n", "status")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0: %s", code, out)
+	}
+	if !strings.Contains(out, "codex") || !strings.Contains(out, "grok") {
+		t.Fatalf("status with both disabled = %q, want both listed", out)
 	}
 }
 

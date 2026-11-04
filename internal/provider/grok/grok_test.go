@@ -152,10 +152,6 @@ func TestSpecModelArgsPolicyFlags(t *testing.T) {
 		AlwaysApprove:    true,
 		ReasoningEffort:  "high",
 		PermissionMode:   "acceptEdits",
-		AllowedTools:     []string{"bash", "read"},
-		DisallowedTools:  []string{"write"},
-		AllowRules:       []string{"rule1"},
-		DenyRules:        []string{"rule2"},
 		NoSubagents:      true,
 		DisableWebSearch: true,
 	}
@@ -165,10 +161,6 @@ func TestSpecModelArgsPolicyFlags(t *testing.T) {
 		"--reasoning-effort", "high",
 		"--always-approve",
 		"--permission-mode", "acceptEdits",
-		"--tools", "bash,read",
-		"--disallowed-tools", "write",
-		"--allow", "rule1",
-		"--deny", "rule2",
 		"--no-subagents",
 		"--disable-web-search",
 		"--no-auto-update",
@@ -217,10 +209,6 @@ func TestDefaultArgsPutsGlobalsBeforeSubcommand(t *testing.T) {
 		ReasoningEffort:  "high",
 		AlwaysApprove:    true,
 		PermissionMode:   "default",
-		AllowedTools:     []string{"Bash"},
-		DisallowedTools:  []string{"Write"},
-		AllowRules:       []string{"r1"},
-		DenyRules:        []string{"r2"},
 		NoSubagents:      true,
 		DisableWebSearch: true,
 	}
@@ -250,7 +238,6 @@ func TestDefaultArgsPutsGlobalsBeforeSubcommand(t *testing.T) {
 	// Every configured global must appear before the subcommand.
 	for _, flag := range []string{
 		"-m", "--reasoning-effort", "--always-approve", "--permission-mode",
-		"--tools", "--disallowed-tools", "--allow", "--deny",
 		"--no-subagents", "--disable-web-search", "--no-auto-update",
 	} {
 		if !slices.Contains(got[:at], flag) {

@@ -7,12 +7,14 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 )
 
 // Descriptors returns the registered providers, in registration order.
 func Descriptors() []provider.Descriptor {
 	return []provider.Descriptor{
 		fake.Descriptor(),
+		grok.Descriptor(),
 	}
 }
 

@@ -110,13 +110,19 @@ func startEngine(reg *Registry, id ID) error {
 	if err != nil {
 		return fmt.Errorf("%w: %s: %w", ErrEngineNotStartable, id, err)
 	}
+	Warm(p)
+	return nil
+}
+
+// Warm starts p's shared engine, or arms one spare agent process, whichever
+// kind of provider p is. A provider with neither is left alone.
+func Warm(p Provider) {
 	switch e := p.(type) {
 	case interface{ EnsureServer() }:
 		e.EnsureServer()
 	case interface{ EnsureWarm() }:
 		e.EnsureWarm()
 	}
-	return nil
 }
 
 func stopEngine(reg *Registry, id ID) {

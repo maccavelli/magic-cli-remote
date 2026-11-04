@@ -52,14 +52,6 @@ type Config struct {
 	// Sandbox is the agent's OS-level sandbox profile, for a Spec whose agent
 	// takes one at launch. Empty leaves the agent's own default (MADR 0050 D4).
 	Sandbox string
-	// AllowedTools whitelists built-in tools.
-	AllowedTools []string
-	// DisallowedTools blacklists built-in tools.
-	DisallowedTools []string
-	// AllowRules adds persistent permission allow rules.
-	AllowRules []string
-	// DenyRules adds persistent permission deny rules.
-	DenyRules []string
 	// NoSubagents disables subagent spawning when true.
 	NoSubagents bool
 	// DisableWebSearch disables built-in web search when true.

@@ -366,6 +366,7 @@ func TestPairQRStaysScannable(t *testing.T) {
 // and the daemon's "client key rejected" log lines. Keyless legacy rows show
 // "-" rather than an empty cell.
 func TestPairListShowsKeyColumn(t *testing.T) {
+	hermeticConfig(t)
 	dir := t.TempDir()
 	store, err := auth.OpenStore(filepath.Join(dir, "devices.json"))
 	if err != nil {

@@ -87,7 +87,13 @@ func TestGrokClearMethodsAreIndependent(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		c := NewCoordinated(New(Config{Bin: "grok"}), "grok", nil, coord, nil)
+		// A binary that does not exist: clearing the key resolves the credential
+		// model through ListModels, which on a ready provider spawns the agent
+		// to read its catalog. With Bin "grok" this unit test started the
+		// host's installed grok, signed in with the host's credentials (0208
+		// PLAN P8 Deviation 4). Not ready, it uses the static catalog.
+		absent := filepath.Join(t.TempDir(), "grok-not-installed")
+		c := NewCoordinated(New(Config{Bin: absent}), absent, nil, coord, nil)
 
 		if err := c.ClearCredentialMethod(ctx, "", "xai:api"); err != nil {
 			t.Fatal(err)
