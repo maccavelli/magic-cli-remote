@@ -2054,3 +2054,87 @@ It replaced the macOS per-user temp root, in `directory` and `path`, with `/var/
 * `internal/provider/httpagent/runtime.go` and `runtime_test.go`;
 * `internal/provider/kilo/testdata/wire/7.8.18/session.json` (new) and `meta.json`;
 * this plan.
+
+*The owner committed the kilo `/usage` commit as `b12a8274`.*
+
+### P5 Deviation 6, 2026-11-04 — `/context` and 0189 D2's session cost. The owner decided: "Record plus kept cost"
+
+Found while naming the `/context` commit's files, before any change:
+
+* **Step 2 says** `/context` is "the JSON of the usage record Magic already holds".
+* **[0189-MADR-carry-the-agent-session-cost-as-a-session-total.md](0189-MADR-carry-the-agent-session-cost-as-a-session-total.md)
+  D2 says** `/context` appends the session cost, and its Confirmation requires "the cost suffix when
+  known and none when unknown". `session/sessioncost_test.go:116-154` pins it.
+* **The two differ.** The record Magic holds is `entry.lastUsage`, the latest report as it arrived.
+  A report without a cost leaves `meta.SessionCost`, the last known total, unchanged
+  (`session/manager.go:1600-1609`). So the latest record can lack a cost Magic still knows.
+* Today's line also names the model and the mode. Neither is part of the usage record.
+* The phone already keeps the last known cost from usage events (`transcript_reducer.dart:117`).
+
+**Decided: "Record plus kept cost".**
+* `/context` sends Magic's usage record (`event.Usage`) as JSON, in an `engine_result` named
+  `usage_update`, the event the record came from.
+* Its `session_cost` is the kept total when the latest report has none. So 0189 D2 holds: the cost
+  when known, none when unknown.
+* 0189 is amended: D2's `/context` bullet and its Confirmation line now name the JSON field, not
+  the line's suffix.
+* The model and the mode leave `/context`; the phone shows both elsewhere.
+* **Files for the commit:** `internal/session/commands.go`, `commands_internal_test.go`,
+  `sessioncost_test.go` and `canonical_test.go`; the 0189 MADR; this plan.
+
+### P5, `/context` commit, 2026-11-04: Magic's usage record as JSON
+
+**What changed** (`internal/session/commands.go`).
+* `cmdContext` sends a copy of `entry.lastUsage` as JSON, through `emitResult`, as an
+  `engine_result` named `usage_update`. Its `session_cost` is `meta.SessionCost`, the kept total,
+  when the latest report carried none (Deviation 6).
+* Before any report it still says "No context report yet": there is no record to send.
+* The model and the mode leave `/context`. `formatSessionCost` and `formatCount` are deleted; nothing
+  else used them. `TestFormatCount` goes with them.
+* Tests restated:
+  * 0189's Confirmation, `TestContextReportsTheSessionCost`, decodes the record and checks
+    `session_cost`: none, a cost, a free one, another currency, and a new case kept through a report
+    without one.
+  * `TestCanonicalOpCommands`' `/context` row becomes `TestCanonicalContextIsTheUsageRecord`.
+  * `TestContextBeforeAnyReportSaysSo` is new.
+
+**Tests, each seen failing** (`p5r/plant_context.py`, on scratch copies):
+
+| Break | Fails |
+| --- | --- |
+| the kept cost not merged | `TestContextReportsTheSessionCost/kept_through_a_report_without_one`: `session_cost = <nil>, want &{Amount:1.5 Currency:USD}` |
+| the record sent as a notice | `TestContextReportsTheSessionCost/none`: "no engine_result was sent" |
+| another method named | the same: `method = "context", want usage_update` |
+| an empty record sent before any report | `TestContextBeforeAnyReportSaysSo`: `/context sent "{}" before any usage report` |
+| the same method break, through the fake provider | `TestCanonicalContextIsTheUsageRecord`: "event engine_result not observed" |
+
+A first version of the first break deleted the merge outright, which left `cost` unused and did not
+compile. It was redone as `_ = cost`.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (4 Go files) | "4 file(s) clean (gofmt, golint, govulncheck)" |
+| `go test -race -count=1 ./...` | exit 0, 47 packages ok, no race |
+| `make lint`; `make staticcheck`; `make vet-tags` | exit 0 |
+
+**Where P5 stands.** Every operation P5 names passes the engine's answer through, or Magic's own
+record where no engine answers:
+* grok's and codex's `/usage` and `/status`;
+* kilo's `/status` and `/usage`;
+* `/context`.
+
+The Verification section says a phase is not complete until its named live run passes. **Step 4's
+live checks have not run:**
+* `make live-grok` (both parts);
+* `make live-codex`;
+* `MCREMOTE_LIVE_KILO_MODEL=openrouter/openrouter/free make live-kilo`.
+
+Each waits for the owner's quota word. Until then P5 is done in code, but not complete.
+
+**Files for this commit:**
+* `internal/session/commands.go`, `commands_internal_test.go`, `sessioncost_test.go` and
+  `canonical_test.go`;
+* `docs/decisions/0189-MADR-carry-the-agent-session-cost-as-a-session-total.md`;
+* this plan.

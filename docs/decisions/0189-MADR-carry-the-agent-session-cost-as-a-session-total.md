@@ -121,7 +121,8 @@ Under the chosen option:
     `session.list_result`.
   * Resume and relaunch keep it until the agent reports again. A fork starts without one, because it
     is a different agent session with its own figure.
-  * `/context` appends it, for example `· session cost $0.42`.
+  * ~~`/context` appends it, for example `· session cost $0.42`.~~ *Amended 2026-11-04: `/context`
+    carries it as `session_cost` in its JSON (amendment below).*
 * **D3. The phone shows the session cost in the context chip's tooltip.**
   * USD is shown as `$` with four decimals below one dollar and two from one dollar up, as the
     engine runtime line already does (`internal/provider/httpagent/runtime.go:169-176`). Any other
@@ -169,7 +170,8 @@ Under the chosen option:
   upper-cased), none on the others, the declines by name, and `cost_usd` never set.
 * A manager test requires the stored session cost to be replaced by a report that carries one, kept
   through a report that omits one, persisted on `Meta`, kept on resume, and absent on a fork.
-* A `/context` test requires the cost suffix when known and none when unknown.
+* ~~A `/context` test requires the cost suffix when known and none when unknown.~~ *Amended
+  2026-11-04: the `session_cost` field when known, and none when unknown.*
 * A Flutter widget test draws the tooltip for USD and for another currency, keeps the last known
   cost through a report without one, and shows that a cost-only change rebuilds the chip.
 * Each new test is seen failing first, on a scratch copy.
@@ -230,3 +232,14 @@ Found by the PLAN's C4 step 2, the live grok probe, on grok `1.0.50`.
 * **Not decided here.** Whether Magic should total grok's per-turn costs into the session total is
   a new decision. It would need its own record, and nothing is implemented.
 
+## Amendment, 2026-11-04 — `/context` carries the cost as JSON
+
+[0208-PLAN-make-the-provider-layer-agent-neutral.md](0208-PLAN-make-the-provider-layer-agent-neutral.md) P5 makes `/context` the JSON of the
+usage record Magic holds (0208 D12), not a line of text (its P5 Deviation 6).
+
+* D2 stands: the cost `/context` shows is the latest the agent reported, kept through a report
+  without one.
+* It is now the usage record's `session_cost` field, filled from the kept total when the latest
+  report has none, where it was a suffix such as `· session cost $0.42`.
+* D3's formatting is the phone's, as before.
+* *Owner: "Record plus kept cost".*

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"slices"
 	"strings"
@@ -12,7 +13,7 @@ import (
 )
 
 // PLAN 0189 C2: the daemon keeps an agent's latest session cost, persists it,
-// and reports it in /context (MADR 0189 D2).
+// and reports it in /context (MADR 0189 D2; as JSON since 0208-PLAN P5).
 
 // sendUsage delivers a usage report and returns once the manager has processed
 // it, as sendTitle does: the events channel is unbuffered.
@@ -102,29 +103,35 @@ func TestSessionCostIsTheLatestReportedTotal(t *testing.T) {
 	}
 }
 
-// lastNotice returns the text of the session's most recent notice.
-func lastNotice(mgr *Manager, id string) string {
-	h := mgr.History(id)
-	for _, v := range slices.Backward(h) {
-		if v.Type == event.TypeNotice {
-			return v.Text
+// lastEngineResult returns the session's most recent engine_result event.
+func lastEngineResult(t *testing.T, mgr *Manager, id string) event.Event {
+	t.Helper()
+	for _, v := range slices.Backward(mgr.History(id)) {
+		if v.Type == event.TypeEngineResult {
+			return v
 		}
 	}
-	return ""
+	t.Fatal("no engine_result was sent")
+	return event.Event{}
 }
 
+// TestContextReportsTheSessionCost is 0189's Confirmation, as amended
+// 2026-11-04: /context is Magic's usage record as JSON (0208-PLAN P5 Deviation
+// 6), and its session_cost is the agent's latest total when known, kept
+// through a report without one, and absent when none was ever reported. The
+// phone formats it (MADR 0189 D3).
 func TestContextReportsTheSessionCost(t *testing.T) {
 	cases := []struct {
-		name string
-		cost *event.SessionCost
-		want string // "" means no cost suffix at all
+		name    string
+		reports []*event.SessionCost // the session costs of the usage reports, in order
+		want    *event.SessionCost
 	}{
-		{name: "none"},
-		{name: "under a dollar", cost: usd(0.0234), want: " · session cost $0.0234"},
-		{name: "a dollar or more", cost: usd(1.5), want: " · session cost $1.50"},
-		{name: "free", cost: usd(0), want: " · session cost $0.0000"},
-		{name: "other currency", cost: &event.SessionCost{Amount: 0.42, Currency: "EUR"},
-			want: " · session cost 0.4200 EUR"},
+		{name: "none", reports: []*event.SessionCost{nil}},
+		{name: "under a dollar", reports: []*event.SessionCost{usd(0.0234)}, want: usd(0.0234)},
+		{name: "free", reports: []*event.SessionCost{usd(0)}, want: usd(0)},
+		{name: "other currency", reports: []*event.SessionCost{{Amount: 0.42, Currency: "EUR"}},
+			want: &event.SessionCost{Amount: 0.42, Currency: "EUR"}},
+		{name: "kept through a report without one", reports: []*event.SessionCost{usd(1.5), nil}, want: usd(1.5)},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -133,22 +140,51 @@ func TestContextReportsTheSessionCost(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			sendUsage(t, p, c.cost)
+			for _, cost := range c.reports {
+				sendUsage(t, p, cost)
+			}
 			if err := mgr.cmdContext(meta.ID); err != nil {
 				t.Fatal(err)
 			}
-			got := lastNotice(mgr, meta.ID)
-			if !strings.HasPrefix(got, "Context: 1,200 tokens of 8,000 (15%)") {
-				t.Fatalf("notice = %q", got)
+			ev := lastEngineResult(t, mgr, meta.ID)
+			if ev.ResultMethod != "usage_update" {
+				t.Errorf("method = %q, want usage_update, the event the record came from", ev.ResultMethod)
 			}
-			switch {
-			case c.want == "" && strings.Contains(got, "session cost"):
-				t.Fatalf("notice = %q, want no cost when none was reported", got)
-			// The session has no model or mode, so the cost ends the line;
-			// a suffix check keeps "$1.5000" from passing for "$1.50".
-			case c.want != "" && !strings.HasSuffix(got, c.want):
-				t.Fatalf("notice = %q, want it to end with %q", got, c.want)
+			var got event.Usage
+			if err := json.Unmarshal([]byte(ev.Text), &got); err != nil {
+				t.Fatalf("/context sent %q, not the usage record as JSON: %v", ev.Text, err)
+			}
+			if got.Used != 1200 || got.Size != 8000 {
+				t.Errorf("record = %+v, want used 1200 of 8000", got)
+			}
+			if !reflect.DeepEqual(got.SessionCost, c.want) {
+				t.Errorf("session_cost = %+v, want %+v", got.SessionCost, c.want)
 			}
 		})
+	}
+}
+
+// TestContextBeforeAnyReportSaysSo: with no usage record there is nothing to
+// send, so /context says so rather than sending an empty record.
+func TestContextBeforeAnyReportSaysSo(t *testing.T) {
+	mgr, _ := newNameManager(t, nil)
+	meta, err := mgr.Create(context.Background(), "metadata", provider.StartOptions{}, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.cmdContext(meta.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range mgr.History(meta.ID) {
+		if v.Type == event.TypeEngineResult {
+			t.Fatalf("/context sent %q before any usage report", v.Text)
+		}
+	}
+	var said bool
+	for _, v := range mgr.History(meta.ID) {
+		said = said || v.Type == event.TypeNotice && strings.Contains(v.Text, "No context report yet")
+	}
+	if !said {
+		t.Error("/context said nothing before any usage report")
 	}
 }

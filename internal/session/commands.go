@@ -2,11 +2,11 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -494,18 +494,18 @@ func (m *Manager) cmdCompact(ctx context.Context, id string) error {
 	return nil
 }
 
-// cmdContext reports context-window usage from the session's last usage report
-// (the daemon's own tally), plus the model and mode for orientation.
+// cmdContext sends the session's last usage report, the daemon's own record of
+// it, as JSON in an engine_result named after the event it came from (MADR
+// 0208 D12 step 2; PLAN P5 Deviation 6). No engine answers /context, so the
+// record is what there is to pass through. Its session_cost is the kept total
+// when the latest report carried none (MADR 0189 D2, as amended).
 func (m *Manager) cmdContext(id string) error {
 	m.mu.RLock()
 	var usage *event.Usage
 	var cost *event.SessionCost
-	var model, mode string
 	if e, ok := m.sessions[id]; ok {
 		usage = e.lastUsage
 		cost = e.meta.SessionCost
-		model = e.meta.Model
-		mode = e.currentModeID
 	}
 	m.mu.RUnlock()
 
@@ -513,38 +513,17 @@ func (m *Manager) cmdContext(id string) error {
 		m.emitNotice(id, "No context report yet — send a message first.")
 		return nil
 	}
-	msg := fmt.Sprintf("Context: %s tokens", formatCount(usage.Used))
-	if usage.Size > 0 {
-		msg += fmt.Sprintf(" of %s (%d%%)", formatCount(usage.Size),
-			usage.Used*100/usage.Size)
+	record := *usage
+	if record.SessionCost == nil && cost != nil {
+		kept := *cost
+		record.SessionCost = &kept
 	}
-	if model != "" {
-		msg += " · model " + model
+	body, err := json.Marshal(record)
+	if err != nil {
+		return err
 	}
-	if mode != "" {
-		msg += " · mode " + mode
-	}
-	if cost != nil {
-		msg += " · session cost " + formatSessionCost(*cost)
-	}
-	m.emitNotice(id, msg)
+	m.emitResult(id, provider.Result{Method: string(event.TypeUsage), Body: body})
 	return nil
-}
-
-// formatSessionCost renders an agent's session total: four decimals under one
-// unit and two from one up, as the engine runtime line does. USD reads as
-// dollars; any other currency keeps its code, because the daemon has no rate
-// to convert with (MADR 0189 D3).
-func formatSessionCost(c event.SessionCost) string {
-	format := "%.4f"
-	if c.Amount >= 1 {
-		format = "%.2f"
-	}
-	amount := fmt.Sprintf(format, c.Amount)
-	if c.Currency == "USD" {
-		return "$" + amount
-	}
-	return amount + " " + c.Currency
 }
 
 func (m *Manager) cmdRuntime(ctx context.Context, id string, usage bool) error {
@@ -723,26 +702,6 @@ func (m *Manager) cmdRedo(ctx context.Context, id string) error {
 	}
 	m.emitNotice(id, "Restored the undone turn.")
 	return nil
-}
-
-// formatCount renders a token count with thousands separators.
-func formatCount(n int) string {
-	s := strconv.Itoa(n)
-	if len(s) <= 3 {
-		return s
-	}
-	var b strings.Builder
-	lead := len(s) % 3
-	if lead > 0 {
-		b.WriteString(s[:lead])
-	}
-	for i := lead; i < len(s); i += 3 {
-		if b.Len() > 0 {
-			b.WriteByte(',')
-		}
-		b.WriteString(s[i : i+3])
-	}
-	return b.String()
 }
 
 // sessionModes snapshots the modes advertised for a session and the active id.

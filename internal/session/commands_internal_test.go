@@ -134,15 +134,3 @@ func TestHelpTextWithoutARegistry(t *testing.T) {
 		t.Fatalf("help text = %q", h)
 	}
 }
-
-func TestFormatCount(t *testing.T) {
-	cases := map[int]string{
-		0: "0", 7: "7", 999: "999", 1000: "1,000",
-		12480: "12,480", 128000: "128,000", 1000000: "1,000,000",
-	}
-	for in, want := range cases {
-		if got := formatCount(in); got != want {
-			t.Errorf("formatCount(%d) = %q, want %q", in, got, want)
-		}
-	}
-}

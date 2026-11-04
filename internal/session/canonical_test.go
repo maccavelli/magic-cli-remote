@@ -2,6 +2,7 @@ package session_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
@@ -94,8 +95,6 @@ func TestCanonicalOpCommands(t *testing.T) {
 		want    string
 	}{
 		{name: "compact", command: "/compact", want: "Compacting"},
-		// The fake reports usage at start, which is what makes /context work.
-		{name: "context", command: "/context", want: "Context: 1,200 tokens of 128,000 (0%)"},
 		{name: "diff", command: "/diff", want: "main.go +12"},
 		{name: "undo", command: "/undo", want: "Undid the last turn"},
 		{name: "redo", command: "/redo", want: "Restored the undone turn"},
@@ -115,6 +114,24 @@ func TestCanonicalOpCommands(t *testing.T) {
 			})
 		})
 	}
+}
+
+// /context answers with the daemon's usage record as JSON, not a line of text
+// (0208-PLAN P5 Deviation 6). The fake reports usage at start, which is what
+// makes /context available.
+func TestCanonicalContextIsTheUsageRecord(t *testing.T) {
+	mgr, mu, events, meta := canonicalFixture(t)
+	if err := mgr.Prompt(context.Background(), meta.ID, "/context", nil, "dev-a"); err != nil {
+		t.Fatalf("/context: %v", err)
+	}
+	waitEventMatching(t, mu, events, event.TypeEngineResult, func(ev event.Event) bool {
+		var u event.Usage
+		return ev.ResultMethod == "usage_update" && json.Unmarshal([]byte(ev.Text), &u) == nil &&
+			u.Used == 1200 && u.Size == 128000
+	})
+	waitEventMatching(t, mu, events, event.TypeUserMessage, func(ev event.Event) bool {
+		return ev.Text == "/context"
+	})
 }
 
 // An in-place model switch must not restart the agent: the conversation is the
