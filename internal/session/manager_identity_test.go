@@ -229,3 +229,69 @@ func TestRemovalHelpersRefuseAnEmptyMessageID(t *testing.T) {
 		t.Fatalf("an empty message id deleted rows: %v", hist(e))
 	}
 }
+
+// turnRows is a session of two turns and a notice after them, rows with no
+// native id as OpenCode v2's live turns are.
+func turnRows(e *entry) {
+	for _, ev := range []event.Event{
+		{Type: event.TypeUserMessage, Text: "first"},
+		{Type: event.TypeAssistantChunk, Text: "one"},
+		{Type: event.TypeUserMessage, Text: "second"},
+		{Type: event.TypeThoughtChunk, Text: "hmm"},
+		{Type: event.TypeToolCall, Text: "ls", ToolID: "t1"},
+		{Type: event.TypeAssistantChunk, Text: "two"},
+		{Type: event.TypeNotice, Text: "Undid the last turn."},
+	} {
+		e.appendHistoryLocked(&ev)
+	}
+}
+
+// TestRemoveTurnsTakesTheNewestTurns pins the range tombstone (0214 MADR,
+// added at P6e): a removal of n turns deletes every row from the n-th newest
+// user row on, except notices, keeps the tombstone, and carries the range it
+// covered to clients.
+func TestRemoveTurnsTakesTheNewestTurns(t *testing.T) {
+	e := &entry{}
+	turnRows(e)
+	tomb := event.Event{Type: event.TypeTranscriptRemove, RemoveTurns: 1}
+	e.appendHistoryLocked(&tomb)
+	want := []string{
+		"user_message:/:first",
+		"assistant_message_chunk:/:one",
+		"notice:/:Undid the last turn.",
+		"transcript_remove:/:",
+	}
+	if got := hist(e); !eqStrings(got, want) {
+		t.Fatalf("history = %v, want %v", got, want)
+	}
+	if tomb.RemoveFromSeq != 3 || tomb.RemoveToSeq != 7 {
+		t.Errorf("range %d..%d, want 3..7: from the second user row to the newest row", tomb.RemoveFromSeq, tomb.RemoveToSeq)
+	}
+
+	e = &entry{}
+	turnRows(e)
+	two := event.Event{Type: event.TypeTranscriptRemove, RemoveTurns: 2}
+	e.appendHistoryLocked(&two)
+	if got := hist(e); !eqStrings(got, []string{"notice:/:Undid the last turn.", "transcript_remove:/:"}) {
+		t.Errorf("two turns: history = %v", got)
+	}
+	if two.RemoveFromSeq != 1 {
+		t.Errorf("two turns from seq %d, want 1", two.RemoveFromSeq)
+	}
+}
+
+// TestRemoveTurnsWithNoTurnRemovesNothing: with no user row there is no turn
+// to remove, and the tombstone carries no range.
+func TestRemoveTurnsWithNoTurnRemovesNothing(t *testing.T) {
+	e := &entry{}
+	note := event.Event{Type: event.TypeNotice, Text: "hello"}
+	e.appendHistoryLocked(&note)
+	tomb := event.Event{Type: event.TypeTranscriptRemove, RemoveTurns: 1}
+	e.appendHistoryLocked(&tomb)
+	if got := hist(e); !eqStrings(got, []string{"notice:/:hello", "transcript_remove:/:"}) {
+		t.Errorf("history = %v", got)
+	}
+	if tomb.RemoveFromSeq != 0 || tomb.RemoveToSeq != 0 {
+		t.Errorf("range %d..%d, want none", tomb.RemoveFromSeq, tomb.RemoveToSeq)
+	}
+}

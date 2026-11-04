@@ -332,6 +332,8 @@ func (e *entry) appendHistoryLocked(ev *event.Event) {
 	}
 	e.histGen = histGenSeq.Add(1)
 	switch {
+	case ev.Type == event.TypeTranscriptRemove && ev.RemoveTurns > 0:
+		ev.RemoveFromSeq, ev.RemoveToSeq = e.removeTurnsLocked(ev.RemoveTurns)
 	case ev.Type == event.TypeTranscriptRemove && ev.NativeMessageID != "":
 		e.removeNativeLocked(ev.NativeMessageID, ev.NativePartID)
 	case ev.Replace && ev.NativeMessageID != "" && ev.NativePartID != "":
@@ -636,6 +638,33 @@ func (e *entry) removeNativeLocked(messageID, partID string) {
 	if len(e.history) != before {
 		e.reindexHistoryLocked()
 	}
+}
+
+// removeTurnsLocked deletes the newest n turns: every row from the n-th
+// newest user row to the newest row, except notices, which say what happened,
+// and tombstones, which record removals. It returns the range it covered, for
+// clients, which remove what those events made; 0, 0 when there is no user
+// row. A provider asks for this when it undoes turns whose rows share no
+// native id (0214 MADR, added at P6e).
+func (e *entry) removeTurnsLocked(n int) (from, to uint64) {
+	start := -1
+	for i, seen := len(e.history)-1, 0; i >= 0 && seen < n; i-- {
+		if e.history[i].Type == event.TypeUserMessage {
+			start, seen = i, seen+1
+		}
+	}
+	if start < 0 {
+		return 0, 0
+	}
+	from, to = e.history[start].Seq, e.history[len(e.history)-1].Seq
+	before := len(e.history)
+	e.history = slices.DeleteFunc(e.history, func(h event.Event) bool {
+		return h.Seq >= from && h.Seq <= to && h.Type != event.TypeNotice && h.Type != event.TypeTranscriptRemove
+	})
+	if len(e.history) != before {
+		e.reindexHistoryLocked()
+	}
+	return from, to
 }
 
 // removeOptimisticUserLocked drops the message-level user row the daemon wrote

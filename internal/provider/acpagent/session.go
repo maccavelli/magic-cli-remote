@@ -378,6 +378,28 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 	s.prompting = true
 	s.mu.Unlock()
 
+	// Before the user row: work such as removing an undone turn must land in
+	// the transcript ahead of the prompt that follows it (0214 MADR, added at
+	// P6e).
+	if s.ops.BeforePrompt != nil {
+		if err := s.ops.BeforePrompt(ctx, s); err != nil {
+			s.mu.Lock()
+			s.prompting = false
+			s.mu.Unlock()
+			if !emitUser {
+				s.emit(event.Event{
+					Type:      event.TypeError,
+					SessionID: s.localID,
+					Timestamp: time.Now().UTC(),
+					Error:     err.Error(),
+				})
+				s.tryDrainQueue()
+				return nil
+			}
+			return err
+		}
+	}
+
 	text, blocks, attachments := s.buildPromptBlocks(parts)
 	// A prompt with only unsupported attachments and no text would send an
 	// empty block list; refuse rather than issue a no-op turn.
@@ -2207,7 +2229,7 @@ func (s *session) emitCapabilities() {
 			// them (0214 PLAN P6a).
 			WorkspaceRead: s.ops.workspaceOffered(),
 			SkillRefresh:  s.ops.RefreshSkills != nil,
-			Shell:         s.ops.Shell != nil,
+			Shell:         s.shellOffered(),
 		},
 	})
 }

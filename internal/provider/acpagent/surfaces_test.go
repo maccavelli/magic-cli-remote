@@ -3,7 +3,11 @@ package acpagent
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -76,6 +80,7 @@ func TestSurfacesFollowTheSpecsOps(t *testing.T) {
 		s := loadingSession()
 		s.loading = false
 		s.ops = surfaceOps(&calls)
+		s.cfg.AllowRemoteShell = true
 		for _, err := range callSurfaces(s) {
 			if err != nil {
 				t.Errorf("an offered operation failed: %v", err)
@@ -111,6 +116,25 @@ func TestSurfacesFollowTheSpecsOps(t *testing.T) {
 		}
 		if w, sk, sh := capabilityFlags(t, s); w || sk || sh {
 			t.Errorf("session_capabilities workspace %v, skill refresh %v, shell %v; want all false", w, sk, sh)
+		}
+	})
+
+	// The shell is remote command execution: with the hook set it is still
+	// offered only when the operator permits it (MADR 0112 A9; 0214 MADR, added
+	// at P6e).
+	t.Run("shell without the operator's permission", func(t *testing.T) {
+		var calls []string
+		s := loadingSession()
+		s.loading = false
+		s.ops = surfaceOps(&calls)
+		if err := s.Shell(context.Background(), "ls"); !errors.Is(err, provider.ErrNotImplemented) || slices.Contains(calls, "shell") {
+			t.Errorf("shell: %v, hooks called %v; want not offered, and the hook not called", err, calls)
+		}
+		if declared(t, s)[provider.CapShell] {
+			t.Error("shell declared without the operator's permission")
+		}
+		if _, _, sh := capabilityFlags(t, s); sh {
+			t.Error("session_capabilities tells the phone shell without the operator's permission")
 		}
 	})
 
@@ -178,6 +202,94 @@ func TestBusyIsTheTurn(t *testing.T) {
 	}
 	h.answerNext(t)
 	waitIdle(t, host)
+}
+
+// TestBeforePromptRunsAheadOfThePrompt pins Ops.BeforePrompt (0214 MADR,
+// added at P6e): it runs before the prompt's user row, and an error refuses
+// the prompt, shows no user row, sends nothing, and leaves the session free.
+func TestBeforePromptRunsAheadOfThePrompt(t *testing.T) {
+	h := &heldPrompts{}
+	var fail sync.Mutex
+	failing := true
+	spec := Spec{ID: "vendor", Ops: Ops{BeforePrompt: func(_ context.Context, host Host) error {
+		fail.Lock()
+		defer fail.Unlock()
+		if failing {
+			return errors.New("not now")
+		}
+		host.Emit(event.Event{Type: event.TypeNotice, Text: "before"})
+		return nil
+	}}}
+	s, err := startOnScript(t, New(spec, Config{}), provider.StartOptions{}, h.handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startEvents(s)
+	host := s.(Host)
+	prompt := []provider.Content{{Type: "text", Text: "go"}}
+
+	if err := s.Prompt(context.Background(), prompt); err == nil || !strings.Contains(err.Error(), "not now") {
+		t.Fatalf("prompt with a failing hook: %v, want its error", err)
+	}
+	for _, ev := range startEvents(s) {
+		if ev.Type == event.TypeUserMessage {
+			t.Error("a refused prompt showed its user row")
+		}
+	}
+	h.mu.Lock()
+	sent := len(h.prompts)
+	h.mu.Unlock()
+	if sent != 0 || host.Busy() {
+		t.Fatalf("after a refusal: %d prompt(s) sent, busy %v; want none, and free", sent, host.Busy())
+	}
+
+	fail.Lock()
+	failing = false
+	fail.Unlock()
+	if err := s.Prompt(context.Background(), prompt); err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	for _, ev := range startEvents(s) {
+		switch ev.Type {
+		case event.TypeNotice:
+			order = append(order, "hook:"+ev.Text)
+		case event.TypeUserMessage:
+			order = append(order, "user:"+ev.Text)
+		}
+	}
+	if !slices.Equal(order, []string{"hook:before", "user:go"}) {
+		t.Errorf("order %v, want the hook's event before the user row", order)
+	}
+	h.answerNext(t)
+	waitIdle(t, host)
+}
+
+// TestRealCWDResolvesSymlinks pins Spec.RealCWD (0214 MADR, added at P6e): a
+// session's directory reached through a symlink is given to the agent as its
+// real path when the Spec asks, and as given otherwise.
+func TestRealCWDResolvesSymlinks(t *testing.T) {
+	base := t.TempDir()
+	realDir := filepath.Join(base, "real")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(realDir, link); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	want, err := filepath.EvalSymlinks(realDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := New(Spec{ID: "vendor", RealCWD: true}, Config{}).resolveSessionCWD(link)
+	if err != nil || got != want {
+		t.Errorf("RealCWD: %q (%v), want the real path %q", got, err, want)
+	}
+	got, err = New(Spec{ID: "vendor"}, Config{}).resolveSessionCWD(link)
+	if err != nil || got != link {
+		t.Errorf("without RealCWD: %q (%v), want the path as given, %q", got, err, link)
+	}
 }
 
 // waitIdle waits for h's turn to end.

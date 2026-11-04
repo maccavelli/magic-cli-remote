@@ -2758,12 +2758,20 @@ class SessionEvent {
     this.codex,
     this.nativeMessageId,
     this.nativePartId,
+    this.removeFromSeq = 0,
+    this.removeToSeq = 0,
     this.replace = false,
     this.artifact,
   });
 
   final String type;
   final String sessionId;
+
+  /// On a `transcript_remove`, the range of host sequence numbers whose
+  /// events' rows are removed: an undone turn, whose rows share no native id
+  /// (0214 MADR, added at P6e). 0 when the tombstone names a native id instead.
+  final int removeFromSeq;
+  final int removeToSeq;
 
   /// The agent's own identity for a transcript-bearing event (MADR 0112 A3).
   /// Null when the provider supplies none; such rows keep the previous
@@ -2958,6 +2966,8 @@ class SessionEvent {
     seq: seq,
     replay: replay,
     codex: codex,
+    removeFromSeq: removeFromSeq,
+    removeToSeq: removeToSeq,
   );
 
   factory SessionEvent.fromJson(Map<String, dynamic> json) {
@@ -3095,6 +3105,8 @@ class SessionEvent {
       seq: (json['seq'] as num?)?.toInt() ?? 0,
       nativeMessageId: json['native_message_id'] as String?,
       nativePartId: json['native_part_id'] as String?,
+      removeFromSeq: (json['remove_from_seq'] as num?)?.toInt() ?? 0,
+      removeToSeq: (json['remove_to_seq'] as num?)?.toInt() ?? 0,
       replace: json['replace'] == true,
       artifact: switch (json['artifact']) {
         final Map<String, dynamic> m => ArtifactInfo.fromJson(m),

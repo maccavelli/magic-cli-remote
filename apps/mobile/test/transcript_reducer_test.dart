@@ -1401,4 +1401,127 @@ void main() {
       expect(t4.items.single.text, 'ls');
     });
   });
+
+  // An undone turn's rows share no native id, so the host removes a range of
+  // its sequence numbers, and the phone the items those events made (0214
+  // MADR, added at P6e).
+  group('range tombstone', () {
+    SessionEvent at(int seq, String type, {String? text, String? toolId}) =>
+        SessionEvent(
+          type: type,
+          sessionId: 's1',
+          seq: seq,
+          text: text,
+          toolId: toolId,
+          toolName: toolId == null ? null : 'bash',
+          status: toolId == null ? null : 'running',
+        );
+
+    SessionTranscript build(List<SessionEvent> evs) {
+      var t = base;
+      for (final ev in evs) {
+        t = applySessionEvent(t, ev);
+      }
+      return t;
+    }
+
+    test('each item keeps the host seq of the event that made it', () {
+      final t = build([
+        at(3, 'user_message', text: 'first'),
+        at(4, 'assistant_message_chunk', text: 'one '),
+        at(5, 'assistant_message_chunk', text: 'more'),
+        at(6, 'tool_call', toolId: 't1'),
+      ]);
+      expect([for (final it in t.items) it.hostSeq], [3, 4, 6]);
+      expect(t.items[1].text, 'one more');
+    });
+
+    test('removes the range, keeps system lines and what came before', () {
+      var t = build([
+        at(1, 'user_message', text: 'kept'),
+        at(2, 'assistant_message_chunk', text: 'kept answer'),
+        at(3, 'tool_call', toolId: 'early'),
+        at(5, 'user_message', text: 'undone'),
+        at(6, 'assistant_message_chunk', text: 'undone answer'),
+        at(7, 'tool_call', toolId: 'late'),
+        at(8, 'notice', text: 'Undid the last turn.'),
+      ]);
+      t = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'transcript_remove',
+          sessionId: 's1',
+          seq: 9,
+          removeFromSeq: 5,
+          removeToSeq: 8,
+        ),
+      );
+      expect(
+        [
+          for (final it in t.items)
+            it.kind == ChatItemKind.tool ? it.toolId : it.text,
+        ],
+        ['kept', 'kept answer', 'early', 'Undid the last turn.'],
+      );
+      // The tool index follows the rows that remain: an update to the earlier
+      // tool reaches its own card.
+      t = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'tool_call_update',
+          sessionId: 's1',
+          seq: 10,
+          toolId: 'early',
+          toolName: 'bash',
+          status: 'completed',
+        ),
+      );
+      final early = t.items.firstWhere((it) => it.toolId == 'early');
+      expect(early.toolStatus, 'completed');
+      expect(t.items.where((it) => it.kind == ChatItemKind.tool).length, 1);
+      // A removed tool's late update must not land on the card that now sits
+      // where the removed one was.
+      t = applySessionEvent(t, at(11, 'user_message', text: 'next turn'));
+      t = applySessionEvent(t, at(12, 'tool_call', toolId: 'next'));
+      t = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'tool_call_update',
+          sessionId: 's1',
+          seq: 13,
+          toolId: 'late',
+          toolName: 'bash',
+          status: 'failed',
+        ),
+      );
+      final next = t.items.firstWhere((it) => it.toolId == 'next');
+      expect(next.toolStatus, 'running');
+    });
+
+    test('never removes an item with no host seq', () {
+      var t = build([
+        SessionEvent(type: 'user_message', sessionId: 's1', text: 'unstamped'),
+      ]);
+      final before = t;
+      t = applySessionEvent(
+        t,
+        SessionEvent(
+          type: 'transcript_remove',
+          sessionId: 's1',
+          seq: 9,
+          removeFromSeq: 1,
+          removeToSeq: 8,
+        ),
+      );
+      expect(identical(t, before), isTrue);
+      expect(t.items.single.text, 'unstamped');
+    });
+
+    test('the host seq survives the cache', () {
+      final t = build([at(4, 'user_message', text: 'cached')]);
+      final back = ChatItem.fromJson(t.items.single.toJson());
+      expect(back.hostSeq, 4);
+      expect(ChatItem.fromJson(const {'kind': 'user'}).hostSeq, 0);
+    });
+  });
 }

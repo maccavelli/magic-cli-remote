@@ -135,6 +135,10 @@ type Ops struct {
 	// diagnostics; MCP comes from the session's own server list unless the
 	// Spec's answer carries it.
 	Diagnostics func(ctx context.Context, h Host) (provider.Diagnostics, error)
+	// BeforePrompt runs once a turn is claimed and before its prompt is shown
+	// or sent, for work the next prompt must follow, such as making an undo
+	// permanent. An error refuses the prompt (0214 MADR, added at P6e).
+	BeforePrompt func(ctx context.Context, h Host) error
 }
 
 // workspaceOffered reports whether ops carry all three workspace operations.

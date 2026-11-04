@@ -1686,3 +1686,301 @@ and its PLAN.
 * `TestLiveV2ControlPlaneStartsNoMCPServers` pins it, and joins the checks run at each engine pin.
 
 It lands before P7.
+
+### P6e Deviation 1, 2026-11-03 — how an undone turn leaves the transcript, who makes it permanent, the command table, the shell's policy, and live turns. The owner decided: "Range by Magic's seq", "Magic, before the prompt", "Fold into P6e" and "Yes, free model"
+
+C8: `opencode --version` printed `v2.2.3`, at `3489184b`.
+
+P6 Deviation 1 left two things to P6e's start: how a reverted live prompt's row is removed, and
+P6e's files. The evidence, from the opencode source at `b44b7164ba`, Magic's code, and one probe
+on an isolated home with no prompt (`p6e/probe_shell.py` in the session scratchpad):
+
+* **Revert is staged, then committed** (`packages/core/src/session/revert.ts`; `session/session.ts`).
+  * `revert/stage {messageID, files}` moves a boundary and restores the files the assistant
+    messages after it changed.
+  * `DELETE …/revert` restores them and clears the boundary.
+  * `revert/commit` makes it permanent.
+  * A process commits a staged revert itself when it admits the next prompt
+    (`session.ts:168-173`).
+  * Each route's busy check is `execution.isActive` in the process that receives it. In the
+    control plane that is never the engine's turn, so Magic refuses while a turn runs
+    (`Host.Busy()`, D11 as amended).
+* **What `/undo` and `/redo` mean.**
+  * `/undo` is `UndoSession.UndoLast`, and `/redo` is `RevertSession.Unrevert`, "Restored the
+    undone turn" (`internal/session/commands.go:290-292`, `:710-726`).
+  * So `/undo` only stages, and the undo becomes permanent at the next prompt, as on 1.x.
+  * The phone has no message-picking revert, deliberately (MADR 0042 D10;
+    `mcremote_client.dart:3907-3921`).
+* **Rows of an undone turn carry no common id.**
+  * Today a row is removed only by its native message id, on the daemon
+    (`manager.go:335`, `:618-639`) and the phone (`transcript_reducer.dart:195-196`).
+  * On v2:
+    * a live prompt's row has no id (P6 Deviation 1);
+    * agent text carries the assistant message's id (`packages/cli/src/acp/translate.ts:301`);
+    * a thought carries an id derived from it (`:310`);
+    * a tool row carries none.
+  * Removal by id would leave the turn's prompt, thoughts and tools on screen.
+* **The shell** (probed through the control plane, on a session it created):
+  * `POST …/shell {id, command}` answers 204 when the command has finished: 2.1 s for a
+    two-second command.
+  * `GET …/message/{id}` then holds `{type:"shell", status, exit, output{output, size, truncated}}`.
+    A failing command was `exit: 1`, with its stderr in the output. Twenty thousand lines came back
+    whole, 129 KB, `truncated: false`.
+  * The id must start `msg_`, or the call answers 400.
+* **The command table.** v2's `acpCommandTable` still names `/diff`, `/undo` and `/redo`
+  `reasonControlPlane` (`internal/provider/opencode/commandtable.go`). `/diff` has been served since
+  P6d, so typing it says "not available" while the button works: a P6d leftover.
+* **The shell's operator policy.**
+  * acpagent declares the shell whenever `Ops.Shell` is set (`sessioncaps.go`) and has no policy.
+  * 1.x and httpagent honour `providers.opencode.allow_remote_shell`, off by default
+    (MADR 0112 A9; `internal/config/config.go:595-602`).
+  * Without the same gate, v2 would offer remote command execution unasked.
+
+**Decided.**
+
+* **"Range by Magic's seq".**
+  * A Spec reports an undone turn's removal as a count of turns:
+    `transcript_remove` with `RemoveTurns`.
+  * The manager turns that into the sequence range from the n-th newest user row to the newest
+    row. It drops every row in that range except notices and tombstones, and records the
+    tombstone with `RemoveFromSeq` and `RemoveToSeq`.
+  * The phone's transcript items keep the sequence number of the event that made them, and a
+    range tombstone removes the items in it. Items stored before this have none, and are never
+    matched.
+  * The fields are additive. An older phone keeps the rows until it replays history.
+* **"Magic, before the prompt".**
+  * acpagent gains `Ops.BeforePrompt`, agent-neutral, run in `beginTurn` once the turn is
+    claimed and before the user row is emitted. An error refuses the prompt and leaves the
+    staged undo.
+  * opencode's hook, when an undo is staged:
+    * `revert/commit` through the control plane;
+    * then the removal, as many turns as the undo spans;
+    * then the prompt.
+* **What is undone.**
+  * `/undo` stages at the newest user message not already behind the boundary, so a second
+    `/undo` reaches one turn further.
+  * The count is the user messages from the boundary on.
+  * `/undo` across a compaction is refused, naming why. A compaction is a turn Magic shows with a
+    user row and the engine records without a user message, so the two counts would differ.
+  * `/redo` clears the staged revert (`DELETE …/revert`).
+  * `Ops.Revert` with a message id stages at that message, for the protocol's `session.revert`.
+* **The shell.**
+  * `POST …/shell` with a `msg_` id Magic makes, then that message read back.
+  * The output is shown as a `bash` tool call and its completion, `execute` kind, through the
+    manager's existing cut for the phone. The engine's output is read up to 1 MiB.
+  * The shell is declared only when `acpagent.Config.AllowRemoteShell` is set, which P7 feeds from
+    `providers.opencode.allow_remote_shell`. acpagent's capability gate reads it, for every Spec.
+  * The command is checked and bounded as on 1.x (`validShellCommand`, `shellTimeout`, 30 minutes;
+    P7 keeps both).
+  * The control plane's client had one 2-minute timeout for every request, and the shell route
+    answers only when the command ends. So `control.Request` gains a per-request `Timeout`, with
+    2 minutes still the default. `control.go` and `control_test.go` join P6e's files.
+* **"Fold into P6e".** `/diff`, `/undo` and `/redo` map to `OpDiff`, `OpUndo` and `OpRedo` in v2's
+  table.
+* **"Yes, free model".**
+  * A live-tagged test on an isolated home, on `opencode/deepseek-v4.1-flash-free`:
+    * two turns that write a file;
+    * `/undo`, `/redo`, `/undo`, then a third turn that makes it permanent;
+    * then a shell command.
+  * It checks the file, the engine's message list and Magic's history.
+  * It runs once here, on this decision.
+
+**P6e's files:**
+* `internal/event/event.go`;
+* `internal/session/manager.go`;
+* `internal/provider/acpagent/` (`host.go`, `config.go`, `session.go`, `sessioncaps.go`, and their
+  tests);
+* `internal/provider/opencode/acp.go`, `commandtable.go`, and a new `acp_revert.go` with its test and
+  a live test;
+* `internal/provider/opencode/control/control.go` and `control_test.go`;
+* `apps/mobile/lib/data/protocol/models.dart`, `apps/mobile/lib/data/chat/chat_models.dart`,
+  `transcript_reducer.dart`, and their tests;
+* `docs/guides/protocol-v1.md`, where the event is documented;
+* the MADR;
+* this plan.
+
+### P6e Deviation 2, 2026-11-03 — undo restored no file live: the project was reached through a symlink. The owner decided: "Diagnose with 2 more turns", then "Real path for opencode v2"
+
+* **Found** by the live test (P6e Deviation 1, "Yes, free model"), on the free model:
+  * **Run 1** (a project that was not a git repository): the model wrote `note.txt` twice, and
+    `/undo` restored nothing. OpenCode records a turn's files only in a git repository
+    (`packages/core/src/snapshot.ts:114`), so the test's project became one. The owner allowed one
+    re-run ("Re-run once").
+  * **Run 2** (a git project): still nothing restored, and the stage answered no files.
+  * **The owner chose "Diagnose with 2 more turns".** A probe drove `opencode acp` directly, with
+    Magic's client capabilities, in an isolated git project under the session scratchpad
+    (`p6e/probe_undo_files.py`). The engine had recorded each writing step's start snapshot and
+    file by 0 s. The stage restored `note.txt` (`banana` → `apple`), and the clear put it back. So
+    neither timing nor client writes was the cause.
+  * **The cause, with no model turn** (`p6e/probe_symlink_snapshot.py`):
+    * The test's directory is a temporary directory, which on macOS is reached through `/var`, a
+      symlink to `/private/var`.
+    * OpenCode resolves the project's worktree to its real path and requires the location to be
+      inside it (`snapshot.ts`, `scope`). A location reached through a symlink fails that check.
+      `capture` then logs and returns nothing.
+    * Same git project, a stage forcing a capture: by its real path, 0 failures logged; through a
+      symlink, `failed to capture snapshot … Location is outside the project`, and the stage still
+      answered 200.
+    * So any session whose directory is reached through a symlink gets an undo that removes the
+      turn and silently restores no files.
+  * **Upstream:** this is anomalyco/opencode#54454, "Snapshots fail for Locations opened through
+    symlinked paths", closed on 2026-11-04 after 2.2.3. No second issue was filed.
+* **Decided: "Real path for opencode v2".**
+  * acpagent gains an agent-neutral `Spec.RealCWD`. With it, `resolveSessionCWD` resolves the
+    session's directory through symlinks (`filepath.EvalSymlinks`) before the engine,
+    `session/new` and the control plane see it.
+  * The warm spare's directory comes from the same function, so the two still compare alike.
+  * opencode's Spec sets it. Every other Spec is unchanged.
+  * `/undo`'s message says how many files were restored, or that none were recorded and why, from
+    the stage's `files`.
+  * `internal/provider/acpagent/acpagent.go` joins P6e's files.
+
+### P6e — 2026-11-03: undo, redo, revert and the `!` shell
+
+**What changed.**
+
+* **The event** (`internal/event/event.go`). `transcript_remove` gains:
+  * `RemoveTurns`, which a provider sets;
+  * `RemoveFromSeq` and `RemoveToSeq`, which the manager sets and clients read.
+* **The manager** (`internal/session/manager.go`, `removeTurnsLocked`). A removal of n turns:
+  * deletes every history row from the n-th newest user row to the newest row, except notices and
+    tombstones;
+  * keeps the tombstone, carrying the range;
+  * with no user row, removes nothing and carries no range.
+* **acpagent, for every Spec.**
+  * `Ops.BeforePrompt`, run in `beginTurn` once the turn is claimed and before the user row. An
+    error refuses the prompt and frees the turn; for a drained queue entry, it shows the error and
+    keeps draining.
+  * `Config.AllowRemoteShell` gates the shell's declaration, its `session_capabilities` flag and
+    the call itself (`shellOffered`).
+  * `Spec.RealCWD` (Deviation 2).
+* **The control plane:** `Request.Timeout`, with the client's fixed 2-minute timeout moved to a
+  per-request deadline in `send`.
+* **opencode** (new `acp_revert.go`, wired in `acp.go`).
+  * **`/undo`** (`Ops.UndoLast`):
+    * refused while a turn runs;
+    * stages a revert, files included, at the newest user message not already undone, refusing
+      one that would reach past a compaction;
+    * counts the turns, and says how many files it restored.
+  * **`/redo`** (`Ops.Unrevert`) clears the staged revert.
+  * **`session.revert`** (`Ops.Revert`) stages at a named recent prompt, and refuses a part.
+  * **`Ops.BeforePrompt`**: with an undo staged, `revert/commit`, then a `transcript_remove` of
+    that many turns. A failed commit refuses the prompt and names `/redo`.
+  * **`Ops.Shell`:**
+    * checked and bounded as on 1.x, and refused while a turn runs;
+    * `POST …/shell` with a `msg_` id and `shellTimeout`;
+    * that message is read back and shown as a `bash` tool call and its completion: failed on a
+      non-zero exit, with the exit code, and the output cut at 1 MiB.
+    * The command is never logged.
+  * `NewSessionState` holds each session's undo; `RealCWD` is set.
+  * `commandtable.go`: `/diff`, `/undo` and `/redo` map to `OpDiff`, `OpUndo` and `OpRedo`, and the
+    `reasonControlPlane` note is gone.
+* **The phone.**
+  * `SessionEvent` reads `remove_from_seq` and `remove_to_seq`.
+  * `ChatItem.hostSeq` (cached when non-zero) is the sequence number of the event that made the
+    item, stamped by `applySessionEvent` on every item an event creates.
+  * A range tombstone removes the items in the range, except system lines, and rebuilds the tool
+    index.
+* **`docs/guides/protocol-v1.md`** documents the range form.
+
+**Tests restated** (each property changed by Deviation 1's decisions, as P6a restated grok's):
+
+* `TestSurfacesFollowTheSpecsOps`:
+  * "all set" now permits the shell;
+  * a new subtest pins that the hook alone is not enough.
+* `TestACPCommandTableOnG1sCommands`: `/diff`, `/undo` and `/redo` resolve to their operations,
+  where they resolved to "not available until the control plane".
+
+**Tests, each seen failing** (`p6e/plant_p6e.py` and `p6e/plant_realcwd.py` in the session
+scratchpad). 29 deliberate breaks on scratch copies, each failing on an assertion: 24 Go and 5
+Dart. The Dart copy took `lib`, `test`, `assets`, the pubspec files and `.dart_tool` only.
+
+| Break | Fails |
+| --- | --- |
+| the range never removed; notices removed too; always one turn | `TestRemoveTurnsTakesTheNewestTurns` ("two turns from seq 3, want 1" for the last) |
+| the shell without the operator's permission | `TestSurfacesFollowTheSpecsOps/shell_without_the_operator's_permission` |
+| a failing hook ignored; the turn kept after a refusal; the hook after the user row | `TestBeforePromptRunsAheadOfThePrompt` |
+| a second undo stages the same turn; staged without the files; the restored files not counted | `TestACPUndoStagesTheNewestTurn` (and `TestUndoTextSaysWhatWasRestored` for the last) |
+| past a compaction allowed; a running turn not refused | `TestACPUndoRefusals` (and the redo and shell refusals for the second) |
+| redo keeps the undo | `TestACPRedoClears` |
+| the undo never committed; one turn removed whatever the undo spans | `TestACPBeforePromptMakesTheUndoPermanent` |
+| the shell on the default bound; a non-zero exit shown as success; a long output not cut | `TestACPShell` ("a long output: 1048586 bytes" for the last) |
+| an invalid command run | `TestACPShellRefusals` |
+| `/undo` still not available | `TestACPCommandTableOnG1sCommands` |
+| `newACP` without the undo state | `TestACPProviderOffersUndoAndShell`: "the session has no undo state" |
+| a request's Timeout ignored | `TestRequestTimeoutBoundsOneRequest`: "after 424ms; want the deadline" |
+| the RealCWD flag ignored; the OpenCode Spec without it | `TestRealCWDResolvesSymlinks`; `TestACPSpecWantsTheRealPath` |
+| items not stamped; the range ignored; system lines removed too; the tool index not rebuilt; the host seq not cached | the reducer's `range tombstone` group ("Expected: 'running' Actual: 'failed'" for the tool index: a removed tool's late update hit the new card) |
+
+"The hook after the user row" failed on the refusal check, because the break also swallowed the
+hook's error, so the ordering assertion was not the one that caught it. The ordering is pinned by
+the same test's passing run. The first Dart run did not build: the copy lacked `assets`, which was
+added. Neither was a fault in a test.
+
+**Live.**
+
+| Run | Turns | Result |
+| --- | --- | --- |
+| 1 | 2 | the model wrote `note.txt` twice; `/undo` restored nothing: the project was not a git repository (Deviation 2) |
+| 2 | 2 | a git project; still nothing restored: a symlinked path (Deviation 2) |
+| probe | 2 | `opencode acp` directly in a real path: files recorded by 0 s; the stage restored `note.txt` |
+| 3 | 3 | with `RealCWD`, on the unchanged `/var` temporary directory: every assertion passed, as follows |
+| shell | 0 | `TestLiveV2Shell`, split from run 3, passed |
+
+Run 3 in full:
+* `/undo` restored `apple` ("restored 1 file"), `/redo` brought back `banana`, and `/undo`
+  restored `apple` again.
+* The third prompt emitted one removal of one turn, `note.txt` stayed `apple`, and the engine
+  kept two prompts.
+* Its last check, the shell, failed only on the test's isolation: the test process still held
+  `BASH_ENV`, which leaked the developer's shell start-up errors into the output. The shell
+  ran and completed.
+* The shell was split into `TestLiveV2Shell`, which sends no prompt, with `BASH_ENV` blanked. It
+  passed: a `bash` call with the command, completed with `apple`.
+* The restructured undo test was not re-run, to spend no further turns. Its assertions are run
+  3's, unchanged.
+
+Eleven free-model turns in all, on `opencode/deepseek-v4.1-flash-free`, each on the owner's word.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `make preflight` (records, docs lint, gofmt, vet on every tag, staticcheck, race, release build, `dart format`, `flutter analyze`, `flutter test`) | exit 0; 0 files changed by `dart format`; no analyzer issues; 1510 phone tests passed |
+| `go test -race -count=1 ./...`, after Deviation 2 | exit 0, 47 packages ok |
+| the Linux test host, `go test -race -count=1 ./...` (C7), HEAD plus the 22 changed and new files | exit 0, 47 packages ok, `go1.27.3` |
+| the Windows test host, `make ci-windows` (C7), the same tree | exit 0, "ALL SELECTED CHECKS PASSED", 47 packages ok |
+| `make pre-add-check FILES=…` (18 Go files) | "18 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags`; `make check-records`; `make markdownlint-docs` | exit 0 each |
+
+The race run before Deviation 2's comment fix failed `TestNoProviderIsNamedInAcpagent`: the
+`RealCWD` comment in acpagent named the vendor. The comment was reworded and the guard passes.
+
+**Not done:**
+* Nothing registers the provider until P7, so no phone has used these.
+* A user prompt's row is removed by range only on a phone that knows the new fields. An older
+  phone keeps the rows until it replays history.
+* Undo state is the session's own. If the agent restarts with an undo staged (for example after a
+  credential change), Magic forgets it. The engine then commits it at the next prompt, and the
+  undone turn's rows stay on screen.
+* An undo across a compaction is refused, not supported.
+* `session.revert` reaches only one of the last 200 prompts.
+* `SessionEvent.withText` carries neither the native ids, `replace` nor `artifact`, against its
+  own comment. That predates P6e and is untouched here; P6e needed only `seq`, which it carries.
+
+P6e is complete with this commit. P7, registering the provider, is next. 0230's MCP fix has
+landed, as P7 required.
+
+**Files for this commit:**
+* `internal/event/event.go`;
+* `internal/session/manager.go` and `manager_identity_test.go`;
+* `internal/provider/acpagent/acpagent.go`, `config.go`, `host.go`, `session.go`,
+  `sessioncaps.go`, `surfaces.go` and `surfaces_test.go`;
+* `internal/provider/opencode/acp.go`, `commandtable.go`, `acp_spec_test.go`, and `acp_revert.go`,
+  `acp_revert_test.go` and `live_acp_revert_test.go` (new);
+* `internal/provider/opencode/control/control.go` and `control_test.go`;
+* `apps/mobile/lib/data/protocol/models.dart`, `lib/data/chat/chat_models.dart`,
+  `lib/data/chat/transcript_reducer.dart`, and `test/transcript_reducer_test.dart`;
+* `docs/guides/protocol-v1.md`;
+* the MADR;
+* this plan.

@@ -2,10 +2,6 @@ package opencode
 
 import "github.com/maccavelli/magic-cli-remote/internal/command"
 
-// reasonControlPlane is why a command that OpenCode v2 serves only over its HTTP
-// API is not available yet: the control plane that reaches it is 0214 PLAN P6.
-const reasonControlPlane = "OpenCode v2 serves this through its control plane, which is not wired yet (0214 P6)"
-
 // acpCommandTable is how OpenCode v2 over ACP satisfies the canonical
 // vocabulary (MADR 0023; 0214 PLAN P4 step 5).
 //
@@ -39,9 +35,10 @@ func acpCommandTable() command.Table {
 		"usage":    {Kind: command.KindNone, Note: "OpenCode exposes no account usage summary"},
 		"reviewer": {Kind: command.KindNone, Note: "OpenCode exposes no separate approval reviewer"},
 		"approve":  {Kind: command.KindNone, Note: "OpenCode has no Guardian denial"},
-		"diff":     {Kind: command.KindNone, Note: reasonControlPlane},
-		"undo":     {Kind: command.KindNone, Note: reasonControlPlane},
-		"redo":     {Kind: command.KindNone, Note: reasonControlPlane},
+		// Served by the control plane (0214 PLAN P6d, P6e).
+		"diff": {Kind: command.KindOp, Op: command.OpDiff},
+		"undo": {Kind: command.KindOp, Op: command.OpUndo},
+		"redo": {Kind: command.KindOp, Op: command.OpRedo},
 		"fork": {
 			Kind: command.KindNone,
 			Note: "Magic does not fork OpenCode v2 sessions yet",

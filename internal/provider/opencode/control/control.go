@@ -143,10 +143,12 @@ func New(cfg Config) *Plane {
 	if log == nil {
 		log = slog.Default()
 	}
+	// The client has no timeout: send bounds each request, by its own Timeout
+	// or defaultRequestTimeout.
 	return &Plane{
 		cfg:  cfg,
 		log:  log.With(slog.String("component", "opencode-control")),
-		http: &http.Client{Timeout: defaultRequestTimeout},
+		http: &http.Client{},
 		wire: wirecap.For("opencode-control"),
 	}
 }
@@ -177,6 +179,10 @@ type Request struct {
 	// which records only its size (0214 MADR, added at P6d).
 	Raw      bool
 	MaxBytes int
+	// Timeout bounds this request when positive; defaultRequestTimeout
+	// otherwise. A route that answers only when its work ends, such as
+	// session.shell, needs longer (0214 MADR, added at P6e).
+	Timeout time.Duration
 }
 
 // WithLocation returns body with location.directory set to dir, as the
@@ -255,6 +261,8 @@ func (p *Plane) Do(ctx context.Context, req Request) (Response, error) {
 
 // send makes one HTTP request to eng.
 func (p *Plane) send(ctx context.Context, eng *engine, req Request) (Response, error) {
+	ctx, cancel := context.WithTimeout(ctx, orDefault(req.Timeout, defaultRequestTimeout))
+	defer cancel()
 	q := url.Values{}
 	for k, v := range req.Query {
 		q[k] = append([]string(nil), v...)

@@ -1088,3 +1088,34 @@ always adds one and makes it active, and removing the active one makes the next 
   Magic's `/diff` and the phone send no message id, which on 1.x means the whole session. The v2
   diff reads the first and the newest user message from `GET /api/session/{id}/message`, and
   diffs `from` the first `to` the newest. *Owner: "Whole session".*
+
+### Added at P6e, 2026-11-03 (PLAN P6e Deviation 1)
+
+* **D11: `/undo` stages, the next prompt commits.**
+  * The engine never says a turn was undone, so Magic removes it from its own transcript.
+  * Its rows carry no common native id: a live prompt has none, a thought a derived one, a tool
+    none. So a Spec reports the removal as a count of turns.
+  * The manager turns that count into a sequence range from the n-th newest user row and drops
+    the range, except notices. The tombstone carries the range, and the phone removes the items
+    the range made.
+  * *Owner: "Range by Magic's seq".*
+* **D11: Magic makes the undo permanent.**
+  * acpagent gains an agent-neutral `Ops.BeforePrompt` hook. Before the next prompt, opencode's
+    hook calls `revert/commit` through the control plane, then removes the rows.
+  * Magic does not rely on the engine committing a revert another process staged.
+  * `/undo` across a compaction is refused, because the engine records that turn without a user
+    message.
+  * *Owner: "Magic, before the prompt".*
+* **D11: the shell follows the operator's policy.**
+  * acpagent declares the shell only when `Config.AllowRemoteShell` is set, for every Spec, as
+    httpagent does (MADR 0112 A9).
+  * The output is read back from the shell's message and shown as a `bash` tool call.
+* **The command table:** `/diff` (a P6d leftover), `/undo` and `/redo` map to their operations.
+  *Owner: "Fold into P6e".*
+* **D11: OpenCode is given the project's real path (PLAN P6e Deviation 2).**
+  * OpenCode 2.2.3 cannot snapshot a project reached through a symlink: it logs "Location is
+    outside the project" and records no files, so an undo there would restore none
+    (anomalyco/opencode#54454, closed after 2.2.3).
+  * acpagent's agent-neutral `Spec.RealCWD` resolves a session's directory through symlinks, and
+    opencode's Spec sets it.
+  * *Owner: "Real path for opencode v2".*

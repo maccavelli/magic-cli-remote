@@ -17,6 +17,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -217,6 +218,11 @@ type Spec struct {
 	// NewSessionState, when non-nil, makes the Spec's own state for each
 	// session, which its hooks read with [Host.SpecState].
 	NewSessionState func() any
+	// RealCWD gives the agent its sessions' directory resolved through
+	// symlinks, for an agent that only works on a project's real path, such
+	// as one whose file snapshots fail for a project reached through a link
+	// (0214 MADR, added at P6e).
+	RealCWD bool
 	// InitializeMeta, when non-nil, reads initialize's `_meta`.
 	InitializeMeta func(meta map[string]any) InitializeInfo
 	// Ops are the session operations the Spec offers beyond standard ACP.
@@ -799,9 +805,18 @@ func (p *Provider) buildMcpServers(caps acp.AgentCapabilities, log *slog.Logger)
 
 // resolveSessionCWD picks the absolute working directory for a new session
 // (shared rules + errno-preserving validation: provider.ResolveSessionCWD,
-// 0069 P1).
+// 0069 P1), resolved through symlinks for a Spec with RealCWD. The warm
+// spare's directory comes from here too, so the two always compare alike.
 func (p *Provider) resolveSessionCWD(optsCWD string) (string, error) {
-	return provider.ResolveSessionCWD(optsCWD, p.cfg.DefaultCWD, nil)
+	cwd, err := provider.ResolveSessionCWD(optsCWD, p.cfg.DefaultCWD, nil)
+	if err != nil || !p.spec.RealCWD {
+		return cwd, err
+	}
+	real, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return "", fmt.Errorf("cwd %q: %w", cwd, err)
+	}
+	return real, nil
 }
 
 // EnsureWarm arms (or re-arms) the spare pre-initialized agent process in the

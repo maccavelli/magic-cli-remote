@@ -190,6 +190,7 @@ class ChatItem {
     this.compactionTruncated = false,
     this.toolTruncated = false,
     this.diffs = const [],
+    this.hostSeq = 0,
   });
 
   final ChatItemKind kind;
@@ -197,6 +198,11 @@ class ChatItem {
   /// Monotonic per-transcript id. Stable across FIFO trims, so widget keys
   /// keep `ExpansionTile` state attached to the right item.
   final int seq;
+
+  /// The host's sequence number of the event that made this item, so a range
+  /// tombstone can remove it: an undone turn's rows share no native id
+  /// (0214 MADR, added at P6e). 0 when unknown, and then never matched.
+  final int hostSeq;
 
   final String? text;
   final String? toolId;
@@ -393,9 +399,11 @@ class ChatItem {
     ArtifactInfo? artifact,
     bool? toolTruncated,
     List<ToolDiff>? diffs,
+    int? hostSeq,
   }) => ChatItem(
     kind: kind,
     seq: seq ?? this.seq,
+    hostSeq: hostSeq ?? this.hostSeq,
     text: text ?? this.text,
     toolId: toolId,
     toolName: toolName ?? this.toolName,
@@ -459,6 +467,9 @@ class ChatItem {
     // A cut tool output and its diffs (MADR 0208 D11). Absent on every other row.
     if (toolTruncated) 'toolTruncated': true,
     if (diffs.isNotEmpty) 'diffs': [for (final d in diffs) d.toJson()],
+    // The host event that made the row (0214 MADR, added at P6e). Absent on
+    // older cache entries, which read back as 0 and are never range-removed.
+    if (hostSeq != 0) 'hostSeq': hostSeq,
   };
 
   factory ChatItem.fromJson(Map<String, dynamic> j) {
@@ -475,6 +486,7 @@ class ChatItem {
     return ChatItem(
       kind: kind,
       seq: (j['seq'] as num?)?.toInt() ?? 0,
+      hostSeq: (j['hostSeq'] as num?)?.toInt() ?? 0,
       text: j['text'] as String?,
       toolId: j['toolId'] as String?,
       toolName: j['toolName'] as String?,

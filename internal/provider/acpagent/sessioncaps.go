@@ -188,6 +188,12 @@ func (s *session) Rename(ctx context.Context, title string) error {
 	return s.ops.Rename(ctx, s, title)
 }
 
+// shellOffered reports a direct shell: the Spec runs one and the operator
+// permits it, as httpagent's does (MADR 0112 A9; 0214 MADR, added at P6e).
+func (s *session) shellOffered() bool {
+	return s.ops.Shell != nil && s.cfg.AllowRemoteShell
+}
+
 // Capabilities implements provider.Session: the operations the Spec's Ops
 // offer, and a model or thinking switch where the agent has the config option
 // or the Spec a fallback (MADR 0208 D1). It changes when the agent's config
@@ -208,7 +214,7 @@ func (s *session) Capabilities() provider.Capabilities {
 		provider.CapSetModel:         modelOption || spec.SetModelFallback != nil,
 		provider.CapSetThinkingLevel: thinkingOption || spec.SetThinkingFallback != nil,
 		provider.CapWorkspace:        s.ops.workspaceOffered(),
-		provider.CapShell:            s.ops.Shell != nil,
+		provider.CapShell:            s.shellOffered(),
 		provider.CapRevert:           s.ops.revertOffered(),
 		provider.CapDiff:             s.ops.Diff != nil,
 		provider.CapSkillRefresh:     s.ops.RefreshSkills != nil,

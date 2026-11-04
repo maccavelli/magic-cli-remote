@@ -6,7 +6,38 @@ import 'chat_models.dart';
 /// Apply a [SessionEvent] to a [SessionTranscript]. Pure and side-effect free.
 ///
 /// Events for other session ids are ignored (returns [current] unchanged).
+///
+/// Each item the event made records the event's host sequence number, so a
+/// range tombstone can remove it later (0214 MADR, added at P6e).
 SessionTranscript applySessionEvent(
+  SessionTranscript current,
+  SessionEvent ev,
+) {
+  final next = _applySessionEvent(current, ev);
+  if (ev.seq == 0 || identical(next, current)) return next;
+  return _stampHostSeq(next, current.nextSeq, ev.seq);
+}
+
+/// Sets [hostSeq] on the items made since [firstNewSeq], the transcript's next
+/// local seq before the event: those are at the end, in order.
+SessionTranscript _stampHostSeq(
+  SessionTranscript t,
+  int firstNewSeq,
+  int hostSeq,
+) {
+  var i = t.items.length - 1;
+  while (i >= 0 && t.items[i].seq >= firstNewSeq && t.items[i].hostSeq == 0) {
+    i--;
+  }
+  if (i == t.items.length - 1) return t;
+  final items = _mutableItems(t);
+  for (var j = i + 1; j < items.length; j++) {
+    items[j] = items[j].copyWith(hostSeq: hostSeq);
+  }
+  return t.copyWith(items: items, growableItems: true);
+}
+
+SessionTranscript _applySessionEvent(
   SessionTranscript current,
   SessionEvent ev,
 ) {
@@ -193,7 +224,9 @@ SessionTranscript applySessionEvent(
     case 'artifact':
       t = _reduceArtifact(t, ev);
     case 'transcript_remove':
-      t = _removeNative(t, ev.nativeMessageId, ev.nativePartId);
+      t = ev.removeFromSeq > 0
+          ? _removeHostRange(t, ev.removeFromSeq, ev.removeToSeq)
+          : _removeNative(t, ev.nativeMessageId, ev.nativePartId);
     case 'assistant_message_chunk':
       final text = ev.text ?? '';
       if (text.isNotEmpty) {
@@ -728,6 +761,28 @@ SessionTranscript _removeNative(
   }
   if (!changed) return t;
   return t.copyWith(items: items, growableItems: true);
+}
+
+/// Removes the items made by host events [from] to [to]: an undone turn,
+/// whose rows share no native id (0214 MADR, added at P6e). System lines stay,
+/// as the host keeps its notices. Items with no host seq are never matched.
+/// Tool rows move, so the tool index is rebuilt from what remains.
+SessionTranscript _removeHostRange(SessionTranscript t, int from, int to) {
+  bool inRange(ChatItem it) =>
+      it.hostSeq != 0 &&
+      it.hostSeq >= from &&
+      it.hostSeq <= to &&
+      it.kind != ChatItemKind.system;
+  if (!t.items.any(inRange)) return t;
+  final items = _mutableItems(t)..removeWhere(inRange);
+  final toolIndex = <String, int>{};
+  for (var i = 0; i < items.length; i++) {
+    final id = items[i].toolId;
+    if (items[i].kind == ChatItemKind.tool && id != null && id.isNotEmpty) {
+      toolIndex[id] = i;
+    }
+  }
+  return t.copyWith(items: items, growableItems: true, toolIndex: toolIndex);
 }
 
 /// Index of the row for one native part of the given kind, or -1.

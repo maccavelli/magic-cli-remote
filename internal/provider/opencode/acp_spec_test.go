@@ -408,10 +408,14 @@ func TestACPCommandTableOnG1sCommands(t *testing.T) {
 			t.Errorf("/%s resolves to %+v, want opencode's own command", name, res)
 		}
 	}
-	for _, name := range []string{"diff", "undo", "redo"} {
+	// Served by the control plane since P6d and P6e (0214 PLAN P6e Deviation
+	// 1, "Fold into P6e"): each maps to its operation, which the session
+	// declares.
+	state.Ops = map[command.Op]bool{command.OpDiff: true, command.OpUndo: true, command.OpRedo: true}
+	for name, op := range map[string]command.Op{"diff": command.OpDiff, "undo": command.OpUndo, "redo": command.OpRedo} {
 		res, _ := command.Resolve(name, tbl, state)
-		if res.Available || !strings.Contains(res.Reason(), "control plane") {
-			t.Errorf("/%s resolves to %+v, want unavailable until the control plane", name, res)
+		if !res.Available || res.Mapping.Kind != command.KindOp || res.Mapping.Op != op {
+			t.Errorf("/%s resolves to %+v, want the %s operation", name, res, op)
 		}
 	}
 }

@@ -83,7 +83,10 @@ var acpSpec = acpagent.Spec{
 	StaticModes:        acpStaticModes,
 	DefaultModeID:      "build",
 	SynthesizeAutoMode: true,
-	Commands:           acpCommandTable(),
+	// OpenCode snapshots, and so undo, need the project's real path (0214
+	// MADR, added at P6e).
+	RealCWD:  true,
+	Commands: acpCommandTable(),
 	ExtensionNotifications: map[string]acpagent.ExtensionNotificationHandler{
 		methodChildUpdate: handleChildUpdate,
 	},
@@ -138,6 +141,12 @@ func newACP(cfg acpagent.Config, log *slog.Logger, plane controlPlane) *acpagent
 	spec.Ops.SearchWorkspace = surfaces.searchWorkspace
 	spec.Ops.Diagnostics = surfaces.diagnostics
 	spec.Ops.Diff = surfaces.diff
+	spec.NewSessionState = newACPUndo
+	spec.Ops.UndoLast = surfaces.undoLast
+	spec.Ops.Revert = surfaces.revert
+	spec.Ops.Unrevert = surfaces.unrevert
+	spec.Ops.BeforePrompt = surfaces.beforePrompt
+	spec.Ops.Shell = surfaces.shell
 	p = acpagent.NewWithLogger(spec, cfg, log)
 	return p
 }

@@ -99,6 +99,10 @@ const (
 	// only append would keep showing text the agent has withdrawn. Unknown ids
 	// are idempotent no-ops, so a late or duplicated tombstone is harmless
 	// (MADR 0112 A3).
+	//
+	// A tombstone may instead name a range of sequence numbers
+	// (RemoveFromSeq to RemoveToSeq): an undone turn, whose rows share no
+	// native id (0214 MADR, added at P6e).
 	TypeTranscriptRemove Type = "transcript_remove"
 	// TypeRemoteCommands carries the canonical slash commands the daemon offers
 	// in this session, each marked available or not with a reason (MADR 0023).
@@ -857,6 +861,15 @@ type Event struct {
 	// delete unrelated content.
 	NativeMessageID string `json:"native_message_id,omitempty"`
 	NativePartID    string `json:"native_part_id,omitempty"`
+
+	// RemoveTurns, on a transcript_remove a provider emits, asks for the
+	// newest n turns to be removed: an undone turn whose rows share no native
+	// id (0214 MADR, added at P6e). The session manager turns it into
+	// RemoveFromSeq and RemoveToSeq, the range of rows it removed, which is
+	// what reaches clients; a client removes the rows those events made.
+	RemoveTurns   int    `json:"remove_turns,omitempty"`
+	RemoveFromSeq uint64 `json:"remove_from_seq,omitempty"`
+	RemoveToSeq   uint64 `json:"remove_to_seq,omitempty"`
 
 	// Replace marks an authoritative full snapshot of the identified part:
 	// consumers discard what they already hold for that identity and take this

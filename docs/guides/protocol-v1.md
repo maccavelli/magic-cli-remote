@@ -1735,6 +1735,23 @@ message intact. Unknown ids are idempotent no-ops, so a duplicated or late
 tombstone is harmless. Removal never crosses a session or provider boundary,
 and a legacy row carrying no native ids is never removed by inference.
 
+A tombstone may instead carry a range of the session's sequence numbers. It
+removes an undone turn, whose rows share no native id: an OpenCode v2 `/undo`
+made permanent by the next prompt.
+
+```json
+{"v": 1, "type": "event", "payload": {
+  "type": "transcript_remove", "session_id": "s1",
+  "remove_from_seq": 41, "remove_to_seq": 57}}
+```
+
+- The daemon has removed every row it holds whose `seq` is in that range,
+  except notices.
+- A client removes the rows that events in the range made, and keeps its own
+  system lines.
+- A client that does not know the fields keeps those rows until it next replays
+  history, which no longer holds them.
+
 `transcript_remove` is a control event: it is not dropped under back-pressure,
 because losing one would leave a client rendering content the agent withdrew
 with nothing later to correct it.

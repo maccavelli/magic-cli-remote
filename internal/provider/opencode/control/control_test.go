@@ -165,6 +165,11 @@ func runFakeServe() {
 		case "/api/html":
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = io.WriteString(w, "<html>v2 web shell</html>")
+		case "/api/slow":
+			// Answers only after 400 ms, as session.shell answers when its
+			// command ends.
+			time.Sleep(400 * time.Millisecond)
+			jsonOut(w, http.StatusOK, `{"data":{}}`)
 		case "/api/fs/read/notes.md":
 			// fs.read answers the file's bytes in its own type (0214 PLAN P6d).
 			w.Header().Set("Content-Type", "text/markdown")
@@ -515,6 +520,21 @@ func TestRawBodyIsNotCaptured(t *testing.T) {
 	}
 	if strings.Contains(all.String(), "raw-file-marker-7f3a") {
 		t.Error("a capture carries the raw file's bytes")
+	}
+}
+
+// TestRequestTimeoutBoundsOneRequest: a request's own Timeout bounds it, and a
+// request without one takes the default, which a slow answer is well within
+// (0214 MADR, added at P6e).
+func TestRequestTimeoutBoundsOneRequest(t *testing.T) {
+	f := newFake(t, Config{})
+	start := time.Now()
+	_, err := f.p.Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/slow", Timeout: 50 * time.Millisecond})
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 2*time.Second {
+		t.Errorf("a 50 ms bound on a 400 ms answer: %v after %s; want the deadline", err, time.Since(start))
+	}
+	if res := f.do(Request{Method: http.MethodGet, Path: "/api/slow"}); res.Status != http.StatusOK {
+		t.Errorf("without a Timeout: %d, want the answer", res.Status)
 	}
 }
 

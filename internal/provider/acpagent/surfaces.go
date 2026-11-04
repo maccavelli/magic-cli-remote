@@ -44,7 +44,7 @@ func (s *session) SearchWorkspace(ctx context.Context, kind, query string) (prov
 
 // Shell implements [provider.ShellSession] through Ops.Shell.
 func (s *session) Shell(ctx context.Context, command string) error {
-	if s.ops.Shell == nil {
+	if !s.shellOffered() {
 		return errNotOffered("shell")
 	}
 	return s.ops.Shell(ctx, s, command)

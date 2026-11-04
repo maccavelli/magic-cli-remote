@@ -72,6 +72,11 @@ type Config struct {
 	// Prewarm keeps one spare initialized agent process ready (see package
 	// doc above). The daemon must call Provider.EnsureWarm to arm it.
 	Prewarm bool
+	// AllowRemoteShell permits a phone to run a command in the session's
+	// working directory, for a Spec with Ops.Shell. Default false: it is remote
+	// command execution on the daemon host, so the operator turns it on, as
+	// for httpagent (MADR 0112 A9; 0214 MADR, added at P6e).
+	AllowRemoteShell bool
 	// TurnStallNotice emits a notice event when a running turn has produced no
 	// agent output for this long — the "is it stuck?" signal that lets a user
 	// decide to stop/reset instead of staring at a frozen spinner. Zero
