@@ -9,6 +9,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 )
 
 func TestAcpAgentConfigMinimal(t *testing.T) {
@@ -135,6 +136,24 @@ func TestIdentityCloseNil(t *testing.T) {
 func TestIdentityCloseNilACME(t *testing.T) {
 	id := &Identity{Mode: config.TLSModeSelfSigned}
 	id.Close()
+}
+
+// TestADescribedProviderRegistersWhenItsSectionIsEnabled is 0208 PLAN P8
+// step 3: the daemon builds a provider from the registration list and its
+// section, and a Config without the section takes the section's defaults.
+func TestADescribedProviderRegistersWhenItsSectionIsEnabled(t *testing.T) {
+	cfg := config.Defaults()
+	if _, err := InspectProviders(cfg, "test", nil).Get(provider.IDFake); err == nil {
+		t.Error("fake is registered from its defaults, which disable it")
+	}
+	cfg.Providers.Sections = config.ProviderSections{"fake": &fake.Section{Enabled: true}}
+	p, err := InspectProviders(cfg, "test", nil).Get(provider.IDFake)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := p.(*fake.Provider); !ok {
+		t.Fatalf("fake is registered as %T, want *fake.Provider", p)
+	}
 }
 
 // TestOpencodeRegistersTheV2Spec: the daemon's opencode provider is the ACP

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +25,7 @@ Does not create directories or start the daemon.`,
 			cfg, err := config.Load(config.LoadOptions{
 				ConfigFile: cfgFile,
 				Flags:      cmd.Flags(),
+				Providers:  registered.Sections(),
 			})
 			if err != nil {
 				return err

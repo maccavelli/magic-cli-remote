@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-11-01
+date: 2026-11-04
 associated-madr: "0208-MADR-make-the-provider-layer-agent-neutral.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -389,7 +389,7 @@ tests.
    failing on a planted wrong key. If the shape changes, the owner's live config is migrated with a
    backup, only with the owner's go-ahead for that file.
 3. The daemon, `doctor`, prewarm and validation iterate descriptors. At the end, `daemon.go` reads
-   no `cfg.Providers.<Name>` field (74 today).
+   no `cfg.Providers.<Name>` field (74 today). *(65 on `02463a8a`; P8 Deviation 1.)*
 
 Verification: the Go rules, and `make ci-windows`.
 
@@ -2294,3 +2294,140 @@ P7 is complete with this commit. P8, one provider descriptor, is next.
   `apps/mobile/test/config_option_groups_test.dart` (new);
 * `docs/guides/protocol-v1.md`;
 * this plan, which also carries P5's live checks.
+
+### P8 Deviation 1, 2026-11-04 — where the sections live, strict keys, and the files that agree. The owner decided: "Provider pkgs, explicit list", "Add them all", "Defer to P9", "Fail the load by name", "Re-measure on 1.0.70 first", "New pair after P8" and "Add them"
+
+**Found** (the MADR's amendment of 2026-11-04 has the evidence):
+* Step 1 did not say where a section lives or how the loader learns it. D6's auth adapter is in a
+  file the phase did not list.
+* Step 3's count was 74; `daemon.go` has 65 named provider reads on `02463a8a`.
+* Asked whether keys may change, the owner directed that the templates, the generated config and
+  the guide agree with the code, retired keys removed, and every key commented.
+
+**Decided:**
+* Each provider package owns its section; a registration list returns the descriptors;
+  `config.Load` takes their sections through its options.
+* Sections are strict: an unknown key, provider id or `MCREMOTE_PROVIDERS_*` variable fails the
+  load by name. The retired-key warnings are deleted with the section that carried them.
+* The icon key moves to P9.
+* No provider key is renamed. grok's four filter keys are measured on grok 1.0.70 before grok's
+  commit (a live run, approved by this answer), and kept with a pin or removed.
+* The example configs, the seed and the guide change with each section, and a test loads them
+  through the sections.
+* Keys outside `providers.*` go to a new pair after P8.
+* The owner's live config is backed up and migrated in the commit that changes its shape, after
+  the owner is asked by file.
+
+**Files added to P8:**
+* `internal/provider/descriptor.go` (new), and a registration-list package (new);
+* `internal/provider/prewarm.go` and `internal/daemon/credentials.go`;
+* the `config.Load` callers `internal/cli/serve.go`, `paths.go`, `health.go` and `pair.go`;
+* the tests that read named provider fields: `internal/daemon/daemon_test.go`,
+  `prewarm_boot_test.go`, `shutdown_unix_test.go`, `notify_unix_test.go`,
+  `internal/cli/service/template_parity_test.go`, and those in `internal/config/`;
+* `configs/config.example.yaml`, `configs/config.prod.example.yaml`,
+  `internal/cli/service/defaults_mcremote.yaml` and `docs/guides/config.md`;
+* a superseded-by note in `0160-MADR-remove-goose-cli-support.md` and in
+  `0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md`, each in the
+  commit that deletes its warning.
+
+**Commits, in order:**
+1. `fake`: the descriptor, the registration list, the strict-section loader, and the test that
+   loads the config files; fake's section moves.
+2. `grok`, after the measurement: its section, its auth adapter, and the four keys' outcome.
+3. `opencode`: its section; the 1.x and `transport` warnings go.
+4. `codex`: its section and its auth adapter.
+5. `kilo`: its section; the goose warning goes, an unknown provider id fails, and `daemon.go` reads
+   no named provider field.
+
+### P8 Deviation 2, 2026-11-04 — two more files carry provider keys. The owner decided: "Add both"
+
+**Found:**
+* `configs/config.mesh-grok.yaml` is a shipped mcremote config, which this phase's new test loads.
+* `README.md` has a `providers.*` key table, and its codex row already lacks `transport` and seven
+  more keys.
+
+**Decided:** both join P8, and each provider's commit keeps them in step with its section.
+
+### P8, `fake` commit, 2026-11-04: the descriptor, the registration list, and strict sections
+
+**What changed.**
+* **`internal/config/sections.go`** (new).
+  * `ProviderSection` is a section a provider's package owns. `ProviderSectionSpec` names one and
+    builds it holding its defaults.
+  * `config.Load` takes the specs in `LoadOptions.Providers`. It gives each leaf key its default,
+    and so its `MCREMOTE_PROVIDERS_<ID>_<KEY>` variable, except a field tagged `env:"-"`. It decodes
+    each section into `Config.Providers.Sections`, then runs the section's `Validate`.
+  * A key the section lacks fails the load and is named, whether it is in the file, in a nested
+    table, or in a variable. A variable for a config-file-only key fails the same way.
+* **`internal/provider/descriptor.go`** (new). `provider.Descriptor` carries the ID, display name,
+  `DevOnly`, `Section` and `New`. `SectionIn` returns a Config's section, or the defaults when a
+  Config was not built by `config.Load`.
+* **`internal/provider/registered`** (new). `Descriptors()` is the registration list, and
+  `Sections()` its specs. It lists `fake` only.
+* **`internal/provider/fake/section.go`** (new): `providers.fake` and fake's descriptor.
+  `FakeProviderConfig`, its default and its viper default are gone from `internal/config`.
+* **`internal/daemon/daemon.go`.** `registerDescribed` builds each enabled described provider, for
+  both `Run` and `InspectProviders`. The dev-only warning and the "no provider is ready" count come
+  from the list. The four other providers are unchanged.
+* **`internal/cli`.** All five `config.Load` callers (`serve.go`, `paths.go`, `health.go`,
+  `pair.go`, `doctor.go`) pass `registered.Sections()`.
+* **The shipped configs.** All four carry the same section comment and a comment on `enabled`.
+  The prod example and the seed had neither.
+* **Tests.** `config_test.go`, `notify_unix_test.go` and `shutdown_unix_test.go` set fake through
+  its section.
+
+**Tests, each seen failing** (`p8/plant_c1.py`, on a scratch copy):
+
+| Break | Fails |
+| --- | --- |
+| no section defaults | `TestASectionLoadsFromItsDefaultsFileAndEnv`: `Enabled:false … Max:0` |
+| unknown keys ignored | `TestASectionRefusesWhatItDoesNotHave/a_key_the_section_lacks`: `Load error = <nil>` |
+| nested tables not walked | the same, `/a_key_in_a_table_the_section_lacks` |
+| a variable naming no key accepted | the same, `/a_variable_naming_no_key` |
+| a variable for a config-file-only key accepted | the same, `/a_variable_for_a_config-file-only_key` |
+| the section's `Validate` not run | the same, `/the_section's_own_validation` |
+| `enable: true` planted in the example config's `fake` | `TestTheShippedConfigFilesLoadThroughTheSections`: "providers.fake has no key enable" |
+| `MCREMOTE_PROVIDERS_FAKE_ENABLE` planted in the guide | `TestEveryDocumentedProviderVariableNamesAKey`: "names no providers.fake key" |
+| `registerDescribed` ignoring `IsEnabled` | `TestADescribedProviderRegistersWhenItsSectionIsEnabled`: "fake is registered from its defaults" |
+| `fake` missing from the list | the same: `unknown provider "fake"` |
+
+The first run of the plant script broke the variable-name check by deleting its `case`, which
+made the next case index `leaves[-1]` and panic. It was planted again with the case kept and its
+report removed, and failed on the assertion.
+
+The first `make ci-windows` failed `TestTheShippedConfigFilesLoadThroughTheSections` on all four
+files: "contains a credential and is readable by" a group the host's temp directory grants. The
+shipped configs carry `relay.secret`, and a Windows temp file inherits its directory's ACL whatever
+its mode (MADR 0155). The test now writes into a directory made private with
+`appdirs.EnsurePrivateDir`, as `internal/config/configperm_test.go` does. The second run is the
+one below, and the plants were run again against the changed test.
+
+The documented-variable test checks only registered providers; the guide documents no fake
+variable, so it checks none yet and grows with each section.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (18 Go files) | "18 file(s) clean (gofmt, golint, govulncheck)" |
+| `go test -race ./...` | 48 packages ok |
+| `make lint staticcheck vet-tags` | exit 0 |
+| `make ci-windows` on the Windows test host | all selected checks passed (A2 to A6, 48 packages), on the second run |
+| the owner's live config, loaded by a scratch build (`mcremote paths`) | exit 0: no migration |
+
+**Not done here:** the other four providers' sections and the unknown-provider-id check (commits 2
+to 5); the guide's note on strict sections, which lands when every section is strict.
+
+**Files for this commit:**
+* `internal/config/sections.go` and `sections_test.go` (new), `config.go`, `load.go` and
+  `config_test.go`;
+* `internal/provider/descriptor.go`, `internal/provider/fake/section.go`, and
+  `internal/provider/registered/registered.go` and `configfiles_test.go` (all new);
+* `internal/daemon/daemon.go`, `daemon_test.go`, `notify_unix_test.go` and `shutdown_unix_test.go`;
+* `internal/cli/serve.go`, `paths.go`, `health.go`, `pair.go` and `doctor.go`;
+* `configs/config.example.yaml`, `config.prod.example.yaml` and `config.mesh-grok.yaml`, and
+  `internal/cli/service/defaults_mcremote.yaml`;
+* this plan and the MADR's amendment of 2026-11-04.
+
+Next: grok's commit, after the four filter keys are measured on grok 1.0.70.

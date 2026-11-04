@@ -1,6 +1,6 @@
 ---
 status: proposed
-date: 2026-10-21
+date: 2026-11-04
 decision-makers: Project Owner
 consulted: "this repository at f26549de (Go under internal/ and cmd/, Dart under apps/mobile/lib); gobble-cli at 1cc1616 and its v0.1.1 release, read from code; MADR 0179, 0184 and 0186 and their PLANs"
 informed: anyone who adds an agent CLI, changes internal/provider, internal/command, internal/session or internal/ws, or changes the phone's chat and settings screens
@@ -664,3 +664,71 @@ though its command table maps commands to them:
 
 It is seen failing on the tree before P6d. *Owner: "Replace test, add manager.go"* (PLAN P6d
 Deviation 1).
+
+## Amendment — 2026-11-04: D6's sections, strict keys, and the config files agree with the code
+
+### Why now
+
+P8 builds D6, and D6 did not say where a provider's config section lives or how the loader learns
+it. Asked whether the `providers.<id>` keys may change, the owner answered: "honestly i am the only person running any of this. no one else has a config file to worry about. i think we need to keep the config file templates and generated config files up-to-date with the codebase reality, removing any keys that have been deprecated, or removed, renaming any that will improve their relevance and ensuring keys and the docs agree, are updated, have detailed and meaningful comments in the config templates and files, and detailed and accurate docs."
+
+### Findings [read on `02463a8a`]
+
+* `internal/daemon/daemon.go` reads a named provider field (`cfg.Providers.<Name>`) 65 times;
+  `internal/config/config.go` 41, `load.go` 60, `prewarm_write.go` 8, `internal/cli/doctor.go` 4.
+* No provider package imports `internal/config`, and `internal/config` imports none. Only
+  `internal/provider/prewarm.go` imports `config`, for `config.Live` and `config.KnownProvider`.
+  `internal/providerauth` imports no provider package.
+* A key's environment variable works only when the key has a viper default
+  (`TestEveryConfigKeyHasAViperDefault`), so whoever owns a section's defaults owns its variables.
+* D6's auth adapter is `newCredentialGuard` (`internal/daemon/credentials.go:32`), which names
+  codex and grok.
+* Every `providers.*` key is read by its provider. The load still tolerates three retired sets
+  with a warning: `providers.goose.*`
+  ([0160-MADR-remove-goose-cli-support.md](0160-MADR-remove-goose-cli-support.md) D3), OpenCode
+  1.x's `pure`, `session_tree` and `stream_coalesce_ms`
+  ([0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md)
+  P7 Deviation 2), and `providers.opencode.transport` (MADR 0019, rejected by validate).
+* grok's `allowed_tools`, `disallowed_tools`, `allow_rules` and `deny_rules` are documented as no
+  effect over ACP, measured on grok 0.2.114 (`docs/guides/config.md`, "Grok tool allow/deny lists
+  do not apply to remote sessions"). The test host now runs grok 1.0.70.
+* The seed config that setup-service writes, `internal/cli/service/defaults_mcremote.yaml`, is
+  pinned against `configs/config.example.yaml` by `template_parity_test.go`.
+
+### Decisions
+
+* **Each provider package owns its `providers.<id>` section:** the struct, its defaults (and so
+  its environment variables) and its validation. `internal/config` keeps only what sections share.
+  A registration list returns the descriptors in order, and `config.Load` takes their sections
+  through its options. Adding an agent CLI stays its package and one line in that list. *Owner:
+  "Provider pkgs, explicit list".*
+* **Sections are strict.** An unknown key under `providers.<id>`, an unknown provider id, or an
+  `MCREMOTE_PROVIDERS_*` variable naming either fails the load and names it. This replaces the
+  three warnings above, and supersedes 0160 D3's and 0214 P7 Deviation 2's "ignored with a
+  warning". *Owner: "Fail the load by name".*
+* **The descriptor** carries the ID, display name, section, constructor, prewarm, `doctor`'s
+  version floor and the auth adapter. The icon key moves to P9, where the phone first reads one.
+  *Owner: "Defer to P9".*
+* **The config files agree with the code.** In each provider's commit, `configs/config.example.yaml`,
+  `configs/config.prod.example.yaml`, the setup-service seed and `docs/guides/config.md` carry that
+  section's keys and no others, with a comment on each key. A test loads both examples, the seed,
+  and every provider variable the guide documents through the sections. *Owner: "Add them".*
+* **No provider key is renamed:** each is read, and none was found misnamed. The owner may name
+  one.
+* **grok's four filter keys are measured again on the current grok** before grok's commit. A key
+  that now binds stays, with a live-tagged pin; a key that still has no effect is removed with its
+  flag. *Owner: "Re-measure on 1.0.70 first".*
+* **The rest of the config** (every key outside `providers.*`, and the comment pass over it) is a
+  new MADR and PLAN after P8, not part of this record. *Owner: "New pair after P8".*
+* **The owner's live config** is backed up and migrated in the commit that changes its shape. The
+  file is named, and the owner asked, before it is touched.
+
+### Consequences of this amendment
+
+* Good, because a key that does nothing, or a typo, stops a load instead of being ignored.
+* Good, because the examples, the seed and the guide are checked against the sections, not against
+  each other alone.
+* Bad, because a config carrying a retired key no longer starts the daemon until the key is
+  deleted. The owner's own config is the only one, and it is migrated first.
+* Neutral, because D6's "the config file format does not change" was already relaxed by the
+  2026-10-21 greenfield direction; this amendment says what changes.

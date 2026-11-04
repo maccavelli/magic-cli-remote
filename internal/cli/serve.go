@@ -13,6 +13,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/logging"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/spf13/cobra"
 )
 
@@ -132,6 +133,7 @@ func loadServeConfig(cmd *cobra.Command) (config.Config, error) {
 	cfg, err := config.Load(config.LoadOptions{
 		ConfigFile: cfgFile,
 		Flags:      cmd.Flags(),
+		Providers:  registered.Sections(),
 	})
 	if err != nil {
 		return config.Config{}, err

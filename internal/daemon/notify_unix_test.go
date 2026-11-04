@@ -15,6 +15,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/admin"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 )
 
 // TestRunNotifiesSystemd: under Type=notify, systemctl start returns at
@@ -55,7 +56,7 @@ func TestRunNotifiesSystemd(t *testing.T) {
 	cfg.Providers.Opencode.Enabled = false
 	cfg.Providers.Codex.Enabled = false
 	cfg.Providers.Kilo.Enabled = false
-	cfg.Providers.Fake.Enabled = true
+	cfg.Providers.Sections = config.ProviderSections{"fake": &fake.Section{Enabled: true}}
 	if err := cfg.RecomputePaths(); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +155,7 @@ func TestRunTakesItsNotifySocket(t *testing.T) {
 	cfg.Providers.Opencode.Enabled = false
 	cfg.Providers.Codex.Enabled = false
 	cfg.Providers.Kilo.Enabled = false
-	cfg.Providers.Fake.Enabled = true
+	cfg.Providers.Sections = config.ProviderSections{"fake": &fake.Section{Enabled: true}}
 	if err := cfg.RecomputePaths(); err != nil {
 		t.Fatal(err)
 	}

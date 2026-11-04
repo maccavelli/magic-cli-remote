@@ -18,6 +18,9 @@ type LoadOptions struct {
 	ConfigFile string
 	// Flags are optional cobra-bound flags to bind into viper.
 	Flags *pflag.FlagSet
+	// Providers are the sections of the registered providers, which Load
+	// decodes into Config.Providers.Sections (0208 MADR D6).
+	Providers []ProviderSectionSpec
 }
 
 // systemRoots resolves the platform roots Load searches for config.yaml. It
@@ -38,6 +41,7 @@ func Load(opts LoadOptions) (Config, error) {
 
 	v := viper.New()
 	setDefaults(v)
+	setSectionDefaults(v, opts.Providers)
 
 	v.SetEnvPrefix("MCREMOTE")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
@@ -127,6 +131,9 @@ func Load(opts LoadOptions) (Config, error) {
 	cfg := Defaults()
 	if err := v.Unmarshal(&cfg); err != nil {
 		return Config{}, fmt.Errorf("unmarshal config: %w", err)
+	}
+	if cfg.Providers.Sections, err = decodeSections(v, opts.Providers, os.Environ()); err != nil {
+		return Config{}, err
 	}
 	cfg.DisplayName = strings.TrimSpace(cfg.DisplayName)
 	cfg.Diagnostics = diags
@@ -309,7 +316,6 @@ func setDefaults(v *viper.Viper) {
 	// MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES is silently ignored
 	// (AutomaticEnv only resolves known keys).
 	v.SetDefault("tls.letsencrypt.route53.max_retries", d.TLS.LetsEncrypt.Route53.MaxRetries)
-	v.SetDefault("providers.fake.enabled", d.Providers.Fake.Enabled)
 	v.SetDefault("providers.grok.enabled", d.Providers.Grok.Enabled)
 	v.SetDefault("providers.grok.bin", d.Providers.Grok.Bin)
 	v.SetDefault("providers.grok.always_approve", d.Providers.Grok.AlwaysApprove)

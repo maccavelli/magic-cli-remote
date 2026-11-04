@@ -27,10 +27,10 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/maccavelli/magic-cli-remote/internal/receipt"
 	"github.com/maccavelli/magic-cli-remote/internal/relayhost"
 	"github.com/maccavelli/magic-cli-remote/internal/sdnotify"
@@ -152,9 +152,7 @@ func kiloConfig(cfg config.Config) kilo.Config {
 // must not call Start. Ready reports what daemon.Run's providers would.
 func InspectProviders(cfg config.Config, version string, log *slog.Logger) *provider.Registry {
 	reg := provider.NewRegistry()
-	if cfg.Providers.Fake.Enabled {
-		reg.Register(fake.New())
-	}
+	registerDescribed(reg, cfg, log)
 	if cfg.Providers.Grok.Enabled {
 		reg.Register(grok.NewWithLogger(grokConfig(cfg, version), log))
 	}
@@ -168,6 +166,21 @@ func InspectProviders(cfg config.Config, version string, log *slog.Logger) *prov
 		reg.Register(kilo.NewHTTPWithLogger(kiloConfig(cfg), log))
 	}
 	return reg
+}
+
+// registerDescribed builds and registers each enabled provider of the
+// registration list (0208 MADR D6), and returns how many it registered.
+func registerDescribed(reg *provider.Registry, cfg config.Config, log *slog.Logger) int {
+	n := 0
+	for _, d := range registered.Descriptors() {
+		sec := d.SectionIn(cfg)
+		if !sec.IsEnabled() {
+			continue
+		}
+		reg.Register(d.New(provider.Build{Section: sec, Log: log}))
+		n++
+	}
+	return n
 }
 
 // Run starts the daemon and blocks until ctx is cancelled.
@@ -232,8 +245,10 @@ func Run(ctx context.Context, opts Options) error {
 			slog.Bool("require_device_token", cfg.Auth.RequireDeviceToken),
 		)
 	}
-	if cfg.Providers.Fake.Enabled {
-		log.Warn("fake provider is enabled (dev/smoke only)")
+	for _, d := range registered.Descriptors() {
+		if d.DevOnly && d.SectionIn(cfg).IsEnabled() {
+			log.Warn(d.Name + " provider is enabled (dev/smoke only)")
+		}
 	}
 
 	// The client-key allowlist is bound to the mTLS peer certificate presented
@@ -284,9 +299,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	reg := provider.NewRegistry()
-	if cfg.Providers.Fake.Enabled {
-		reg.Register(fake.New())
-	}
+	described := registerDescribed(reg, cfg, log)
 	// Credential transactions (MADR 0074 D21). Built before any provider so a
 	// coordinated provider can be constructed with its coordinator, and before
 	// any mutation so startup recovery runs first.
@@ -397,7 +410,8 @@ func Run(ctx context.Context, opts Options) error {
 	// Operator signal when every enabled provider is missing its binary (Phase 4.1).
 	// Keep this OR-chain in sync with ProvidersConfig — a provider missing here
 	// silently skips the warning instead of just being ready=false (MADR 0076 M3).
-	if anyEnabled := cfg.Providers.Fake.Enabled || cfg.Providers.Grok.Enabled || cfg.Providers.Opencode.Enabled || cfg.Providers.Codex.Enabled || cfg.Providers.Kilo.Enabled; anyEnabled {
+	// A described provider is counted by registerDescribed.
+	if anyEnabled := described > 0 || cfg.Providers.Grok.Enabled || cfg.Providers.Opencode.Enabled || cfg.Providers.Codex.Enabled || cfg.Providers.Kilo.Enabled; anyEnabled {
 		ready := 0
 		for _, p := range reg.All() {
 			if p.Ready() {

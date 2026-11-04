@@ -11,6 +11,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/admin"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 )
 
 // isolatedRoots points every XDG root at a scratch directory, so a whole Run
@@ -52,7 +53,7 @@ func TestRunShutsDownOnTheAdminRequest(t *testing.T) {
 	cfg.Providers.Opencode.Enabled = false
 	cfg.Providers.Codex.Enabled = false
 	cfg.Providers.Kilo.Enabled = false
-	cfg.Providers.Fake.Enabled = true
+	cfg.Providers.Sections = config.ProviderSections{"fake": &fake.Section{Enabled: true}}
 	if err := cfg.RecomputePaths(); err != nil {
 		t.Fatal(err)
 	}

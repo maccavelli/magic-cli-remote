@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/maccavelli/magic-cli-remote/internal/tailnet"
 	"github.com/spf13/pflag"
 )
@@ -255,7 +256,7 @@ providers:
 
 	t.Setenv("MCREMOTE_LISTEN_PORT", "9001")
 
-	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: path, Providers: registered.Sections()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +270,7 @@ providers:
 	if cfg.Log.Format != "json" {
 		t.Fatalf("format=%s", cfg.Log.Format)
 	}
-	if cfg.Providers.Fake.Enabled {
+	if cfg.Providers.Sections["fake"].IsEnabled() {
 		t.Fatal("fake should be disabled by file")
 	}
 }

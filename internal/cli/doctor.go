@@ -25,6 +25,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 	"github.com/spf13/cobra"
@@ -51,7 +52,7 @@ func newDoctorCmd() *cobra.Command {
 			fmt.Fprintln(w)
 			renderCredentialDoctor(w, probeCredentialStores())
 			fmt.Fprintln(w)
-			cfg, err := config.Load(config.LoadOptions{ConfigFile: cfgFile})
+			cfg, err := config.Load(config.LoadOptions{ConfigFile: cfgFile, Providers: registered.Sections()})
 			if err != nil {
 				fmt.Fprintln(w, "agent engines")
 				fmt.Fprintf(w, "  configuration could not be loaded: %v\n", err)

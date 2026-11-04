@@ -10,6 +10,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/admin"
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 )
 
 // shutdownGrace is how long an update on Windows waits for the daemon to exit
@@ -33,7 +34,7 @@ func updateHealth() service.HealthOptions {
 // file its --config names, or the default one, with its --data-dir, as serve
 // loads them. It is a variable for tests.
 var loadServiceConfig = func(args service.ServeArgs) (config.Config, error) {
-	cfg, err := config.Load(config.LoadOptions{ConfigFile: args.ConfigPath})
+	cfg, err := config.Load(config.LoadOptions{ConfigFile: args.ConfigPath, Providers: registered.Sections()})
 	if err != nil {
 		return config.Config{}, err
 	}

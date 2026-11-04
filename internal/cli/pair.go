@@ -22,6 +22,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/pairuri"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/maccavelli/magic-cli-remote/internal/tailnet"
 	"github.com/mdp/qrterminal/v3"
 	"github.com/spf13/cobra"
@@ -571,6 +572,7 @@ func loadConfigFromFlags(cmd *cobra.Command) (config.Config, error) {
 	cfg, err := config.Load(config.LoadOptions{
 		ConfigFile: cfgFile,
 		Flags:      cmd.Flags(),
+		Providers:  registered.Sections(),
 	})
 	if err != nil {
 		return config.Config{}, err

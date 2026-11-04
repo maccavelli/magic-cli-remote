@@ -447,16 +447,14 @@ const maxStreamCoalesceMs = 1000
 
 // ProvidersConfig enables individual providers.
 type ProvidersConfig struct {
-	Fake     FakeProviderConfig     `mapstructure:"fake"`
+	// Sections are the providers.<id> sections each provider's package owns,
+	// decoded by Load from LoadOptions.Providers (0208 MADR D6).
+	Sections ProviderSections `mapstructure:"-"`
+
 	Grok     GrokProviderConfig     `mapstructure:"grok"`
 	Opencode OpencodeProviderConfig `mapstructure:"opencode"`
 	Codex    CodexProviderConfig    `mapstructure:"codex"`
 	Kilo     KiloProviderConfig     `mapstructure:"kilo"`
-}
-
-// FakeProviderConfig configures the test/demo provider.
-type FakeProviderConfig struct {
-	Enabled bool `mapstructure:"enabled"`
 }
 
 // MCPServerConfig configures one MCP server advertised to an ACP agent at
@@ -736,8 +734,6 @@ func Defaults() Config {
 			RequireClientKey:   true,
 		},
 		Providers: ProvidersConfig{
-			// Fake is opt-in for smoke/tests only (R6=A); enable explicitly.
-			Fake: FakeProviderConfig{Enabled: false},
 			Grok: GrokProviderConfig{
 				// Pinned rather than left empty. Empty means "whatever this
 				// host's grok resolves to" — ~/.grok/config.toml, project

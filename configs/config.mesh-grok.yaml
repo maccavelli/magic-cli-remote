@@ -84,7 +84,7 @@ auth:
 providers:
   # Dev/smoke echo provider — never enable in normal operation.
   fake:
-    enabled: false
+    enabled: false  # true registers it; for tests and smoke runs only (MADR 0055 R6)
   grok:
     enabled: true
     bin: "grok"
