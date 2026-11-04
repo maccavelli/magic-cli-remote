@@ -2596,24 +2596,36 @@ class CollaborationMode {
 
 /// One choice in a select-kind [ConfigOption].
 class ConfigOptionValue {
-  const ConfigOptionValue({required this.id, required this.name});
+  const ConfigOptionValue({
+    required this.id,
+    required this.name,
+    this.group = '',
+  });
 
   final String id;
   final String name;
+
+  /// The group the agent listed this value under, in a grouped select; empty
+  /// when the select is not grouped (MADR 0208 D3).
+  final String group;
 
   factory ConfigOptionValue.fromJson(Map<String, dynamic> json) {
     return ConfigOptionValue(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? '',
+      group: json['group'] as String? ?? '',
     );
   }
 
   @override
   bool operator ==(Object other) =>
-      other is ConfigOptionValue && other.id == id && other.name == name;
+      other is ConfigOptionValue &&
+      other.id == id &&
+      other.name == name &&
+      other.group == group;
 
   @override
-  int get hashCode => Object.hash(id, name);
+  int get hashCode => Object.hash(id, name, group);
 }
 
 /// One agent-defined session config option (ACP SessionConfigOption), carried
@@ -2624,6 +2636,7 @@ class ConfigOption {
     required this.name,
     required this.kind,
     this.description = '',
+    this.category = '',
     this.currentValue = '',
     this.boolValue = false,
     this.values = const [],
@@ -2633,6 +2646,10 @@ class ConfigOption {
   final String name;
   final String kind;
   final String description;
+
+  /// The agent's semantic category (`model`, `mode`, `thought_level`, or one
+  /// the agent names), for layout only; empty when it gave none.
+  final String category;
 
   /// Selected value id for a select option.
   final String currentValue;
@@ -2660,6 +2677,7 @@ class ConfigOption {
       name: json['name'] as String? ?? '',
       kind: json['kind'] as String? ?? 'select',
       description: json['description'] as String? ?? '',
+      category: json['category'] as String? ?? '',
       currentValue: json['current_value'] as String? ?? '',
       boolValue: json['bool_value'] == true,
       values: vals,
@@ -2674,6 +2692,7 @@ class ConfigOption {
       other.name == name &&
       other.kind == kind &&
       other.description == description &&
+      other.category == category &&
       other.currentValue == currentValue &&
       other.boolValue == boolValue &&
       _listEquals(other.values, values);
@@ -2684,6 +2703,7 @@ class ConfigOption {
     name,
     kind,
     description,
+    category,
     currentValue,
     boolValue,
     Object.hashAll(values),

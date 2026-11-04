@@ -1885,10 +1885,11 @@ Clients render a settings surface from it and write back with
       "name": "Model",
       "description": "Which model answers this session",
       "kind": "select",
+      "category": "model",
       "current_value": "claude-sonnet-4-5",
       "values": [
-        { "id": "claude-sonnet-4-5", "name": "Sonnet 4.5" },
-        { "id": "claude-opus-4-1", "name": "Opus 4.1" }
+        { "id": "claude-sonnet-4-5", "name": "Sonnet 4.5", "group": "Anthropic" },
+        { "id": "claude-opus-4-1", "name": "Opus 4.1", "group": "Anthropic" }
       ]
     },
     { "id": "verbose", "name": "Verbose output", "kind": "boolean", "bool_value": false }
@@ -1899,6 +1900,13 @@ Clients render a settings surface from it and write back with
 - `kind` is `select` or `boolean`. A `select` carries `values[]` and
   `current_value`; a `boolean` carries `bool_value`.
 - `description` is optional.
+- `category` is the agent's semantic category for the option: ACP's `model`,
+  `mode` or `thought_level`, or one the agent names. It is for layout only, and
+  absent when the agent gave none.
+- A value's `group` is the name of the group the agent listed it under, in a
+  grouped select. It is absent for an ungrouped one. A value can appear in more
+  than one group, for example a `recent` group and its provider's (MADR 0208
+  D3).
 - A full list replaces the current option list; a single-option update merges
   by `id` so omitted options remain available.
 - Echo `id` back as `option_id` on `session.set_config_option`, with the same

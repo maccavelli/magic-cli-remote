@@ -578,10 +578,14 @@ type SessionMode struct {
 // CurrentValue is the chosen value id and Values lists the choices; for a
 // boolean, BoolValue holds the state and Values is empty.
 type ConfigOption struct {
-	ID           string              `json:"id"`
-	Name         string              `json:"name"`
-	Description  string              `json:"description,omitempty"`
-	Kind         string              `json:"kind"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Kind        string `json:"kind"`
+	// Category is the agent's semantic category for the option (ACP's
+	// `model`, `mode`, `thought_level`, or another the agent names), for the
+	// client's layout only. Empty when the agent gave none (MADR 0208 D3).
+	Category     string              `json:"category,omitempty"`
 	CurrentValue string              `json:"current_value,omitempty"`
 	BoolValue    bool                `json:"bool_value,omitempty"`
 	Values       []ConfigOptionValue `json:"values,omitempty"`
@@ -591,6 +595,9 @@ type ConfigOption struct {
 type ConfigOptionValue struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Group is the name of the group the agent listed the value under, in a
+	// grouped select. Empty for an ungrouped one (MADR 0208 D3).
+	Group string `json:"group,omitempty"`
 }
 
 // AttachmentInfo describes a non-text block sent with a prompt, carried on the

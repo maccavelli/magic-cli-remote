@@ -191,6 +191,30 @@ func TestBytesTracksStructGrowth(t *testing.T) {
 	}
 }
 
+// TestBytesCountsConfigOptionStrings: a config option's category, and each
+// value's id, name and group, count by their length. A grouped catalog is
+// hundreds of values, and their strings are most of its size (0208-PLAN P7
+// Deviation 2).
+func TestBytesCountsConfigOptionStrings(t *testing.T) {
+	sized := func(o ConfigOption) int {
+		return Bytes(&Event{Type: TypeSessionConfig, ConfigOptions: []ConfigOption{o}})
+	}
+	base := sized(ConfigOption{Values: []ConfigOptionValue{{}}})
+	for _, c := range []struct {
+		field string
+		opt   ConfigOption
+	}{
+		{"category", ConfigOption{Category: "thought_level", Values: []ConfigOptionValue{{}}}},
+		{"value id", ConfigOption{Values: []ConfigOptionValue{{ID: "thought_level"}}}},
+		{"value name", ConfigOption{Values: []ConfigOptionValue{{Name: "thought_level"}}}},
+		{"value group", ConfigOption{Values: []ConfigOptionValue{{Group: "thought_level"}}}},
+	} {
+		if got := sized(c.opt) - base; got != len("thought_level") {
+			t.Errorf("%s adds %d bytes, want %d", c.field, got, len("thought_level"))
+		}
+	}
+}
+
 // A usage report's session cost is a second allocation with a string in it,
 // so the budget must count it (MADR 0189 D1).
 func TestBytesCountsSessionCost(t *testing.T) {

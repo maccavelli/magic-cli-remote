@@ -153,6 +153,12 @@ type Spec struct {
 	// agent that advertises its own `auto` is never shadowed. Off by default
 	// so an agent with a native auto does not get a second one.
 	SynthesizeAutoMode bool
+	// DangerousModeIDs are the agent's own modes that remove a safety
+	// control, such as one that runs tools without asking. They are
+	// advertised as dangerous, so the phone confirms before arming one, as it
+	// does the synthetic auto mode (MADR 0208 D3; 0179 D7). The agent, not
+	// Magic, enforces what the mode does. Matched without regard to case.
+	DangerousModeIDs []string
 	// ListModels, when non-nil, supplies a live (or merged) catalog. Called
 	// from [Provider.ListModels] with the provider config.
 	ListModels func(ctx context.Context, cfg Config) (picker.Catalog, error)

@@ -244,6 +244,17 @@ String attachmentBasename(String path) {
   return name;
 }
 
+/// The picker catalog for a select-kind [ConfigOption]: its values in the
+/// agent's order, each under the group the agent listed it in, and its current
+/// value selected. A grouped select keeps its groups (MADR 0208 D3).
+PickerCatalog configValuesCatalog(ConfigOption o) => PickerCatalog(
+  options: [
+    for (final v in o.values)
+      PickerOption(id: v.id, label: v.name, group: v.group),
+  ],
+  defaultIds: o.currentValue.isEmpty ? const [] : [o.currentValue],
+);
+
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.sessionId, this.sessionName});
 
@@ -1136,6 +1147,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       name: o.name,
       kind: o.kind,
       description: o.description,
+      category: o.category,
       boolValue: v,
       currentValue: o.currentValue,
       values: o.values,
@@ -1145,6 +1157,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       name: o.name,
       kind: o.kind,
       description: o.description,
+      category: o.category,
       boolValue: o.boolValue,
       currentValue: v,
       values: o.values,
@@ -1230,15 +1243,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         // overflowed (MADR 0043 D12). Search comes for free.
                         final result = await showOptionPicker(
                           sheetCtx,
-                          catalog: PickerCatalog(
-                            options: [
-                              for (final v in o.values)
-                                PickerOption(id: v.id, label: v.name),
-                            ],
-                            defaultIds: o.currentValue.isEmpty
-                                ? const []
-                                : [o.currentValue],
-                          ),
+                          catalog: configValuesCatalog(o),
                           title: o.name,
                           initialSelected: o.currentValue.isEmpty
                               ? const []

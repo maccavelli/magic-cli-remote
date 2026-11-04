@@ -2255,9 +2255,28 @@ func syntheticAutoMode() event.SessionMode {
 	}
 }
 
-// advertisedModes is [base] plus the synthetic auto mode, when this provider
-// opted in and the agent has no auto of its own.
+// dangerousModes is modes with each of the Spec's DangerousModeIDs marked
+// dangerous. It clones before marking: a Spec's static list is shared by
+// every session built from it.
+func (s *session) dangerousModes(modes []event.SessionMode) []event.SessionMode {
+	ids := s.spec().DangerousModeIDs
+	if len(ids) == 0 || len(modes) == 0 {
+		return modes
+	}
+	out := slices.Clone(modes)
+	for i := range out {
+		if slices.ContainsFunc(ids, func(id string) bool { return strings.EqualFold(id, out[i].ID) }) {
+			out[i].Dangerous = true
+		}
+	}
+	return out
+}
+
+// advertisedModes is [base], with the Spec's dangerous modes marked, plus the
+// synthetic auto mode, when this provider opted in and the agent has no auto
+// of its own.
 func (s *session) advertisedModes(base []event.SessionMode) []event.SessionMode {
+	base = s.dangerousModes(base)
 	if !s.synthesizeAuto || len(base) == 0 {
 		return base
 	}
@@ -2363,9 +2382,41 @@ func (s *session) emitModesOrStatic(st *acp.SessionModeState) {
 	})
 }
 
+// categoryOf is an option's category as the wire names it, or "" for none.
+func categoryOf(c *acp.SessionConfigOptionCategory) string {
+	if c == nil {
+		return ""
+	}
+	return string(*c)
+}
+
+// selectValues flattens a select's values, ungrouped then grouped, keeping
+// each grouped value's group by its name (its id when the agent named none).
+func selectValues(opts acp.SessionConfigSelectOptions) []event.ConfigOptionValue {
+	vals := make([]event.ConfigOptionValue, 0)
+	if opts.Ungrouped != nil {
+		for _, v := range *opts.Ungrouped {
+			vals = append(vals, event.ConfigOptionValue{ID: string(v.Value), Name: v.Name})
+		}
+	}
+	if opts.Grouped != nil {
+		for _, g := range *opts.Grouped {
+			group := g.Name
+			if group == "" {
+				group = string(g.Group)
+			}
+			for _, v := range g.Options {
+				vals = append(vals, event.ConfigOptionValue{ID: string(v.Value), Name: v.Name, Group: group})
+			}
+		}
+	}
+	return vals
+}
+
 // emitConfigOptions forwards the agent's session config options as a
 // session_config event. No-op when the agent exposed none. Only the stable
-// select and boolean option kinds are mapped.
+// select and boolean option kinds are mapped. Each option keeps its category,
+// and a grouped select's values keep their group (MADR 0208 D3).
 func (s *session) emitConfigOptions(opts []acp.SessionConfigOption) {
 	if len(opts) == 0 {
 		return
@@ -2379,19 +2430,14 @@ func (s *session) emitConfigOptions(opts []acp.SessionConfigOption) {
 			if sel.Description != nil {
 				desc = *sel.Description
 			}
-			vals := make([]event.ConfigOptionValue, 0)
-			if sel.Options.Ungrouped != nil {
-				for _, v := range *sel.Options.Ungrouped {
-					vals = append(vals, event.ConfigOptionValue{ID: string(v.Value), Name: v.Name})
-				}
-			}
 			out = append(out, event.ConfigOption{
 				ID:           string(sel.Id),
 				Name:         sel.Name,
 				Description:  desc,
 				Kind:         "select",
+				Category:     categoryOf(sel.Category),
 				CurrentValue: string(sel.CurrentValue),
-				Values:       vals,
+				Values:       selectValues(sel.Options),
 			})
 		case o.Boolean != nil:
 			b := o.Boolean
@@ -2404,6 +2450,7 @@ func (s *session) emitConfigOptions(opts []acp.SessionConfigOption) {
 				Name:        b.Name,
 				Description: desc,
 				Kind:        "boolean",
+				Category:    categoryOf(b.Category),
 				BoolValue:   b.CurrentValue,
 			})
 		}

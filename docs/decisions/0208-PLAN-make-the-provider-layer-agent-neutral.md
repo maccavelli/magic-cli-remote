@@ -2138,3 +2138,159 @@ Each waits for the owner's quota word. Until then P5 is done in code, but not co
   `canonical_test.go`;
 * `docs/decisions/0189-MADR-carry-the-agent-session-cost-as-a-session-total.md`;
 * this plan.
+
+*The owner committed the `/context` commit as `8f8e32ed`.*
+
+### P5, the live checks, 2026-11-04 (step 4)
+
+On the owner's word, "run all live test, you have approval", on master `8f8e32ed` (this host):
+
+| Run | Result |
+| --- | --- |
+| `make live-grok` (both parts) | exit 0, 230 PASS. `TestLiveGrokSessionUsageDecodesStrictly` and `TestLiveGrokBillingDecodesStrictly` passed. One skip, `TestLiveRawOutputSamples`, which needs `MCREMOTE_RAW_OUTPUT_DIR` |
+| `make live-codex` | exit 0, 540 PASS. Two skips, each needing an opt-in variable: `TestGenerateContractManifest` (`CODEX_CONTRACT_GENERATE`) and `TestLiveRawOutputSamples` |
+| `MCREMOTE_LIVE_KILO_MODEL=openrouter/openrouter/free make live-kilo` | exit 0, 205 PASS. Three skips, each needing an opt-in variable |
+| `TestLiveProviderUsageAnswersTheShapeWeParse`, against a private `kilo serve` (`p5live/run_provider_usage.py`) | exit 0: `plans=0`, the capture's shape |
+
+**Not run:**
+* `TestLiveKiloTogetherAIKeyRoundTrip`: it writes a key into the owner's kilo credential store
+  (`MCREMOTE_LIVE_AUTH_WRITE`). It has nothing to do with P5.
+* The raw-output and contract-generation samples, which are opt-in capture runs.
+
+**Not covered:** no codex live test calls `/status` or `/usage` through the provider. The codex
+commit's capture was taken live, and its fixture test replays it. The live suite passing says the
+engine still speaks the shapes the suite checks, not that these two operations were driven end to
+end.
+
+**P5 is complete.** Every operation it names passes the engine's answer through, or Magic's own
+record where no engine answers. Its live checks passed. P7 is next; P6 was done ahead of P5's
+remainder.
+
+### P7 Deviation 1, 2026-11-04 — step 2 exists already, and the protocol guide. The owner decided: "Met by the opt-in hook" and "Add protocol-v1.md"
+
+Read at P7's start (master `8f8e32ed` plus P5's staged live record):
+
+* **Step 1 is open.**
+  * `emitConfigOptions` (`acpagent/session.go:2369-2395`) walks `Options.Ungrouped` alone, so a
+    grouped select reaches the phone with no values.
+  * It forwards no category: `event.ConfigOption` has no field for one (`event/event.go:580-594`).
+* **Step 2 exists.** 0214 P6c added `Spec.ModelsFromOption`, which builds the provider's catalog
+  from the `model` option, grouped values included (`acpagent/modelcatalog.go:21-39`; its tests
+  `TestModelOptionBecomesTheCatalog`, `TestModelOptionsKeepTheAgentsGroups`).
+  * opencode sets it, and gobble's 0179 PLAN P1 step 3 does.
+  * Making it every Spec's default would change how grok's catalog is built, from its initialize
+    `_meta`.
+* **Step 3 is open.** No `Spec.DangerousModeIDs`. Only the synthetic `auto` is marked `Dangerous`
+  (`session.go:2245-2256`), which is what makes the phone confirm.
+* **Out of the file list.** `session_config` is documented in `docs/guides/protocol-v1.md:1872`.
+  The greenfield rule (Rules for every phase) changes the daemon, the phone and the guide together.
+
+**Decided.**
+* **"Met by the opt-in hook".** Step 2 is recorded as met by `Spec.ModelsFromOption`; no code
+  changes for it.
+* **"Add protocol-v1.md".** The guide documents the new fields in the same commit.
+* **P7's files:**
+  * `internal/provider/acpagent/session.go` and `acpagent.go`, and their tests;
+  * `internal/event/event.go`;
+  * `apps/mobile/lib/data/protocol/models.dart` and `apps/mobile/lib/features/chat/chat_screen.dart`,
+    the phone's config-option rendering, and their tests;
+  * `docs/guides/protocol-v1.md`;
+  * this plan.
+
+  `session_meta.go`, which the PLAN lists, is not needed.
+
+### P7 Deviation 2, 2026-11-04 — the retention budget. The owner decided: "Also count value strings"
+
+Found while adding the fields, before any change:
+
+* **The budget counts strings unevenly.** `event.Bytes` (`internal/event/retention.go:186-190`)
+  counts each config option's `id`, `name`, `description`, `kind` and `current_value` by length,
+  but each value only by its struct's size. So a value's `id` and `name`, and now its `group`, are
+  not counted.
+* **Nothing would catch it.** `TestBytesTracksStructGrowth` fills `Event`'s own string fields, not
+  the ones nested in a config option.
+* `retention.go` is not in P7's list.
+
+**Decided: "Also count value strings".**
+* `Bytes` counts the option's new `category`, and each value's `id`, `name` and `group`, by length.
+* The test is seen failing on each left out.
+* **Files added to P7:** `internal/event/retention.go` and its test.
+
+### P7 — 2026-11-04: standard ACP config options, and dangerous modes
+
+**What changed.**
+* **`internal/event/event.go`.** `ConfigOption` gains `Category` (`category`), and
+  `ConfigOptionValue` gains `Group` (`group`), each omitted when empty.
+* **`internal/provider/acpagent/session.go`.**
+  * `emitConfigOptions` forwards every select's values through `selectValues`: ungrouped ones as
+    before, then each grouped one with its group's name, or the group's id when the agent named
+    none.
+  * Each select and boolean option carries its category (`categoryOf`).
+  * `advertisedModes` marks the Spec's `DangerousModeIDs` dangerous (`dangerousModes`), without
+    regard to case, on a copy of the list: a Spec's static list is shared by every session. Both
+    mode paths, the agent's and the static fallback, go through it.
+* **`internal/provider/acpagent/acpagent.go`.** `Spec.DangerousModeIDs`. The agent enforces what the
+  mode does. Magic marks it dangerous so the phone confirms it, as it confirms the synthetic `auto`.
+* **`internal/event/retention.go`** (Deviation 2). `Bytes` counts an option's `category`, and each
+  value's `id`, `name` and `group`.
+* **The phone.**
+  * `models.dart`: `ConfigOption.category` and `ConfigOptionValue.group`, parsed and part of
+    equality, so a change to either is applied.
+  * `chat_screen.dart`: the config sheet's picker catalog comes from a new top-level
+    `configValuesCatalog`. It puts each value in its group, which the picker already renders as
+    headers.
+  * A value listed in two groups (a `recent` group and its provider's) is two rows. Rows are not
+    keyed by id, so this is safe, and both show selected.
+* **`docs/guides/protocol-v1.md`.** The `session_config` event documents `category` and a value's
+  `group`.
+* **Step 2** is met by 0214's `Spec.ModelsFromOption` (Deviation 1); no code.
+
+**Tests, each seen failing** (`p7r/plant_go.py`, `p7r/plant_dart.py`, on scratch copies; the phone's
+held only `lib`, `test`, `.dart_tool`, `assets` and the pubspec files):
+
+| Break | Fails |
+| --- | --- |
+| grouped values skipped | `TestGroupedConfigOptionReachesThePhone`: `model values = []` |
+| the group not set | the same: every value with `Group:` empty |
+| no fallback to the group's id | the same: `openai/gpt-z` with no group |
+| the category dropped | the same: `category ""` |
+| `DangerousModeIDs` not applied | `TestDangerousModeIDsMarkTheAgentsModes`: bypass `Dangerous:false` |
+| matched with case | the same: the static `Bypass` not marked |
+| marking the shared static list | the same: "marking wrote through to the Spec's shared static list" |
+| `Bytes` without the category; without a value's id, name or group | `TestBytesCountsConfigOptionStrings`: "adds 0 bytes, want 13", once for each |
+| the phone not parsing `group`; not parsing `category` | `config_option_groups_test.dart`: `Actual: ['', '', '', '']`; `Actual: ''` |
+| the phone's equality ignoring `category`; ignoring `group` | the same file: "a changed category or group is a change": `Actual: <true>`, once for each |
+| the picker catalog dropping the group | the same file: `Actual: ['/anthropic/claude-x', …]` |
+
+`TestNoDangerousModeIDsLeavesModesAlone` pins that a Spec without the field advertises the agent's
+modes unchanged.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (6 Go files) | "6 file(s) clean (gofmt, golint, govulncheck)" |
+| `dart format` on the three Dart files | applied; the formatter changed only this phase's lines |
+| `make preflight` | exit 0; 47 packages ok, no race; 0 of 231 files changed by `dart format`; no analyzer issues; 1513 phone tests passed |
+
+The first `make preflight` failed `TestNoProviderIsNamedInAcpagent`: the new test's fixture comment
+named the agent whose shape it follows (`configgroups_test.go:14`). The comment was made neutral, and
+the second run is the one above.
+
+**The MADR's Confirmation:** "a grouped config option fixture reaches the phone with its values and
+category" is met: `TestGroupedConfigOptionReachesThePhone`, and the phone's parse and render tests.
+
+**Not done:**
+* No live run: P7 names none, and no Spec sets `DangerousModeIDs` yet. 0179 P3 sets gobble's
+  `bypass`.
+* The fake provider's config options carry no category; it was not changed.
+
+P7 is complete with this commit. P8, one provider descriptor, is next.
+
+**Files for this commit:**
+* `internal/event/event.go`, `retention.go` and `retention_test.go`;
+* `internal/provider/acpagent/acpagent.go` and `session.go`, and `configgroups_test.go` (new);
+* `apps/mobile/lib/data/protocol/models.dart`, `apps/mobile/lib/features/chat/chat_screen.dart` and
+  `apps/mobile/test/config_option_groups_test.dart` (new);
+* `docs/guides/protocol-v1.md`;
+* this plan, which also carries P5's live checks.

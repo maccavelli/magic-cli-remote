@@ -184,10 +184,15 @@ func Bytes(ev *Event) int {
 		n += collabModeBytes + len(ev.CollaborationModes[i].ID) + len(ev.CollaborationModes[i].Name)
 	}
 	for i := range ev.ConfigOptions {
-		n += configOptionBytes + len(ev.ConfigOptions[i].ID) + len(ev.ConfigOptions[i].Name) +
-			len(ev.ConfigOptions[i].Description) + len(ev.ConfigOptions[i].Kind) +
-			len(ev.ConfigOptions[i].CurrentValue)
-		n += configOptionValueBytes * len(ev.ConfigOptions[i].Values)
+		o := &ev.ConfigOptions[i]
+		n += configOptionBytes + len(o.ID) + len(o.Name) + len(o.Description) + len(o.Kind) +
+			len(o.Category) + len(o.CurrentValue)
+		// Each value's strings as well as its header: a grouped catalog is
+		// hundreds of values, and their ids are most of its size (0208 PLAN P7
+		// Deviation 2).
+		for j := range o.Values {
+			n += configOptionValueBytes + len(o.Values[j].ID) + len(o.Values[j].Name) + len(o.Values[j].Group)
+		}
 	}
 	for i := range ev.Attachments {
 		n += attachmentBytes + len(ev.Attachments[i].Kind) + len(ev.Attachments[i].MimeType)
