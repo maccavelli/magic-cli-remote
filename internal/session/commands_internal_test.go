@@ -6,6 +6,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 )
@@ -35,7 +36,7 @@ func TestIsCommandName(t *testing.T) {
 func helpTextManager(sessions map[string]*entry) *Manager {
 	reg := provider.NewRegistry()
 	reg.Register(grok.New(grok.Config{}))
-	reg.Register(opencode.NewHTTP(opencode.Config{}))
+	reg.Register(opencode.NewACP(acpagent.Config{}))
 	return &Manager{reg: reg, sessions: sessions}
 }
 
@@ -116,9 +117,11 @@ func TestHelpTextModesAndProviderCaveat(t *testing.T) {
 	if strings.Contains(h, "terminal UI") {
 		t.Errorf("grok-specific caveat leaked into an opencode session:\n%s", h)
 	}
-	// OpenCode says /goal is not a thing it does; the reason must be its own.
-	if !strings.Contains(h, "no goal loop") {
-		t.Errorf("help text missing OpenCode's reason for /goal:\n%s", h)
+	// OpenCode says /loop is not a thing it does; the reason must be its own.
+	// (v2 has /goal natively, so the 1.x reason for it went with the dialect,
+	// 0214 PLAN P7.)
+	if !strings.Contains(h, "OpenCode has no loop command") {
+		t.Errorf("help text missing OpenCode's reason for /loop:\n%s", h)
 	}
 }
 

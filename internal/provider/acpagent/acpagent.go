@@ -223,6 +223,9 @@ type Spec struct {
 	// as one whose file snapshots fail for a project reached through a link
 	// (0214 MADR, added at P6e).
 	RealCWD bool
+	// OnShutdown, when non-nil, runs at daemon exit after the warm spare is
+	// released, for what the Spec runs beside its agents (0214 PLAN P7).
+	OnShutdown func()
 	// InitializeMeta, when non-nil, reads initialize's `_meta`.
 	InitializeMeta func(meta map[string]any) InitializeInfo
 	// Ops are the session operations the Spec offers beyond standard ACP.
@@ -924,6 +927,9 @@ func (p *Provider) Shutdown() {
 	p.warmMu.Unlock()
 	if s != nil {
 		s.markClosedAndKill()
+	}
+	if p.spec.OnShutdown != nil {
+		p.spec.OnShutdown()
 	}
 }
 

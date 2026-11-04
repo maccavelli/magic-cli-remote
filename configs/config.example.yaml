@@ -134,48 +134,46 @@ providers:
     #       headers:
     #         Authorization: "Bearer <token>"
     mcp_servers: []
-  # OpenCode (opencode.ai). Pick it per session from the phone's provider menu.
-  # Every session multiplexes over one shared long-lived `opencode serve`
-  # engine (HTTP + SSE), so there is no per-session process to configure —
-  # `transport`, `args` and `fs_roots` were retired in MADR 0019.
+  # OpenCode (opencode.ai) v2. Pick it per session from the phone's provider
+  # menu. Each session runs its own `opencode acp`; one shared control plane
+  # (`opencode serve --stdio`, started on demand) serves the workspace,
+  # diagnostics, diff, undo and auth (0214 MADR). Its 1.x keys `pure`,
+  # `session_tree` and `stream_coalesce_ms` are ignored with a warning.
   opencode:
     enabled: true
     bin: "opencode"
+    # Empty = the built-in argv (acp).
+    args: []
     always_approve: false
     default_cwd: ""          # empty = the daemon user's home directory
     # Empty uses OpenCode's config default; pin e.g.
-    # opencode/deepseek-v4-flash-free or anthropic/claude-haiku-4-5.
+    # opencode/deepseek-v4.1-flash-free or anthropic/claude-haiku-4-5.
     model: ""
     permission_timeout_seconds: 120
-    # Off: engine starts on first session. Turn on from the phone
-    # (Settings → Providers) or set true here. true skips the ~3–5s
-    # Bun cold start but holds ~250MB idle.
+    # Off: the first session starts `opencode acp`. Turn on from the phone
+    # (Settings → Providers) or set true here. true keeps one spare agent
+    # process ready, at the cost of holding it idle.
     prewarm: false
     turn_stall_notice_seconds: 120
-    # Hold streamed assistant/thought text this long so it ships as one event
-    # instead of one per model token (MADR 0024) — ~12 mid-stream updates/sec.
-    # The first chunk of a reply and the tail before any control event are
-    # never delayed. 0 = one event per token (pre-0024); max 1000.
-    stream_coalesce_ms: 80
-    # Multi-agent session-tree demux (MADR 0020 KD11). true = child aliases,
-    # tree-idle EndTurn, child fan-in. false = exact pre-0020 behaviour (parent-only).
-    # Requires opencode ≥ 1.18.0 when enabled.
-    session_tree: true
-    # Run opencode serve with --pure (skip loading external third-party plugins)
-    pure: false
-    # --- remote mutation policy (MADR 0112 A8/A9) -------------------------
-    # Both OFF by default. They are independent: permitting collaboration does
-    # not imply permitting command execution.
-    #
-    # allow_remote_share lets a paired phone publish or revoke an OpenCode
-    # share link. RISK: sharing uploads the transcript to OpenCode's service
-    # and makes it readable by anyone who has the link.
-    allow_remote_share: false
-    # allow_remote_shell lets a paired phone run a command in the session's
-    # working directory. RISK: OpenCode's shell endpoint bypasses normal model
-    # tool-permission checks, so this is remote command execution on THIS host.
-    # The phone additionally confirms every command, but that is a second line
-    # of defence, not the first.
+    # Confine the agent's fs read/write callbacks to these roots (+ the
+    # session cwd); empty = unrestricted. Defense-in-depth and audit only —
+    # not a sandbox (the agent has same-user terminal access regardless).
+    fs_roots: []
+    # ACP auth method pin. Leave it empty: the phone's auth runs on the
+    # control plane, and opencode's one ACP method, opencode-login, opens a
+    # terminal login.
+    auth_method_id: ""
+    # MCP servers advertised to each session (extra tools/context). Each is
+    # forwarded only if opencode advertises the matching transport
+    # (mcpCapabilities.http / .sse). Empty = none. The control plane loads
+    # none of opencode's own (0230 MADR). Same shape as grok's mcp_servers.
+    mcp_servers: []
+    # --- remote shell policy (MADR 0112 A9) --------------------------------
+    # OFF by default. allow_remote_shell lets a paired phone run a command in
+    # the session's working directory. RISK: OpenCode's shell endpoint
+    # bypasses normal model tool-permission checks, so this is remote command
+    # execution on THIS host. The phone additionally confirms every command,
+    # but that is a second line of defence, not the first.
     allow_remote_shell: false
   # Codex (OpenAI Codex CLI). Driven through one shared `codex app-server --listen
   # stdio://` engine (JSON-RPC over stdio). Pick it per session from the phone's

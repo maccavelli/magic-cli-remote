@@ -132,6 +132,7 @@ func Load(opts LoadOptions) (Config, error) {
 	cfg.Diagnostics = diags
 	cfg.ConfigFile = usedConfigFile
 	noteRetiredGoose(v, os.Environ(), &cfg)
+	noteRetiredOpencode(v, os.Environ(), &cfg)
 
 	// The config may hold relay.secret, which is the same registration
 	// credential mcrelay stores as hosts[].secret and guards at read time.
@@ -340,13 +341,14 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.opencode.permission_timeout_seconds", d.Providers.Opencode.PermissionTimeoutSeconds)
 	v.SetDefault("providers.opencode.prewarm", d.Providers.Opencode.Prewarm)
 	v.SetDefault("providers.opencode.turn_stall_notice_seconds", d.Providers.Opencode.TurnStallNoticeSeconds)
-	v.SetDefault("providers.opencode.session_tree", d.Providers.Opencode.SessionTree)
-	v.SetDefault("providers.opencode.stream_coalesce_ms", d.Providers.Opencode.StreamCoalesceMs)
-	v.SetDefault("providers.opencode.pure", d.Providers.Opencode.Pure)
-	// Both remote-mutation policies default false. AutomaticEnv resolves
-	// MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHARE / _SHELL from these keys
-	// (MADR 0112 A8/A9).
-	v.SetDefault("providers.opencode.allow_remote_share", d.Providers.Opencode.AllowRemoteShare)
+	// Known so AutomaticEnv resolves MCREMOTE_PROVIDERS_OPENCODE_AUTH_METHOD_ID.
+	// args, fs_roots and mcp_servers are lists: config-file only, no default.
+	v.SetDefault("providers.opencode.auth_method_id", d.Providers.Opencode.AuthMethodID)
+	// No default for pure, session_tree or stream_coalesce_ms: they were
+	// retired with the 1.x dialect (0214 PLAN P7) and Config.validate rejects
+	// them, so a default would make every config look like it set them.
+	// The remote shell policy defaults false. AutomaticEnv resolves
+	// MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL from this key (MADR 0112 A9).
 	v.SetDefault("providers.opencode.allow_remote_shell", d.Providers.Opencode.AllowRemoteShell)
 	v.SetDefault("providers.codex.enabled", d.Providers.Codex.Enabled)
 	v.SetDefault("providers.codex.bin", d.Providers.Codex.Bin)

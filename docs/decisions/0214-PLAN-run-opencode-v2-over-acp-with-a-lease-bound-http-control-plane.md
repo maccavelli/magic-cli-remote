@@ -1984,3 +1984,218 @@ landed, as P7 required.
 * `docs/guides/protocol-v1.md`;
 * the MADR;
 * this plan.
+
+### P7 Deviation 1, 2026-11-03 — the dialect is larger than P7's list, and P7 inherited five obligations. The owner decided: "acpagent Spec hook" and "Yes, free model"
+
+C8: `opencode --version` printed `v2.2.3`, at `c5242302`.
+
+Found before the first write:
+
+* **What the v2 Spec still uses from the dialect.** On a scratch copy, every opencode file but the
+  v2 ones (`acp*.go`, `commandtable.go`, `version.go`) was deleted and the package built
+  (`p7/what_v2_needs.py`). 22 files went, and the build named 23 missing names:
+  * the workspace guards and bounds from `workspace.go`: `normalizeWorkspacePath`,
+    `checkNoSymlinkComponents`, `validateReturnedPath`, `sortMatches`, the four `errWorkspace*`
+    errors, the `maxWorkspace*` bounds and `fileSearchLimit`;
+  * the diagnostics bounds: `maxDiagnosticSkills`, `maxSkillNameLen` and `maxSkillDescriptionLen`
+    from `diagnostics_surface.go`, and `maxDiagnosticTextLen` from `session_ops.go`;
+  * the shell's `validShellCommand` and `shellTimeout` from `control.go`;
+  * `clip` and `firstNonEmpty` from `http.go`;
+  * `commandtable.go`'s 1.x table (`httpDialect`), which goes with the dialect.
+* **P7's list names 10 dialect files; the dialect is 22.** It also has `artifact.go`,
+  `attachment.go`, `auth.go`, `command.go`, `device_auth.go`, `diagnostics_surface.go`, `mode.go`,
+  `model_surface.go`, `thinking.go`, `upstream.go`, `usage.go` and `workspace.go`. P6 Deviation 1
+  moved P6's dialect files out of P6, and they were never named for deletion.
+* **The 1.x tests and fixtures.**
+  * Every opencode test but the v2 ones is a test of the dialect.
+  * The fixtures `surface-1.18.21`, `wire/1.18.26`, `sse`, `opencode-spike-1.18.5` and the three
+    `1.18.16` JSON files are the dialect's. `wire/2.2.3` is G1's and stays.
+  * Outside the package, `internal/command/conformance_test.go` and `resolve_order_test.go`,
+    `internal/provider/auth_conformance_test.go` and `internal/session/commands_internal_test.go`
+    construct the 1.x provider.
+* **Five obligations earlier phases gave P7.**
+  * Keep the helpers above (P6d).
+  * Rename `ACPMinVersion`, `ACPKnownGoodVersion` and `ACPUpgradeURL` (P4 Deviation 1).
+  * Feed `acpagent.Config.AllowRemoteShell` from `providers.opencode.allow_remote_shell`
+    (P6e Deviation 1).
+  * Keep `validShellCommand` and `shellTimeout` (P6e).
+  * Own the control plane's shutdown (P6b).
+* **The shutdown has no path.** At exit the daemon calls `Shutdown()` on each provider
+  (`internal/daemon/daemon.go:413-419`). acpagent's releases only the warm spare
+  (`acpagent.go`, `Shutdown`), so the control plane would end only when its lease does.
+* **The configuration** (`internal/config/config.go`):
+  * `OpencodeProviderConfig` is the dialect's.
+  * `providers.opencode.transport`'s refusal says OpenCode "always uses one shared
+    `opencode serve` engine", which P7 makes untrue.
+  * `pure`, `session_tree` and `stream_coalesce_ms` have defaults in `load.go`. Left there, a
+    retired key would look set in every configuration and always fail validation.
+
+**Decided.**
+
+* **The helpers move** to a new v2 file, `acp_limits.go`, verbatim with their comments. Their tests
+  move to `acp_limits_test.go`. Every other dialect file, test and 1.x fixture is deleted.
+* **"acpagent Spec hook".** acpagent gains an agent-neutral `Spec.OnShutdown`, which `Shutdown`
+  calls after releasing the spare. opencode's closes the control plane.
+* **The rest follows the PLAN as approved.**
+  * The renames.
+  * `OpencodeProviderConfig` becomes `ACPProviderConfig` plus `allow_remote_shell`, as grok's
+    `ACPProviderConfig` is.
+  * ~~`pure`, `session_tree` and `stream_coalesce_ms` fail validation naming the key and this record,
+    and have no default.~~ *Superseded by P7 Deviation 2: they have no default, and the load warns
+    about them and ignores them.*
+  * `allow_remote_share` is dropped.
+  * The `transport` refusal names v2's model.
+  * The daemon registers the Spec, warms it when `prewarm` is on, and the external tests construct
+    it.
+* **"Yes, free model".** `MCREMOTE_LIVE_KILO_MODEL=openrouter/openrouter/free make live-kilo` runs
+  once at P7's end.
+* Stored sessions created on a 1.x engine resume only if v2 can load them. That is v2's migration,
+  not Magic's. A failure surfaces as any resume failure does, and P9's acceptance records what
+  happens.
+
+P7's files are its list and the files above, `internal/provider/acpagent/acpagent.go` (and a
+test), `internal/config/load.go` and its tests, `internal/daemon/daemon.go` and its tests, and
+`configs/config.example.yaml`.
+
+### P7 Deviation 2, 2026-11-03 — every installed configuration carries the retired keys. The owner decided: "Warn and ignore any value"
+
+Found after step 2's validation was written:
+
+* **setup-service seeds them.** It writes the embedded `internal/cli/service/defaults_mcremote.yaml`
+  when no configuration exists (`ensureDefaultConfig`, `internal/cli/service/setup.go`). Its
+  opencode section has `stream_coalesce_ms: 80`, `session_tree: true` and `pure: false`, and so
+  does the development host's installed configuration. With the refusal, every host setup-service
+  provisioned would fail to start after the upgrade until the lines were removed by hand.
+* **The tests showed it.** `go test ./internal/cli/...` failed 13 CLI tests with
+  "providers.opencode.pure is no longer supported". Those tests load the host's live configuration;
+  that gap was already there and is not P7's.
+* **The templates.** `TestTemplatesSpellEveryConfigKey`
+  (`internal/cli/service/template_parity_test.go`) failed: `defaults_mcremote.yaml`,
+  `config.example.yaml` and `config.prod.example.yaml` lack the shared ACP keys `args`, `fs_roots`,
+  `auth_method_id` and `mcp_servers`. `configs/config.mesh-grok.yaml` also ships the retired keys.
+* **The precedent.** MADR 0160 D3 met the same case for goose, and reports the block without failing
+  the load (`internal/config/retired_goose.go`).
+
+**Decided.**
+
+* **"Warn and ignore any value".** `pure`, `session_tree` and `stream_coalesce_ms` under
+  `providers.opencode` are ignored, whether in the file or as `MCREMOTE_PROVIDERS_OPENCODE_*`. The
+  load logs a warning and adds a `retired_opencode_1x_keys` diagnostic naming each one and this
+  record, as `noteRetiredGoose` does.
+  * This supersedes step 2's and Deviation 1's "fail validation". The three `Retired*` fields go;
+    `RetiredTransport` keeps its refusal.
+  * A configuration that set `pure: true`, `session_tree: false` or another `stream_coalesce_ms`
+    now gets v2's behaviour, and the warning is its only notice. The owner accepted that.
+  * `allow_remote_share` stays dropped with no warning, as D4 says.
+* **Files added to P7:** `internal/config/retired_opencode.go` and its test,
+  `internal/cli/service/defaults_mcremote.yaml`, `configs/config.prod.example.yaml` and
+  `configs/config.mesh-grok.yaml`. In all four shipped YAMLs the retired keys and
+  `allow_remote_share` go, the shared ACP keys are spelled, and the 1.x comments are restated for
+  v2.
+
+### P7 — 2026-11-03: the 1.x dialect retired, and the configuration
+
+**What changed.**
+
+* **The dialect is gone** (`internal/provider/opencode`): 100 files.
+  * 22 sources: `artifact`, `attachment`, `auth`, `command`, `control`, `device_auth`,
+    `diagnostics_surface`, `discovery`, `http`, `lifecycle`, `mode`, `model_surface`, `parts`,
+    `permission`, `question`, `resync`, `session_ops`, `thinking`, `todo`, `upstream`, `usage` and
+    `workspace`.
+  * 50 tests: every opencode test but the v2 ones.
+  * 28 fixture files: `config-providers-1.18.16.json`, `provider-1.18.16.json`,
+    `provider-auth-1.18.16.json`, `opencode-spike-1.18.5`, `sse`, `surface-1.18.21` and
+    `wire/1.18.26`. `wire/2.2.3` stays.
+* **What v2 kept** moved, unchanged, to `acp_limits.go`: the workspace bounds, errors and guards, the
+  diagnostics bounds, `validShellCommand` and `shellTimeout`, `clip` and `firstNonEmpty`. Their
+  tests moved to `acp_limits_test.go`. `textSearchCap`, which nothing used, did not.
+* **`version.go`** holds only v2's `MinVersion` (`2.1.0`), `KnownGoodVersion` (`2.2.3`) and
+  `UpgradeURL`, the renamed `ACP*` constants (P4 Deviation 1).
+* **`commandtable.go`** holds only the v2 table.
+* **Shutdown.** acpagent's `Spec.OnShutdown` runs after `Shutdown` releases the spare. opencode's
+  closes the control plane.
+* **The configuration** (`internal/config`).
+  * `OpencodeProviderConfig` is `ACPProviderConfig` plus `allow_remote_shell`. `RetiredTransport`
+    keeps its refusal, which now names v2's model.
+  * `retired_opencode.go` warns about `pure`, `session_tree` and `stream_coalesce_ms`, in the file
+    or the environment, and ignores them (Deviation 2).
+  * `load.go` has no default for them and none for `allow_remote_share`; `auth_method_id` gains one.
+  * `viper_defaults_test.go` lists `args`, `fs_roots` and `mcp_servers` as list keys, as grok's
+    are.
+* **The shipped YAMLs** (`defaults_mcremote.yaml`, `config.example.yaml`,
+  `config.prod.example.yaml`, `config.mesh-grok.yaml`) are restated for v2 (Deviation 2). The mesh
+  example's pinned model is now v2's `opencode/deepseek-v4.1-flash-free`.
+* **The daemon** (`internal/daemon/daemon.go`).
+  * `opencodeConfig` is `acpAgentConfig` plus `AllowRemoteShell`.
+  * `InspectProviders` and `Run` register `opencode.NewACPWithLogger`, and prewarm calls
+    `EnsureWarm`.
+* **Outside the package**, `internal/command`'s conformance and resolve-order tests,
+  `internal/provider/auth_conformance_test.go` and `internal/session/commands_internal_test.go`
+  construct the v2 provider. Where a list held both, the 1.x entry was dropped.
+* `make live-opencode` now runs only the v2 live tests.
+
+**Tests restated.**
+
+* `TestOpencodeRemotePolicyReachesTheProvider`: the shell alone, and the shared keys with it.
+* `TestRemoteMutationPolicy*` (config): the shell alone; a leftover `allow_remote_share` is
+  ignored.
+* `TestHelpTextModesAndProviderCaveat` checked OpenCode's own reason for `/goal`, which was the 1.x
+  table's. v2 has `/goal` natively, so the check is OpenCode's own reason for `/loop`.
+* `TestProviderAuthInterfaceConformance`: opencode is the v2 provider, with the same interfaces.
+
+**Tests, each seen failing** (`p7/plant_p7.py` in the session scratchpad). 10 deliberate breaks
+on scratch copies, each failing on an assertion:
+
+| Break | Fails |
+| --- | --- |
+| the retired keys never noted | `TestRetiredOpencodeKeyWarnsWhateverItsValue` |
+| the environment not checked | `TestRetiredOpencodeEnvWarns` |
+| `OnShutdown` never called | `TestShutdownRunsTheSpecHookOnce`: "ran 0 times, want 1" |
+| `OnShutdown` before the provider is closed | `TestShutdownRunsTheSpecHookOnce`: "ran before the provider was marked closed" |
+| opencode's hook not wired | `TestACPShutdownClosesTheControlPlane`: "closed 0 times, want 1" |
+| `control.Plane.Close` returning an error | `TestControlPlaneHasTheShutdownMethod` |
+| the daemon registering something else | `TestOpencodeRegistersTheV2Spec` |
+| the shell policy not mapped | `TestOpencodeRemotePolicyReachesTheProvider`: "shell=true reached the provider as false" |
+| the seed lacking `fs_roots` | `TestTemplatesSpellEveryConfigKey`: "defaults_mcremote.yaml missing providers.opencode.fs_roots" |
+| `/loop`'s reason not OpenCode's | `TestHelpTextModesAndProviderCaveat` |
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| C8, `opencode --version` | `v2.2.3` |
+| `make preflight` (records, docs lint, gofmt, tidy, vet on every tag, staticcheck, race, release build, `dart format`, `flutter analyze`, `flutter test`) | exit 0; 48 packages ok; 0 files changed by `dart format`; no analyzer issues; 1510 phone tests passed |
+| the Linux test host, `go test -race -count=1 ./...` (C7), HEAD plus P7's 121 changed and deleted files and its 6 new ones | exit 0, 47 packages ok, `go1.27.3` |
+| the Windows test host, `make ci-windows` (C7), the same tree | exit 0, "ALL SELECTED CHECKS PASSED", 47 packages ok |
+| `make pre-add-check FILES=…` (21 Go files) | "21 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make check-records`; `make markdownlint-docs` | exit 0 each |
+| `MCREMOTE_LIVE_KILO_MODEL=openrouter/openrouter/free make live-kilo` (C2, C2a) | exit 0; 186 passed, 3 skipped |
+
+The first `make preflight` failed `TestHelpTextModesAndProviderCaveat`, which was then restated as
+above. The first host run started before that fix; it was stopped, its test process and tree on the
+Linux test host were removed and their absence checked, and the run was repeated.
+
+**Not done:**
+* No phone has run a session on the registered provider. P9's acceptance does.
+* Stored sessions made on a 1.x engine resume only if v2 loads them (Deviation 1); P9 records what
+  happens.
+* `allow_remote_share` is dropped with no warning, as D4 says.
+* `docs/guides/config.md` and the other docs still describe the 1.x keys. P8 restates them.
+* The CLI tests that load the host's live configuration still do. That gap predates P7.
+
+P7 is complete with this commit. P8, doctor, engines and docs, is next.
+
+**Files for this commit:**
+* `internal/provider/opencode/`: the 100 deleted files; `acp_limits.go`, `acp_limits_test.go`
+  and `acp_shutdown_test.go` (new); `acp.go`, `acp_spec_test.go`, `commandtable.go` and
+  `version.go`;
+* `internal/provider/acpagent/acpagent.go` and `shutdown_test.go` (new);
+* `internal/config/config.go`, `load.go`, `config_test.go`, `viper_defaults_test.go`, and
+  `retired_opencode.go` and `retired_opencode_test.go` (new);
+* `internal/daemon/daemon.go` and `daemon_test.go`;
+* `internal/command/conformance_test.go` and `resolve_order_test.go`,
+  `internal/provider/auth_conformance_test.go`, `internal/session/commands_internal_test.go`;
+* `internal/cli/service/defaults_mcremote.yaml`, `configs/config.example.yaml`,
+  `configs/config.prod.example.yaml` and `configs/config.mesh-grok.yaml`;
+* the MADR;
+* this plan.

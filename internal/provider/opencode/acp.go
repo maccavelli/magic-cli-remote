@@ -13,9 +13,9 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode/control"
 )
 
-// The OpenCode v2 provider is this Spec over acpagent: sessions run on
-// `opencode acp` (0214 MADR D1). It stands beside the 1.x HTTP dialect, which
-// stays registered until 0214 PLAN P7 retires it and registers this.
+// The OpenCode provider is this Spec over acpagent: sessions run on
+// `opencode acp` (0214 MADR D1), and what ACP lacks runs on a lease-bound
+// control plane (control/). It replaced the 1.x HTTP dialect at 0214 PLAN P7.
 //
 // The phone's auth runs on the control plane (acp_auth.go). Over ACP, opencode
 // advertises one method, opencode-login, which runs `opencode auth login` in a
@@ -74,9 +74,9 @@ var acpSpec = acpagent.Spec{
 	ID:                 provider.IDOpencode,
 	DefaultBin:         "opencode",
 	DefaultArgs:        func(acpagent.Config) []string { return []string{"acp"} },
-	KnownGoodVersion:   ACPKnownGoodVersion,
-	MinVersion:         ACPMinVersion,
-	UpgradeURL:         ACPUpgradeURL,
+	KnownGoodVersion:   KnownGoodVersion,
+	MinVersion:         MinVersion,
+	UpgradeURL:         UpgradeURL,
 	StartTimeout:       acpStartTimeout,
 	ClientCapabilities: acpClientCapabilities(),
 	StaticModels:       acpStaticModels,
@@ -95,8 +95,7 @@ var acpSpec = acpagent.Spec{
 	},
 }
 
-// NewACP creates the OpenCode v2 provider over ACP. Nothing registers it until
-// 0214 PLAN P7.
+// NewACP creates the OpenCode provider over ACP.
 func NewACP(cfg acpagent.Config) *acpagent.Provider {
 	return NewACPWithLogger(cfg, nil)
 }
@@ -107,7 +106,7 @@ func NewACPWithLogger(cfg acpagent.Config, log *slog.Logger) *acpagent.Provider 
 	if bin == "" {
 		bin = acpSpec.DefaultBin
 	}
-	plane := control.New(control.Config{Bin: bin, MinVersion: ACPMinVersion, UpgradeURL: ACPUpgradeURL, Log: log})
+	plane := control.New(control.Config{Bin: bin, MinVersion: MinVersion, UpgradeURL: UpgradeURL, Log: log})
 	return newACP(cfg, log, plane)
 }
 
@@ -147,6 +146,11 @@ func newACP(cfg acpagent.Config, log *slog.Logger, plane controlPlane) *acpagent
 	spec.Ops.Unrevert = surfaces.unrevert
 	spec.Ops.BeforePrompt = surfaces.beforePrompt
 	spec.Ops.Shell = surfaces.shell
+	// The control plane stops with the daemon, rather than only when its lease
+	// does (0214 PLAN P7 Deviation 1).
+	if c, ok := plane.(interface{ Close() }); ok {
+		spec.OnShutdown = c.Close
+	}
 	p = acpagent.NewWithLogger(spec, cfg, log)
 	return p
 }

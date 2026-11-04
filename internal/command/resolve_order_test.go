@@ -6,6 +6,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
@@ -20,7 +21,7 @@ func providerTables(t *testing.T) map[provider.ID]command.Table {
 	for _, p := range []provider.Provider{
 		fake.New(),
 		grok.New(grok.Config{}),
-		opencode.NewHTTP(opencode.Config{}),
+		opencode.NewACP(acpagent.Config{}),
 		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),
 	} {

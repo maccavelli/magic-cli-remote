@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
@@ -33,7 +34,7 @@ func TestProviderAuthInterfaceConformance(t *testing.T) {
 		wantDeviceOAuth bool
 	}{
 		{
-			name: "opencode", p: opencode.NewHTTP(opencode.Config{}),
+			name: "opencode", p: opencode.NewACP(acpagent.Config{}),
 			wantStatus: true, wantWriter: true, wantCatalog: true,
 			wantSwitcher: true, wantDeviceOAuth: true,
 		},

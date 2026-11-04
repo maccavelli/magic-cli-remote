@@ -52,7 +52,6 @@ func TestProvidersDeclareEveryCanonicalCommand(t *testing.T) {
 	providers := []provider.Provider{
 		fake.New(),
 		grok.New(grok.Config{}),
-		opencode.NewHTTP(opencode.Config{}),
 		opencode.NewACP(acpagent.Config{}),
 		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),
@@ -108,7 +107,6 @@ func TestTablesAreKeyedByCanonicalName(t *testing.T) {
 	providers := []command.Tabler{
 		fake.New(),
 		grok.New(grok.Config{}),
-		opencode.NewHTTP(opencode.Config{}),
 		opencode.NewACP(acpagent.Config{}),
 		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),
@@ -138,7 +136,6 @@ func TestEveryKindDaemonMappingIsDispatched(t *testing.T) {
 	providers := []provider.Provider{
 		fake.New(),
 		grok.New(grok.Config{}),
-		opencode.NewHTTP(opencode.Config{}),
 		opencode.NewACP(acpagent.Config{}),
 		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),
@@ -203,7 +200,6 @@ func TestKindOpNamesKnownOp(t *testing.T) {
 	providers := []provider.Provider{
 		fake.New(),
 		grok.New(grok.Config{}),
-		opencode.NewHTTP(opencode.Config{}),
 		opencode.NewACP(acpagent.Config{}),
 		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),

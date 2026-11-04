@@ -1119,3 +1119,17 @@ always adds one and makes it active, and removing the active one makes the next 
   * acpagent's agent-neutral `Spec.RealCWD` resolves a session's directory through symlinks, and
     opencode's Spec sets it.
   * *Owner: "Real path for opencode v2".*
+
+### Added at P7, 2026-11-03 (PLAN P7 Deviations 1 and 2)
+
+* **Shutdown.** acpagent gains an agent-neutral `Spec.OnShutdown`, which `Shutdown` calls after it
+  releases the warm spare. opencode's closes the control plane. *Owner: "acpagent Spec hook".*
+* **D4: the retired keys are warned about and ignored, not refused.**
+  * Every configuration setup-service wrote carries `stream_coalesce_ms`, `session_tree` and `pure`,
+    so refusing them would stop each such host at the upgrade.
+  * The load logs a warning and a diagnostic naming the key and this record, as MADR 0160 D3 does
+    for goose.
+  * This replaces D4's "validate error" and the 2026-11-01 settlement's "Validation fails" for these
+    three keys. `transport` keeps its refusal.
+  * A configuration that set another value gets v2's behaviour, and the warning is its only notice.
+  * *Owner: "Warn and ignore any value".*

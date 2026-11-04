@@ -162,7 +162,7 @@ func TestACPSpecRefusesA1xEngine(t *testing.T) {
 			t.Errorf("%s: Start accepted the engine", c.name)
 			continue
 		}
-		for _, want := range []string{c.version, opencode.ACPMinVersion, "https://opencode.ai/v2/install"} {
+		for _, want := range []string{c.version, opencode.MinVersion, "https://opencode.ai/v2/install"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("%s: error %q does not name %q", c.name, err, want)
 			}

@@ -541,65 +541,25 @@ type GrokProviderConfig struct {
 	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
 }
 
-// OpencodeProviderConfig configures the OpenCode adapter
-// (see docs/0011-MADR-opencode-provider-plan.md).
+// OpencodeProviderConfig configures the OpenCode provider: `opencode acp`
+// sessions over acpagent and a lease-bound control plane (0214 MADR). Its keys
+// are the shared ACP ones, plus the operator's shell policy. The 1.x
+// dialect's own keys are ignored with a warning (noteRetiredOpencode).
 type OpencodeProviderConfig struct {
-	Enabled bool   `mapstructure:"enabled"`
-	Bin     string `mapstructure:"bin"`
-	// RetiredTransport captures a `transport` key left over from before MADR
-	// 0019 so validate can name it in the error. OpenCode is now always driven
-	// through one shared `opencode serve` engine. Remove this field (and the
-	// validate check) one release after 0019 ships.
-	RetiredTransport string `mapstructure:"transport"`
-	AlwaysApprove    bool   `mapstructure:"always_approve"`
-	DefaultCWD       string `mapstructure:"default_cwd"`
-	// Model is a provider/model id (e.g. "anthropic/claude-sonnet-4-5"),
-	// pinned on the engine session at create time. Empty uses the OpenCode
-	// config default.
-	Model string `mapstructure:"model"`
-	// PermissionTimeoutSeconds bounds how long a remote permission request waits
-	// for a decision before the agent stops waiting (treated as cancelled).
-	// 0 disables the timeout. Default 120.
-	PermissionTimeoutSeconds int `mapstructure:"permission_timeout_seconds"`
-	// Prewarm boots the shared `opencode serve` engine at daemon start so the
-	// first session create skips the ~3-5s Bun cold start. Disable to boot it
-	// lazily on first use and hold no idle engine (~250MB). Default true.
-	Prewarm bool `mapstructure:"prewarm"`
-	// TurnStallNoticeSeconds emits a notice when a running turn produces no
-	// output for this long (0 disables). Default 120.
-	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
-	// SessionTree enables multi-agent session-tree demux (MADR 0020 KD11).
-	// When false: exact pre-0020 behavior — no childAliases, parent-only
-	// EndTurn, no child event fan-in. Default true after Sprint 1.
-	SessionTree bool `mapstructure:"session_tree"`
-	// StreamCoalesceMs is how long assistant/thought text is held so it can be
-	// sent as one event instead of one per model token (MADR 0024). The first
-	// chunk of a reply and the tail before any control event are never
-	// delayed, so time-to-first-token and end-of-turn latency are unchanged;
-	// only mid-stream granularity is capped, at ~1000/StreamCoalesceMs updates
-	// per second. 0 disables coalescing (one event per token, pre-0024
-	// behaviour). Default 80.
-	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
-	// Pure runs opencode serve without loading external third-party plugins (--pure). Default false (MADR 0037 D2).
-	Pure bool `mapstructure:"pure"`
-
-	// AllowRemoteShare permits a phone to publish or revoke an OpenCode share
-	// link (MADR 0112 A8). Default false.
-	//
-	// Sharing synchronizes the transcript to OpenCode's service and makes it
-	// readable by anyone holding the link, so it stays off until an operator
-	// turns it on for this host. It is independent of AllowRemoteShell: an
-	// operator who wants collaboration need not also grant command execution.
-	AllowRemoteShare bool `mapstructure:"allow_remote_share"`
+	ACPProviderConfig `mapstructure:",squash"`
 
 	// AllowRemoteShell permits a phone to run a command in the session's
 	// working directory (MADR 0112 A9). Default false.
 	//
-	// OpenCode's shell endpoint bypasses normal model tool-permission
-	// evaluation, so this is remote command execution on the daemon host and is
-	// treated as such: disabled by default, and per-command confirmation on top
-	// even once enabled.
+	// OpenCode's shell runs outside the model's tool-permission evaluation, so
+	// this is remote command execution on the daemon host and is treated as
+	// such: disabled by default, and per-command confirmation on top even once
+	// enabled.
 	AllowRemoteShell bool `mapstructure:"allow_remote_shell"`
+
+	// RetiredTransport captures a `transport` key left over from before MADR
+	// 0019 so validate can name it in the error.
+	RetiredTransport string `mapstructure:"transport"`
 }
 
 // CodexProviderConfig configures the Codex app-server JSON-RPC provider
@@ -807,21 +767,16 @@ func Defaults() Config {
 			// new-session provider menu. Registration is harmless when the
 			// binary is absent — the provider just lists as not ready (with a
 			// startup warning); grok stays the default selection.
-			Opencode: OpencodeProviderConfig{
+			Opencode: OpencodeProviderConfig{ACPProviderConfig: ACPProviderConfig{
 				Enabled:                  true,
 				Bin:                      "opencode",
 				AlwaysApprove:            false,
 				PermissionTimeoutSeconds: 120,
-				// Off (MADR 0089 D5): first session pays the Bun cold start
-				// instead of holding an idle engine (~250MB).
+				// Off (MADR 0089 D5): the first session pays the cold start
+				// instead of holding an idle engine.
 				Prewarm:                false,
 				TurnStallNoticeSeconds: 120,
-				// Session tree demux default on (MADR 0020 Q5 / KD11).
-				SessionTree: true,
-				// ~12 mid-stream updates/sec instead of one per token
-				// (MADR 0024). Inside the phone's 32ms event batch window.
-				StreamCoalesceMs: 80,
-			},
+			}},
 			Codex: CodexProviderConfig{
 				Enabled:                  true,
 				Bin:                      "codex",
@@ -1105,14 +1060,15 @@ func (c Config) Validate() error {
 	if err := validateACPProvider("grok", c.Providers.Grok.ACPProviderConfig); err != nil {
 		return err
 	}
-	// providers.opencode.transport was retired in MADR 0019: OpenCode is always
-	// driven through the shared `opencode serve` engine. Fail loudly — viper
-	// ignores unknown keys, so staying silent would quietly change behaviour
-	// for a config that still pins the old per-session ACP transport.
+	if err := validateACPProvider("opencode", c.Providers.Opencode.ACPProviderConfig); err != nil {
+		return err
+	}
+	// providers.opencode.transport was retired in MADR 0019. Fail loudly —
+	// viper ignores unknown keys, so staying silent would quietly change
+	// behaviour for a config that still pins a transport.
 	if c.Providers.Opencode.RetiredTransport != "" {
 		return fmt.Errorf("providers.opencode.transport is no longer supported (found %q); "+
-			"OpenCode now always uses one shared `opencode serve` engine — remove the key "+
-			"(providers.opencode.args and providers.opencode.fs_roots were retired with it)",
+			"OpenCode runs each session on `opencode acp` with one shared control plane (0214 MADR) — remove the key",
 			c.Providers.Opencode.RetiredTransport)
 	}
 	if c.Providers.Opencode.PermissionTimeoutSeconds < 0 {
@@ -1122,12 +1078,6 @@ func (c Config) Validate() error {
 	if c.Providers.Opencode.TurnStallNoticeSeconds < 0 {
 		return fmt.Errorf("providers.opencode.turn_stall_notice_seconds must be >= 0, got %d",
 			c.Providers.Opencode.TurnStallNoticeSeconds)
-	}
-	// Bounded above as well as below: nothing else guards this, and a window
-	// of several seconds would make streaming look broken rather than smooth.
-	if v := c.Providers.Opencode.StreamCoalesceMs; v < 0 || v > maxStreamCoalesceMs {
-		return fmt.Errorf("providers.opencode.stream_coalesce_ms must be 0..%d, got %d",
-			maxStreamCoalesceMs, v)
 	}
 	if c.Providers.Codex.PermissionTimeoutSeconds < 0 {
 		return fmt.Errorf("providers.codex.permission_timeout_seconds must be >= 0, got %d",

@@ -7,6 +7,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
 
@@ -136,29 +137,40 @@ func TestIdentityCloseNilACME(t *testing.T) {
 	id.Close()
 }
 
+// TestOpencodeRegistersTheV2Spec: the daemon's opencode provider is the ACP
+// one, not the retired 1.x dialect (0214 PLAN P7, step 1).
+func TestOpencodeRegistersTheV2Spec(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Providers.Opencode.Enabled = true
+	p, err := InspectProviders(cfg, "test", nil).Get(provider.IDOpencode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := p.(*acpagent.Provider); !ok {
+		t.Fatalf("opencode is registered as %T, want *acpagent.Provider", p)
+	}
+}
+
 // TestOpencodeRemotePolicyReachesTheProvider proves the daemon copies the
-// operator's decision into the constructed provider (MADR 0112 A8/A9, PLAN P8
-// step 2).
+// operator's decision into the constructed provider (MADR 0112 A9, PLAN P8
+// step 2), and the shared ACP keys with it (0214 PLAN P7).
 //
-// Without this the flags would be settable, documented and tested at the config
+// Without this the flag would be settable, documented and tested at the config
 // layer while silently never arriving — which is the failure mode a policy
 // default is least able to survive.
 func TestOpencodeRemotePolicyReachesTheProvider(t *testing.T) {
-	for _, tc := range []struct{ share, shell bool }{
-		{false, false},
-		{true, false},
-		{false, true},
-		{true, true},
-	} {
+	for _, shell := range []bool{false, true} {
 		cfg := config.Defaults()
-		cfg.Providers.Opencode.AllowRemoteShare = tc.share
-		cfg.Providers.Opencode.AllowRemoteShell = tc.shell
+		cfg.Providers.Opencode.AllowRemoteShell = shell
+		cfg.Providers.Opencode.Bin = "/opt/opencode/bin/opencode"
+		cfg.Providers.Opencode.Prewarm = true
 
-		tree, coalesce := true, time.Duration(0)
-		got := opencodeConfigFrom(cfg, &tree, &coalesce)
-		if got.AllowRemoteShare != tc.share || got.AllowRemoteShell != tc.shell {
-			t.Fatalf("share=%v shell=%v reached the provider as share=%v shell=%v",
-				tc.share, tc.shell, got.AllowRemoteShare, got.AllowRemoteShell)
+		got := opencodeConfig(cfg)
+		if got.AllowRemoteShell != shell {
+			t.Fatalf("shell=%v reached the provider as %v", shell, got.AllowRemoteShell)
+		}
+		if got.Bin != cfg.Providers.Opencode.Bin || !got.Prewarm {
+			t.Fatalf("the shared ACP keys did not reach the provider: %+v", got)
 		}
 	}
 }

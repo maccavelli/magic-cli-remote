@@ -51,33 +51,18 @@ type Options struct {
 	Shutdown func()
 }
 
-// opencodeConfigFrom maps daemon configuration onto the OpenCode transport
-// config.
+// opencodeConfig maps daemon configuration onto the OpenCode provider's
+// config: the shared ACP keys, plus the operator's shell policy (0214 MADR).
+// daemon.Run and InspectProviders share it, so they cannot drift.
 //
 // Extracted so the mapping itself is testable: a policy flag that is settable,
 // documented and tested at the config layer but never copied here would be a
-// default in name only (MADR 0112 A8/A9).
-func opencodeConfigFrom(cfg config.Config, sessionTree *bool, streamCoalesce *time.Duration) opencode.Config {
-	return opencode.Config{
-		Bin:           cfg.Providers.Opencode.Bin,
-		AlwaysApprove: cfg.Providers.Opencode.AlwaysApprove,
-		DefaultCWD:    cfg.Providers.Opencode.DefaultCWD,
-		Model:         cfg.Providers.Opencode.Model,
-		PermissionTimeout: time.Duration(
-			cfg.Providers.Opencode.PermissionTimeoutSeconds) * time.Second,
-		TurnStallNotice: time.Duration(
-			cfg.Providers.Opencode.TurnStallNoticeSeconds) * time.Second,
-		// Explicit pointer so false kill-switch is distinct from zero Config.
-		SessionTree: sessionTree,
-		// Likewise explicit: 0 means "stream one event per token" (the
-		// pre-MADR-0024 path), not "use the transport default".
-		StreamCoalesce: streamCoalesce,
-		Pure:           cfg.Providers.Opencode.Pure,
-		// Remote-mutation policy, both false unless an operator turned them on
-		// for this host (MADR 0112 A8/A9).
-		AllowRemoteShare: cfg.Providers.Opencode.AllowRemoteShare,
-		AllowRemoteShell: cfg.Providers.Opencode.AllowRemoteShell,
-	}
+// default in name only (MADR 0112 A9).
+func opencodeConfig(cfg config.Config) acpagent.Config {
+	acpCfg := acpAgentConfig(cfg.Providers.Opencode.ACPProviderConfig)
+	// Off unless an operator turned it on for this host (MADR 0112 A9).
+	acpCfg.AllowRemoteShell = cfg.Providers.Opencode.AllowRemoteShell
+	return acpCfg
 }
 
 // grokConfig maps daemon configuration onto the grok provider's config.
@@ -100,14 +85,6 @@ func grokConfig(cfg config.Config, version string) grok.Config {
 	streamCoalesce := time.Duration(cfg.Providers.Grok.StreamCoalesceMs) * time.Millisecond
 	acpCfg.StreamCoalesce = &streamCoalesce
 	return acpCfg
-}
-
-// opencodeConfig is opencodeConfigFrom with the daemon's own pointers.
-func opencodeConfig(cfg config.Config) opencode.Config {
-	sessionTree := cfg.Providers.Opencode.SessionTree
-	streamCoalesce := time.Duration(
-		cfg.Providers.Opencode.StreamCoalesceMs) * time.Millisecond
-	return opencodeConfigFrom(cfg, &sessionTree, &streamCoalesce)
 }
 
 // codexConfig maps daemon configuration onto the codex provider's config.
@@ -182,7 +159,7 @@ func InspectProviders(cfg config.Config, version string, log *slog.Logger) *prov
 		reg.Register(grok.NewWithLogger(grokConfig(cfg, version), log))
 	}
 	if cfg.Providers.Opencode.Enabled {
-		reg.Register(opencode.NewHTTPWithLogger(opencodeConfig(cfg), log))
+		reg.Register(opencode.NewACPWithLogger(opencodeConfig(cfg), log))
 	}
 	if cfg.Providers.Codex.Enabled {
 		reg.Register(codex.NewWithLogger(codexConfig(cfg), log))
@@ -354,10 +331,9 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 	if cfg.Providers.Opencode.Enabled {
-		// One shared long-lived `opencode serve` engine (HTTP + SSE) drives
-		// every OpenCode session; they are cheap server-side objects, so there
-		// is no per-session process (MADR 0019).
-		op := opencode.NewHTTPWithLogger(opencodeConfig(cfg), log)
+		// Each OpenCode session is its own `opencode acp`; one lease-bound
+		// control plane serves what ACP does not carry (0214 MADR).
+		op := opencode.NewACPWithLogger(opencodeConfig(cfg), log)
 		reg.Register(op)
 		if !op.Ready() {
 			log.Warn("opencode provider enabled but binary not found in PATH",
@@ -365,10 +341,10 @@ func Run(ctx context.Context, opts Options) error {
 			)
 		}
 		if prewarmWants(cfg, provider.IDOpencode) {
-			// Boot the engine now so the first session create is instant.
-			// Disabled, the first create pays the ~3-5s Bun cold start and the
-			// host holds no idle engine.
-			op.EnsureServer()
+			// Arm a spare `opencode acp` now so the first session create is
+			// instant. Disabled, the first create pays the cold start and the
+			// host holds no idle agent.
+			op.EnsureWarm()
 		}
 	}
 	if cfg.Providers.Codex.Enabled {
@@ -794,7 +770,7 @@ func prewarmWants(cfg config.Config, id provider.ID) bool {
 }
 
 // acpAgentConfig builds an acpagent.Config from the shared ACP provider config.
-// Every ACP CLI agent (grok) is constructed through this one converter so
+// Every ACP CLI agent (grok, opencode) is constructed through this one converter so
 // they stay identical in how config maps to the adapter.
 func acpAgentConfig(c config.ACPProviderConfig) acpagent.Config {
 	mcp := make([]acpagent.McpServer, 0, len(c.MCPServers))

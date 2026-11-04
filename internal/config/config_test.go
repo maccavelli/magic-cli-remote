@@ -968,15 +968,6 @@ func TestLoadWithoutTransportKeySucceeds(t *testing.T) {
 	if cfg.Providers.Opencode.Prewarm {
 		t.Fatal("prewarm should default to false")
 	}
-	// Session tree demux defaults on (MADR 0020 KD11 / Q5).
-	if !cfg.Providers.Opencode.SessionTree {
-		t.Fatal("session_tree should default to true")
-	}
-	// Streaming text is coalesced by default (MADR 0024); a zero here would
-	// silently restore one WebSocket frame per model token.
-	if got := cfg.Providers.Opencode.StreamCoalesceMs; got != 80 {
-		t.Fatalf("stream_coalesce_ms = %d, want the 80ms default", got)
-	}
 	if got := cfg.Providers.Grok.StreamCoalesceMs; got != 80 {
 		t.Fatalf("providers.grok.stream_coalesce_ms = %d, want the 80ms default", got)
 	}
@@ -1006,64 +997,6 @@ func TestCodexTransportDefaultsAndValidation(t *testing.T) {
 				t.Fatal("invalid Codex transport configuration accepted")
 			}
 		})
-	}
-}
-
-func TestLoadStreamCoalesce(t *testing.T) {
-	write := func(t *testing.T, body string) string {
-		t.Helper()
-		path := filepath.Join(t.TempDir(), "config.yaml")
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return path
-	}
-
-	t.Run("override applies", func(t *testing.T) {
-		path := write(t, "providers:\n  opencode:\n    stream_coalesce_ms: 200\n")
-		cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
-		if err != nil {
-			t.Fatalf("load: %v", err)
-		}
-		if got := cfg.Providers.Opencode.StreamCoalesceMs; got != 200 {
-			t.Fatalf("stream_coalesce_ms = %d, want 200", got)
-		}
-	})
-
-	t.Run("zero is a valid kill switch", func(t *testing.T) {
-		path := write(t, "providers:\n  opencode:\n    stream_coalesce_ms: 0\n")
-		cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
-		if err != nil {
-			t.Fatalf("load: %v", err)
-		}
-		if got := cfg.Providers.Opencode.StreamCoalesceMs; got != 0 {
-			t.Fatalf("stream_coalesce_ms = %d, want 0 to disable coalescing", got)
-		}
-	})
-
-	for _, bad := range []string{"-1", "1001"} {
-		t.Run("rejects "+bad, func(t *testing.T) {
-			path := write(t, "providers:\n  opencode:\n    stream_coalesce_ms: "+bad+"\n")
-			if _, err := config.Load(config.LoadOptions{ConfigFile: path}); err == nil {
-				t.Fatalf("stream_coalesce_ms: %s must be rejected", bad)
-			}
-		})
-	}
-}
-
-func TestLoadSessionTreeKillSwitch(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	content := "providers:\n  opencode:\n    session_tree: false\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.Providers.Opencode.SessionTree {
-		t.Fatal("session_tree: false must apply")
 	}
 }
 
@@ -1108,17 +1041,13 @@ func TestGrokPermissionModeValidation(t *testing.T) {
 	}
 }
 
-// Remote mutation policy (MADR 0112 A8/A9, PLAN P8).
+// Remote mutation policy (MADR 0112 A9, PLAN P8).
 //
-// Both flags gate a capability that reaches outside the daemon: share uploads a
-// transcript, shell runs a command on this host. The default must therefore be
-// off, and each must be settable without the other.
+// The shell runs a command on this host, so its default must be off. Share's
+// flag went with the 1.x dialect (0214 PLAN P7): v2 has no share API.
 
 func TestRemoteMutationPolicyDefaultsOff(t *testing.T) {
 	d := config.Defaults()
-	if d.Providers.Opencode.AllowRemoteShare {
-		t.Fatal("providers.opencode.allow_remote_share should default to false")
-	}
 	if d.Providers.Opencode.AllowRemoteShell {
 		t.Fatal("providers.opencode.allow_remote_shell should default to false")
 	}
@@ -1133,43 +1062,30 @@ func TestRemoteMutationPolicyOffAfterLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Providers.Opencode.AllowRemoteShare || cfg.Providers.Opencode.AllowRemoteShell {
-		t.Fatalf("a fresh load enabled a remote mutation: share=%v shell=%v",
-			cfg.Providers.Opencode.AllowRemoteShare,
-			cfg.Providers.Opencode.AllowRemoteShell)
+	if cfg.Providers.Opencode.AllowRemoteShell {
+		t.Fatal("a fresh load enabled the remote shell")
 	}
 }
 
-// Each flag must bind from the environment, and enabling one must leave the
-// other false.
+// The flag must bind from the environment.
 func TestRemoteMutationPolicyEnvIndependence(t *testing.T) {
 	isolateConfig(t)
 	for _, tc := range []struct {
 		name      string
-		share     string
 		shell     string
-		wantShare bool
 		wantShell bool
 	}{
-		{"neither", "", "", false, false},
-		{"share only", "true", "", true, false},
-		{"shell only", "", "true", false, true},
-		{"both", "true", "true", true, true},
-		{"explicit false", "false", "false", false, false},
+		{"unset", "", false},
+		{"on", "true", true},
+		{"explicit false", "false", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.share != "" {
-				t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHARE", tc.share)
-			}
 			if tc.shell != "" {
 				t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL", tc.shell)
 			}
 			cfg, err := config.Load(config.LoadOptions{})
 			if err != nil {
 				t.Fatal(err)
-			}
-			if got := cfg.Providers.Opencode.AllowRemoteShare; got != tc.wantShare {
-				t.Fatalf("share = %v, want %v", got, tc.wantShare)
 			}
 			if got := cfg.Providers.Opencode.AllowRemoteShell; got != tc.wantShell {
 				t.Fatalf("shell = %v, want %v", got, tc.wantShell)
@@ -1178,8 +1094,9 @@ func TestRemoteMutationPolicyEnvIndependence(t *testing.T) {
 	}
 }
 
-// A YAML file must be able to set them, and the environment must win over it —
-// the same precedence every other key follows.
+// A YAML file must be able to set it, and the environment must win over it —
+// the same precedence every other key follows. A leftover allow_remote_share
+// is ignored: it went with the 1.x dialect (0214 PLAN P7).
 func TestRemoteMutationPolicyYAMLAndEnvPrecedence(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -1192,18 +1109,15 @@ func TestRemoteMutationPolicyYAMLAndEnvPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.Providers.Opencode.AllowRemoteShare || !cfg.Providers.Opencode.AllowRemoteShell {
-		t.Fatalf("YAML did not enable the flags: %+v", cfg.Providers.Opencode)
+	if !cfg.Providers.Opencode.AllowRemoteShell {
+		t.Fatalf("YAML did not enable the shell: %+v", cfg.Providers.Opencode)
 	}
 
-	// The environment overrides the file, including turning a flag back off.
+	// The environment overrides the file, including turning the flag back off.
 	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL", "false")
 	cfg, err = config.Load(config.LoadOptions{ConfigFile: path})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if !cfg.Providers.Opencode.AllowRemoteShare {
-		t.Fatal("the environment disabled the wrong flag")
 	}
 	if cfg.Providers.Opencode.AllowRemoteShell {
 		t.Fatal("the environment did not override the file")
