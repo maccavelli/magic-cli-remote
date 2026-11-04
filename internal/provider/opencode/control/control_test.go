@@ -32,6 +32,18 @@ func TestMain(m *testing.M) {
 		runFakeServe()
 		return
 	}
+	// The live MCP pin's servers (live_mcp_test.go): append the tag and exit.
+	if mark := os.Getenv("FAKE_MCP_MARKER"); mark != "" {
+		tag := "?"
+		if len(os.Args) > 1 {
+			tag = os.Args[1]
+		}
+		if f, err := os.OpenFile(mark, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			_, _ = f.WriteString(tag + "\n")
+			_ = f.Close()
+		}
+		return
+	}
 	os.Exit(m.Run())
 }
 
@@ -46,6 +58,11 @@ type fakeLog struct {
 	DirHead  string          `json:"dirHeader,omitempty"`
 	AuthOK   bool            `json:"authOK,omitempty"`
 	Body     json.RawMessage `json:"body,omitempty"`
+	// Config, Content and ConfigFile are the launch's OPENCODE_CONFIG,
+	// OPENCODE_CONFIG_CONTENT and the named file's content (0230 MADR).
+	Config     string `json:"config,omitempty"`
+	Content    string `json:"content,omitempty"`
+	ConfigFile string `json:"configFile,omitempty"`
 }
 
 // runFakeServe is a minimal serve --stdio: one {"url"} ready line, the routes
@@ -69,7 +86,12 @@ func runFakeServe() {
 		_, _ = f.Write(append(b, '\n'))
 		_ = f.Close()
 	}
-	logLine(fakeLog{Kind: "launch", Argv: os.Args[1:], Password: password})
+	launch := fakeLog{Kind: "launch", Argv: os.Args[1:], Password: password,
+		Config: os.Getenv("OPENCODE_CONFIG"), Content: os.Getenv("OPENCODE_CONFIG_CONTENT")}
+	if b, err := os.ReadFile(launch.Config); err == nil {
+		launch.ConfigFile = string(b)
+	}
+	logLine(launch)
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, os.Interrupt)
@@ -493,6 +515,144 @@ func TestRawBodyIsNotCaptured(t *testing.T) {
 	}
 	if strings.Contains(all.String(), "raw-file-marker-7f3a") {
 		t.Error("a capture carries the raw file's bytes")
+	}
+}
+
+// clearOperatorConfig unsets the two variables for the test, whatever the
+// developer's environment holds.
+func clearOperatorConfig(t *testing.T) {
+	t.Helper()
+	t.Setenv("OPENCODE_CONFIG", "")
+	t.Setenv("OPENCODE_CONFIG_CONTENT", "")
+}
+
+// policies decodes a config document's policies.
+func policies(t *testing.T, doc string) []map[string]any {
+	t.Helper()
+	var d struct {
+		Policies []map[string]any `json:"policies"`
+	}
+	if err := json.Unmarshal([]byte(doc), &d); err != nil {
+		t.Fatalf("%q: %v", doc, err)
+	}
+	return d.Policies
+}
+
+// isDenyAllMCP reports whether a policy statement denies every MCP server.
+func isDenyAllMCP(p map[string]any) bool {
+	return p["action"] == "mcp.use" && p["resource"] == "*" && p["effect"] == "deny"
+}
+
+// TestControlPlaneDeniesMCP: by default the child is started with
+// OPENCODE_CONFIG naming a file that holds exactly the deny-all MCP policy,
+// and no inline config (0230 MADR D1, D2).
+func TestControlPlaneDeniesMCP(t *testing.T) {
+	clearOperatorConfig(t)
+	f := newFake(t, Config{})
+	f.do(Request{Method: http.MethodGet, Path: "/api/agent"})
+	l := f.launches()[0]
+	if l.Config == "" || l.ConfigFile != mcpDenyPolicy || l.Content != "" {
+		t.Errorf("launch config %q (file %q), content %q; want the policy file alone", l.Config, l.ConfigFile, l.Content)
+	}
+}
+
+// TestControlPlaneKeepsTheOperatorsConfig: an operator's OPENCODE_CONFIG is
+// kept and the policy goes inline; an operator's inline JSON object keeps
+// every key and gains the policy last, where it wins (0230 MADR D2).
+func TestControlPlaneKeepsTheOperatorsConfig(t *testing.T) {
+	clearOperatorConfig(t)
+	op := filepath.Join(t.TempDir(), "operator.json")
+	t.Setenv("OPENCODE_CONFIG", op)
+	f := newFake(t, Config{})
+	f.do(Request{Method: http.MethodGet, Path: "/api/agent"})
+	l := f.launches()[0]
+	if ps := policies(t, l.Content); l.Config != op || len(ps) != 1 || !isDenyAllMCP(ps[0]) {
+		t.Errorf("config %q, content %q; want the operator's file and the policy inline", l.Config, l.Content)
+	}
+
+	t.Setenv("OPENCODE_CONFIG_CONTENT",
+		`{"model":"opencode/x","policies":[{"action":"mcp.use","resource":"docs","effect":"allow"}],"n":1.50}`)
+	f = newFake(t, Config{})
+	f.do(Request{Method: http.MethodGet, Path: "/api/agent"})
+	l = f.launches()[0]
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(l.Content), &doc); err != nil {
+		t.Fatal(err)
+	}
+	ps := policies(t, l.Content)
+	if string(doc["model"]) != `"opencode/x"` || string(doc["n"]) != "1.50" || len(ps) != 2 ||
+		ps[0]["resource"] != "docs" || !isDenyAllMCP(ps[1]) {
+		t.Errorf("content %q; want the operator's keys kept and the policy appended", l.Content)
+	}
+}
+
+// TestControlPlaneWarnsWhenItCannotDeny: inline config that is not a JSON
+// object is passed on unchanged, and the plane says the MCP policy is not set.
+func TestControlPlaneWarnsWhenItCannotDeny(t *testing.T) {
+	clearOperatorConfig(t)
+	t.Setenv("OPENCODE_CONFIG", filepath.Join(t.TempDir(), "operator.json"))
+	const jsonc = "// the operator's\n{\"model\": \"opencode/x\",}"
+	t.Setenv("OPENCODE_CONFIG_CONTENT", jsonc)
+	f := newFake(t, Config{})
+	f.do(Request{Method: http.MethodGet, Path: "/api/agent"})
+	if l := f.launches()[0]; l.Content != jsonc {
+		t.Errorf("content %q; want the operator's, unchanged", l.Content)
+	}
+	if !strings.Contains(f.lines.String(), "the MCP policy is not set") || !strings.Contains(f.lines.String(), "0230") {
+		t.Errorf("no warning logged:\n%s", f.lines.String())
+	}
+}
+
+// TestDenyMCPMatchesNamesAsTheOSDoes: on Windows a variable's name matches in
+// any case; elsewhere only exactly.
+func TestDenyMCPMatchesNamesAsTheOSDoes(t *testing.T) {
+	env := []string{"opencode_config=/op.json"}
+	if got, _ := denyMCP(env, "/policy.json", true); got[len(got)-1] != "OPENCODE_CONFIG_CONTENT="+mcpDenyPolicy {
+		t.Errorf("folded: %v; want the operator's file kept and the policy inline", got)
+	}
+	if got, _ := denyMCP(env, "/policy.json", false); got[len(got)-1] != "OPENCODE_CONFIG=/policy.json" {
+		t.Errorf("exact: %v; want the policy file, the lower-case name being another variable", got)
+	}
+}
+
+// TestPolicyFileIsRemovedOnClose: the policy's directory goes with the plane.
+func TestPolicyFileIsRemovedOnClose(t *testing.T) {
+	clearOperatorConfig(t)
+	f := newFake(t, Config{})
+	f.do(Request{Method: http.MethodGet, Path: "/api/agent"})
+	file := f.launches()[0].Config
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("the policy file is not there while the plane runs: %v", err)
+	}
+	f.p.Close()
+	if _, err := os.Stat(filepath.Dir(file)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("after Close, the policy directory: %v; want it gone", err)
+	}
+}
+
+// TestOnlyTheControlPlaneSetsOpencodeConfig: no other production file in the
+// provider tree names the variables, so the engine's environment never
+// carries the policy (0230 MADR: the engine is untouched).
+func TestOnlyTheControlPlaneSetsOpencodeConfig(t *testing.T) {
+	root := filepath.Join("..", "..")
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		if filepath.Base(filepath.Dir(path)) == "control" && filepath.Base(filepath.Dir(filepath.Dir(path))) == "opencode" {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(b), "OPENCODE_CONFIG") {
+			t.Errorf("%s names OPENCODE_CONFIG; only the control plane sets it", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

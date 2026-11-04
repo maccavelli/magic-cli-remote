@@ -10,6 +10,10 @@
 // it. Every request carries a password generated for that launch, which goes
 // only into the child's OPENCODE_PASSWORD; it is never in argv, a log line, a
 // capture or a file (0214 PLAN C5).
+//
+// The child is a full OpenCode process, and a location it boots starts every
+// MCP server the user configured. Those servers belong to the engine, so the
+// child is started with a policy denying every one (0230 MADR).
 package control
 
 import (
@@ -29,6 +33,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -110,6 +115,10 @@ type Plane struct {
 	inFlight int
 	lastUse  time.Time
 	idle     *time.Timer
+
+	// policyDir holds the MCP policy file the child is started with; made at
+	// the first start and removed by Close.
+	policyDir string
 }
 
 // engine is one running child.
@@ -448,7 +457,113 @@ func (p *Plane) Close() {
 	if eng != nil {
 		p.stop(eng)
 	}
+	p.mu.Lock()
+	dir := p.policyDir
+	p.policyDir = ""
+	p.mu.Unlock()
+	if dir != "" {
+		if err := os.RemoveAll(dir); err != nil {
+			p.log.Debug("control plane: policy directory not removed", slog.String("err", err.Error()))
+		}
+	}
 	p.wire.Close()
+}
+
+// mcpDenyPolicy is the child's whole policy file: deny every MCP server, by
+// name, whatever added it (0230 MADR D1).
+const mcpDenyPolicy = `{"policies":[{"action":"mcp.use","resource":"*","effect":"deny"}]}`
+
+// The variables OpenCode reads its explicit config file and its inline config
+// from (packages/cli/src/server-process.ts at b44b7164ba).
+const (
+	envConfig        = "OPENCODE_CONFIG"
+	envConfigContent = "OPENCODE_CONFIG_CONTENT"
+)
+
+// writePolicy writes the policy file, making its private directory on the
+// first start, and returns its path. Each start rewrites it, so a file changed
+// in between is put back.
+func (p *Plane) writePolicy() (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.policyDir == "" {
+		dir, err := os.MkdirTemp("", "mcremote-opencode-control-")
+		if err != nil {
+			return "", err
+		}
+		p.policyDir = dir
+	}
+	file := filepath.Join(p.policyDir, "opencode-control-plane.json")
+	if err := os.WriteFile(file, []byte(mcpDenyPolicy), 0o600); err != nil {
+		return "", err
+	}
+	return file, nil
+}
+
+// denyMCP returns env with the MCP policy added, and a warning when it could
+// not be (0230 MADR D2):
+//   - with no OPENCODE_CONFIG, that variable names the policy file, which
+//     outranks the user's global and project files;
+//   - with the operator's OPENCODE_CONFIG, that file stays, and the policy
+//     goes into OPENCODE_CONFIG_CONTENT, appended to the operator's JSON object
+//     there when there is one, where a later statement wins;
+//   - content that is not a JSON object is left alone, and the warning says
+//     the user's MCP servers will start here too.
+//
+// fold matches the names without regard to case, as Windows does.
+func denyMCP(env []string, policyFile string, fold bool) ([]string, string) {
+	config, _ := lookupEnv(env, envConfig, fold)
+	if config == "" {
+		return append(env, envConfig+"="+policyFile), ""
+	}
+	content, set := lookupEnv(env, envConfigContent, fold)
+	if !set || strings.TrimSpace(content) == "" {
+		return append(env, envConfigContent+"="+mcpDenyPolicy), ""
+	}
+	merged, ok := appendDeny(content)
+	if !ok {
+		return env, "opencode control plane: " + envConfigContent + " is not a JSON object, so the MCP policy is not set; " +
+			"the user's MCP servers start in the control plane too (0230 MADR D2)"
+	}
+	return append(env, envConfigContent+"="+merged), ""
+}
+
+// appendDeny appends the deny statement to a config document's policies,
+// keeping every other key, or reports that it cannot.
+func appendDeny(content string) (string, bool) {
+	dec := json.NewDecoder(strings.NewReader(content))
+	dec.UseNumber()
+	var doc map[string]any
+	if err := dec.Decode(&doc); err != nil || doc == nil || dec.More() {
+		return "", false
+	}
+	var policy struct {
+		Policies []any `json:"policies"`
+	}
+	_ = json.Unmarshal([]byte(mcpDenyPolicy), &policy)
+	existing, _ := doc["policies"].([]any)
+	if _, present := doc["policies"]; present && existing == nil {
+		return "", false
+	}
+	doc["policies"] = append(existing, policy.Policies...)
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return "", false
+	}
+	return string(out), true
+}
+
+// lookupEnv is the last value of name in env, as os/exec passes it, and
+// whether it is set.
+func lookupEnv(env []string, name string, fold bool) (string, bool) {
+	value, set := "", false
+	for _, kv := range env {
+		k, v, ok := strings.Cut(kv, "=")
+		if ok && (k == name || fold && strings.EqualFold(k, name)) {
+			value, set = v, true
+		}
+	}
+	return value, set
 }
 
 // Version is the engine version /api/info named at the last start, or "".
@@ -488,7 +603,14 @@ func (p *Plane) start(ctx context.Context) (*engine, error) {
 	}
 	procutil.SetDeathSignal(cmd)
 	engineID := uuid.NewString()
-	env := append(os.Environ(), p.cfg.Env...)
+	policy, err := p.writePolicy()
+	if err != nil {
+		return nil, fmt.Errorf("control plane MCP policy: %w", err)
+	}
+	env, warning := denyMCP(append(os.Environ(), p.cfg.Env...), policy, runtime.GOOS == "windows")
+	if warning != "" {
+		p.log.Warn(warning)
+	}
 	cmd.Env = append(env,
 		procutil.EnvEngineID+"="+engineID,
 		procutil.EnvEngineOwner+"="+procutil.OwnerToken(),

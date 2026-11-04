@@ -444,6 +444,10 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0225 | PLAN | Implement fixing the two codex tests that raced in CI | [0225-PLAN-fix-the-two-codex-tests-that-raced-in-ci.md](decisions/0225-PLAN-fix-the-two-codex-tests-that-raced-in-ci.md) |
 | 0226 | MADR | Re-pin grok, kilo and codex to the installed releases, and decide opencode's pin separately | [0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md](decisions/0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md) |
 | 0226 | PLAN | Implement re-pinning the agent CLIs to the installed releases | [0226-PLAN-re-pin-the-agent-clis-to-the-installed-releases.md](decisions/0226-PLAN-re-pin-the-agent-clis-to-the-installed-releases.md) |
+| 0227 | MADR | Allow read-only agent commands and tools without a prompt | [0227-MADR-agent-readonly-command-and-tool-allowlist.md](decisions/0227-MADR-agent-readonly-command-and-tool-allowlist.md) |
+| 0227 | PLAN | Implement allow-list of read-only agent commands and tools | [0227-PLAN-agent-readonly-command-and-tool-allowlist.md](decisions/0227-PLAN-agent-readonly-command-and-tool-allowlist.md) |
+| 0230 | MADR | Keep the OpenCode control plane from starting the user's MCP servers | [0230-MADR-keep-the-opencode-control-plane-from-starting-the-users-mcp-servers.md](decisions/0230-MADR-keep-the-opencode-control-plane-from-starting-the-users-mcp-servers.md) |
+| 0230 | PLAN | Implement: keep the OpenCode control plane from starting the user's MCP servers | [0230-PLAN-keep-the-opencode-control-plane-from-starting-the-users-mcp-servers.md](decisions/0230-PLAN-keep-the-opencode-control-plane-from-starting-the-users-mcp-servers.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

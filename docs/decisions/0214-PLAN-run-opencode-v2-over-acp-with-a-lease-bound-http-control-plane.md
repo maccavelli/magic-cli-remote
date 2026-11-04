@@ -1674,3 +1674,15 @@ P6d is complete with this commit. P6e, revert, unrevert and the `!` shell, is ne
 **Files for this commit:** `internal/provider/opencode/control/control.go` and `control_test.go`;
 `internal/provider/opencode/acp.go`, and `acp_surfaces.go` and `acp_surfaces_test.go` (new); the
 MADR; and this plan.
+
+### Note, 2026-11-03 — the duplicate MCP start is carried by 0230
+
+P6d Deviation 1's MCP decision, "Own record; P6d omits MCP", is
+[0230-MADR-keep-the-opencode-control-plane-from-starting-the-users-mcp-servers.md](0230-MADR-keep-the-opencode-control-plane-from-starting-the-users-mcp-servers.md)
+and its PLAN.
+* The control plane is started with a policy denying every MCP server, in a file of its own
+  named by `OPENCODE_CONFIG`.
+* The engine is untouched.
+* `TestLiveV2ControlPlaneStartsNoMCPServers` pins it, and joins the checks run at each engine pin.
+
+It lands before P7.
