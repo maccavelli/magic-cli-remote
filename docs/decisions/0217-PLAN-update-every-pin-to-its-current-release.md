@@ -1898,3 +1898,54 @@ owner's word on this deviation; nothing in the tree moves before it.*
 6. Stage `go.mod`, `go.sum`, `.github/workflows/ci.yml`, this PLAN and the 0217 MADR.
 
 **Scope.** No file is added. No live agent run. `ci.yml` changes only its two pin lines.
+
+#### P3d, executed (2026-11-03; approved by the owner: "committed, proceed", after `71c70d55` recorded this deviation)
+
+The owner added: "gobble is also moving to current acp-go-sdk2". The MADR's F3e records it as
+gobble-cli's own move.
+
+* **Step 1.** `git status` showed only the unrelated 0228 and 0229 drafts, untracked, at
+  `71c70d55`. `git ls-remote` gave `v1.31.2^{}` `69eff662951c…` and `v1.24.0^{}` `74ab5dd376a4…`,
+  each still the newest tag (`libs/newest_tag.py`). `go.mod`, `go.sum` and `ci.yml` were copied to
+  `libs/p3d-base/`.
+* **Step 2** (`libs/p3d-goget.log`): "upgraded …acp-go-sdk2 v1.31.1 => v1.31.2" and "upgraded
+  …go-selfupdate-lib v1.23.1 => v1.24.0".
+  * After `go mod tidy`, `go.mod` changes only those two lines and `go.sum` only their four. Each
+    library's `/go.mod` hash is unchanged, so neither library's requirements moved.
+  * `go 1.27.3` is unchanged, and `go list -m -u` lists no direct module behind.
+* **Step 3.**
+  * Before the edit, with `go.mod` moved and `ci.yml` not, `TestWorkflowPinsMatchGoMod` failed:
+    "build-selfupdate-release.yml@c24f5919… is commented "# go-selfupdate-lib v1.23.1"; want "#
+    go-selfupdate-lib v1.24.0", the release go.mod requires", and the same for
+    `publish-selfupdate-release.yml`. This ran in the working tree, which the test only reads.
+  * `libs/move_ci_pins.py` asserted two matches and moved both pins to `74ab5dd3…`.
+  * At `74ab5dd3` and `c24f5919` the two workflow files are the same blobs (`56f95cd5…`,
+    `5048ad0c…`).
+  * The test then passed.
+* **Step 4, this Mac** (logs `libs/p3d-*.log`):
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check` | exit 0, "1040 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go vet ./...` (`libs/vet_goos.py`) | darwin/arm64, windows/amd64, linux/amd64: exit 0 each |
+  | `make vet-tags` | exit 0, every tag ok |
+  | `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" for each GOOS |
+  | `make vulncheck` | exit 0, "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+  | `make race` | exit 0; 47 `ok` (`internal`, `internal/cli/service`, `internal/provider/acpagent` and `internal/updateclient` among them), no FAIL, panic or data race |
+  | `make check-libs` on `71c70d55` | exit 2, one failing check. Both libraries: get and tidy, version, modules, build, vet on three GOOS, api (from v1.31.1 and v1.23.1), govulncheck and advisories ok, and acp-go-sdk2's test ok. go-selfupdate-lib's test failed only on `TestWorkflowPinsMatchGoMod` with step 3's message: the tool moves `go.mod` on a clone of the committed HEAD, whose `ci.yml` still names v1.23.1. Its kept scratch was removed and checked gone. |
+  | check-libs on the step's content (`libs/check_libs_content.py go.mod go.sum .github/workflows/ci.yml`) | exit 0, "0 failing checks; scratch removed"; each library "pinned v1.31.2, checking v1.31.2" and "pinned v1.24.0, checking v1.24.0", every check ok; the clone removed and checked gone |
+
+  The run on `71c70d55` is the one that compares the APIs across the move (each "api: ok"). The
+  content run compares a library with itself ("nothing to compare"), and passes the test the HEAD
+  run could not.
+* **Step 5** (`PINS_PHASE=p3d`; `HEAD` `71c70d55` plus `go.mod`, `go.sum` and `ci.yml`):
+  * the Linux test host: `go1.27.3`, `go test -race -count=1 ./...` exit 0, 47 `ok` lines;
+  * the Windows test host: `go1.27.3`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED
+    CHECKS PASSED", 47 `ok` lines.
+
+  Neither log has a FAIL, panic or race line. Both scratch trees were removed and checked gone.
+* **Step 6.** Staged: `go.mod`, `go.sum`, `.github/workflows/ci.yml`, this PLAN and the 0217 MADR.
+  `make check-libs` runs again on the owner's commit.
+
+**Files for this commit:** `go.mod`, `go.sum`, `.github/workflows/ci.yml`, this PLAN and the 0217
+MADR.

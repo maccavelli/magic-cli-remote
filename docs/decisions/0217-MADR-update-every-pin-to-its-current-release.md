@@ -234,6 +234,9 @@ each library's release notes, `CHANGELOG.md` and `git diff` at its tags; `go lis
   pinned.
 * **gobble** pins `acp-go-sdk2 v1.31.1`. As in F3d, 0184 D12's shared pin is needed only before
   `live-gobble`.
+  * *Added 2026-11-03, at PLAN P3d.* The owner: "gobble is also moving to current acp-go-sdk2".
+    gobble's move is gobble-cli's own record and commit, not this one. Once both land, the two
+    repositories share `v1.31.2` again.
 
 **F4. CI actions: four of eight are behind.** Each is pinned by commit, with a version comment.
 
