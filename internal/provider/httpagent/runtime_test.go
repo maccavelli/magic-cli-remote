@@ -130,12 +130,12 @@ func (d stubDialect) NewSession(Host) DialectSession { return nil }
 // runtimeDialect wraps stubDialect with a status the test controls.
 type runtimeDialect struct {
 	stubDialect
-	msg string
+	res provider.Result
 	err error
 }
 
-func (d runtimeDialect) RuntimeStatus(context.Context, API) (string, error) {
-	return d.msg, d.err
+func (d runtimeDialect) RuntimeStatus(context.Context, API) (provider.Result, error) {
+	return d.res, d.err
 }
 
 // TestSessionUsageReadsTheSessionObjectAndNothingElse is Q4.
@@ -173,32 +173,35 @@ func TestStatusWithoutARuntimeDialectStillAnswers(t *testing.T) {
 		return nil
 	}
 	got := runtimeStatus(context.Background(), stubDialect{id: provider.IDOpencode}, api, "Opencode")
-	if !strings.Contains(got, "no plan usage") {
-		t.Errorf("status = %q, want it to say the engine publishes none", got)
+	if !strings.Contains(got.Text, "no plan usage") || len(got.Body) != 0 {
+		t.Errorf("status = %+v, want a line saying the engine publishes none, and no body", got)
 	}
-	if strings.TrimSpace(got) == "" {
+	if strings.TrimSpace(got.Text) == "" {
 		t.Error("status was empty; /status would show nothing at all")
 	}
 }
 
-// TestStatusReportsADialectFailureAsText keeps a broken probe visible.
+// TestStatusReportsADialectFailureAsText keeps a broken probe visible, and
+// passes the dialect's answer through unchanged (MADR 0208 D12).
 func TestStatusReportsADialectFailureAsText(t *testing.T) {
-	d := runtimeDialect{id: provider.IDKilo,
+	d := runtimeDialect{stubDialect: stubDialect{id: provider.IDKilo},
 		err: errors.New("engine refused: 503")}
 	got := runtimeStatus(context.Background(), d, nil, "Kilo")
-	if !strings.Contains(got, "status unavailable") || !strings.Contains(got, "503") {
-		t.Errorf("status = %q, want the failure named", got)
+	if !strings.Contains(got.Text, "status unavailable") || !strings.Contains(got.Text, "503") {
+		t.Errorf("status = %+v, want the failure named", got)
 	}
 
 	// An empty answer is treated as "nothing to say", not as an answer.
-	blank := runtimeDialect{id: provider.IDKilo, msg: "   "}
-	if got := runtimeStatus(context.Background(), blank, nil, "Kilo"); !strings.Contains(got, "no plan usage") {
-		t.Errorf("status = %q, want the fallback line for an empty dialect answer", got)
+	blank := runtimeDialect{stubDialect: stubDialect{id: provider.IDKilo}, res: provider.Result{Text: "   "}}
+	if got := runtimeStatus(context.Background(), blank, nil, "Kilo"); !strings.Contains(got.Text, "no plan usage") {
+		t.Errorf("status = %+v, want the fallback line for an empty dialect answer", got)
 	}
 
-	ok := runtimeDialect{id: provider.IDKilo, msg: "Kilo · credits 3/50"}
-	if got := runtimeStatus(context.Background(), ok, nil, "Kilo"); got != "Kilo · credits 3/50" {
-		t.Errorf("status = %q, want the dialect's own line", got)
+	answer := provider.Result{Method: "GET /plan", Body: json.RawMessage(`{"items":[]}`)}
+	ok := runtimeDialect{stubDialect: stubDialect{id: provider.IDKilo}, res: answer}
+	if got := runtimeStatus(context.Background(), ok, nil, "Kilo"); got.Method != answer.Method ||
+		string(got.Body) != string(answer.Body) || got.Text != "" {
+		t.Errorf("status = %+v, want the dialect's answer unchanged", got)
 	}
 }
 

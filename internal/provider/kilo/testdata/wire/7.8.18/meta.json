@@ -6,5 +6,10 @@
   "captured_at": "2026-11-01",
   "frames": 108,
   "redacted": "macOS per-user temp root -> /var/folders/<id>/<user>/T, in its /var and /private/var forms",
-  "note": "every frame of one live turn (0226-PLAN R2): \"Reply with exactly 'hello'\" on openrouter/openrouter/free, end_turn; 18 sync frames, 59 message.part.delta, session.turn.open and session.turn.close"
+  "note": "every frame of one live turn (0226-PLAN R2): \"Reply with exactly 'hello'\" on openrouter/openrouter/free, end_turn; 18 sync frames, 59 message.part.delta, session.turn.open and session.turn.close",
+  "http_answers": {
+    "captured_at": "2026-11-04",
+    "source": "a private kilo serve on loopback, with the owner's credentials and no prompt (0208-PLAN P5 Deviation 5); the response bodies byte for byte",
+    "provider-usage.json": "GET /kilocode/provider-usage: an account with no plan windows"
+  }
 }

@@ -235,6 +235,9 @@ Files, per operation: the provider's `runtime.go` or `usage.go`, `internal/sessi
 One operation per commit, in this order: grok usage and billing (`acpagent/runtime.go`), codex
 status and usage (`codex/runtime.go`), kilo usage (`kilo/usage.go`), opencode and kilo session
 totals (`httpagent/runtime.go`), then `/context`.
+*Restated 2026-11-04 (P5 Deviation 5):* after grok's and codex's commits, kilo `/status`
+(`kilo/runtime.go`), kilo `/usage` (`httpagent/runtime.go`), then `/context`. opencode has
+neither operation since 0214.
 
 1. The operation returns the engine's response body, as the engine sent it, in a structured-result
    event the phone renders with P3's JSON view (answer Q5). No labels are added.
@@ -1905,3 +1908,99 @@ P6d is complete with this commit, and with it P6. 0214 P4, opencode's ACP Spec, 
 `acpagent/capabilities_test.go`, `httpagent/capabilities_test.go`,
 `codex/declared_capabilities_test.go` and `fake/capabilities_test.go`; the test doubles in 21
 `internal/session` and three `internal/ws` test files; the MADR; and this plan.
+
+### P5 Deviation 5, 2026-11-04 — the remainder, restated after 0214. The owner decided: "Approve, do P5", "GET /session/{id}" and "Yes, capture with no turn"
+
+P5's remainder was deferred until 0214 was done ("P6 brought forward", above). 0214 is complete
+(`7788da48`). Read again at the restart (master `a3a29a6c`; kilo `7.8.18`):
+
+* **P5's order names files that no longer hold the operations.**
+  * "kilo usage (`kilo/usage.go`)": that file now holds only per-turn usage events (`emitUsage`).
+  * kilo's `/usage` is `httpagent`'s `RuntimeUsage`: `GET /session/{id}`, rendered by
+    `formatSessionTotals` (`httpagent/runtime.go:128-160`).
+  * kilo's `/status` is its dialect's `RuntimeStatus`: `GET /kilocode/provider-usage`, rendered by
+    `formatProviderUsage` (`kilo/runtime.go:23-57`).
+  * "opencode and kilo session totals": opencode no longer uses `httpagent` (0214 P7), and its
+    `/status` and `/usage` are `KindNone` (`opencode/commandtable.go`).
+* **`/context`** is still Magic's line from its last usage report (`session/commands.go:499`).
+* **No capture holds either kilo answer.** `kilo/testdata/wire/7.8.18/` is the `/global/event`
+  stream only: httpagent's capture records SSE frames (`httpagent/provider.go:816`), not HTTP
+  answers.
+
+**Decided.**
+
+* **"Approve, do P5".** The remainder is three commits, in this order:
+  1. kilo `/status`: the answer of `GET /kilocode/provider-usage`, unchanged, in `engine_result`.
+     `formatProviderUsage` and `windowSummary` and their prose tests go. `providerUsage`, which
+     confirms a limit (`quota.go`), stays.
+  2. kilo `/usage`: the answer of `GET /session/{id}`, unchanged. `formatSessionTotals` and its
+     prose tests go. A session with no engine id keeps its notice: there is no engine answer.
+  3. `/context`: the JSON of the usage record Magic holds (D12 step 2), with the same rendering.
+     Magic's line goes.
+* **"GET /session/{id}".** The call Magic already makes; no new route is relied on. The phone gets
+  the whole session object.
+* **"Yes, capture with no turn".** One capture on this host from kilo 7.8.18 with the owner's kilo
+  credentials, and no prompt:
+  * `kilo serve` on loopback, as the dialect starts it;
+  * a session created in a scratch directory;
+  * the two answers saved raw, then the session deleted.
+
+  The bodies are read, identifiers replaced with placeholders, and the guard's preview run, before
+  they are copied into `kilo/testdata/wire/7.8.18/`.
+* **Each commit's files** are named at its start, as the rules say. Step 4's live checks stay on the
+  owner's word.
+
+### P5, kilo `/status` commit, 2026-11-04: kilo's plan usage as kilo sent it
+
+**The capture** (Deviation 5; `p5r/capture_kilo.py` in the session scratchpad).
+* kilo `7.8.18`, a private `kilo serve` on loopback, with the owner's credentials and no prompt.
+* `POST /session` and `GET /session/{id}` answered `200` JSON; `GET /kilocode/provider-usage`
+  answered `200` `{"items":[], "generatedAt":…}`: the account has no plan windows. The session was
+  deleted (`200`) and the server stopped (exit 0).
+* `provider-usage.json` carries no identifier, and is copied unchanged into
+  `kilo/testdata/wire/7.8.18/`; `meta.json` describes it. The session answer waits for the `/usage`
+  commit, redacted there.
+
+**What changed.**
+* `httpagent.RuntimeDialect.RuntimeStatus` returns a `provider.Result`.
+  * `runtimeStatus` passes a dialect's answer through unchanged.
+  * A failed read is still a line naming the failure, and an empty answer still the
+    "publishes no plan usage" line, since `cmdRuntime` would show an error as nothing.
+* kilo's `RuntimeStatus` reads `GET /kilocode/provider-usage` into a `json.RawMessage`, and returns
+  it with `Method: "GET /kilocode/provider-usage"`.
+* `formatProviderUsage` and `windowSummary` and their three prose tests are deleted.
+  `providerUsage`, which confirms a limit after a failed turn (`quota.go`), stays.
+* The phone needs nothing new: `emitResult` sends a body as `engine_result`, which P3's JSON view
+  renders (P5's first commit).
+
+**Tests, each seen failing** (`p5r/plant_status.py`, on scratch copies):
+
+| Break | Fails |
+| --- | --- |
+| kilo's answer returned as text | `TestStatusPassesKiloProviderUsageThrough`: `body = null`, and the text holds the answer |
+| another method named | the same: `method = "GET /plan"` |
+| a second engine call | the same: `engine calls = [GET /kilocode/provider-usage GET /session]` |
+| the engine's error swallowed | `TestStatusReturnsTheEnginesError`: `err = <nil>` |
+| httpagent rewriting the answer | `TestStatusReportsADialectFailureAsText`: "want the dialect's answer unchanged" |
+
+`TestStatusWithoutARuntimeDialectStillAnswers` and the failure and blank cases of
+`TestStatusReportsADialectFailureAsText` are restated for the `Result`, asserting what they did.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (4 Go files) | "4 file(s) clean (gofmt, golint, govulncheck)" |
+| `go test -race -count=1 ./...` | exit 0, 47 packages ok, no race |
+| `make lint`; `make staticcheck` | exit 0 |
+
+**Not done:**
+* The live check (step 4): this commit's answer came from the live engine at the capture, but no
+  `make live-kilo` ran.
+* kilo `/usage` and `/context` are the next two commits.
+
+**Files for this commit:**
+* `internal/provider/httpagent/runtime.go` and `runtime_test.go`;
+* `internal/provider/kilo/runtime.go` and `runtime_test.go`;
+* `internal/provider/kilo/testdata/wire/7.8.18/provider-usage.json` (new) and `meta.json`;
+* this plan.

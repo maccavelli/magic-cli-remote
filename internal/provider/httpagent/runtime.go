@@ -61,18 +61,19 @@ type sessionTokid struct {
 // path. A dialect that does not implement this still gets a working `/status` —
 // it just says what the engine does and does not publish.
 type RuntimeDialect interface {
-	// RuntimeStatus returns one line about the engine and the account behind
-	// it. Implementations report their own unavailability as text with a nil
-	// error: internal/session's cmdRuntime propagates an error to its caller
-	// instead of showing it, so an error here makes /status say nothing.
-	RuntimeStatus(ctx context.Context, api API) (string, error)
+	// RuntimeStatus returns the engine's answer about the account behind it:
+	// the response body as the engine sent it, and the request that got it
+	// (MADR 0208 D12). An error is shown as text by the caller, never
+	// returned: internal/session's cmdRuntime propagates an error instead of
+	// showing it, so an error here would make /status say nothing.
+	RuntimeStatus(ctx context.Context, api API) (provider.Result, error)
 }
 
 // RuntimeStatus implements [provider.RuntimeSession].
 func (s *session) RuntimeStatus(ctx context.Context) (provider.Result, error) {
 	callCtx, cancel := context.WithTimeout(ctx, runtimeProbeTimeout)
 	defer cancel()
-	return provider.Result{Text: runtimeStatus(callCtx, s.p.dialect, s.p.api, s.engineLine())}, nil
+	return runtimeStatus(callCtx, s.p.dialect, s.p.api, s.engineLine()), nil
 }
 
 // runtimeStatus is the dialect-dispatch half, split out from the method so it
@@ -83,21 +84,21 @@ func (s *session) RuntimeStatus(ctx context.Context) (provider.Result, error) {
 // It returns no error by design. internal/session's cmdRuntime propagates a
 // returned error to its caller instead of showing it, so every failure here has
 // to come back as text or `/status` silently does nothing.
-func runtimeStatus(ctx context.Context, d Dialect, api API, engineLine string) string {
+func runtimeStatus(ctx context.Context, d Dialect, api API, engineLine string) provider.Result {
 	rd, ok := d.(RuntimeDialect)
 	if !ok {
-		// Not a failure: opencode-shaped engines genuinely publish no account
-		// usage, and saying so is different from being broken.
-		return engineLine + " · this engine publishes no plan usage"
+		// Not a failure: an engine with no account usage publishes none, and
+		// saying so is different from being broken.
+		return provider.Result{Text: engineLine + " · this engine publishes no plan usage"}
 	}
-	msg, err := rd.RuntimeStatus(ctx, api)
+	res, err := rd.RuntimeStatus(ctx, api)
 	if err != nil {
-		return engineLine + " · status unavailable: " + clipErr(err, 160)
+		return provider.Result{Text: engineLine + " · status unavailable: " + clipErr(err, 160)}
 	}
-	if strings.TrimSpace(msg) == "" {
-		return engineLine + " · this engine publishes no plan usage"
+	if len(res.Body) == 0 && strings.TrimSpace(res.Text) == "" {
+		return provider.Result{Text: engineLine + " · this engine publishes no plan usage"}
 	}
-	return msg
+	return res
 }
 
 // engineLine describes the session's own runtime, which every dialect can

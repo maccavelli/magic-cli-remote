@@ -1,7 +1,11 @@
 package kilo
 
 import (
-	"strings"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
@@ -14,62 +18,41 @@ func TestKiloImplementsRuntimeDialect(t *testing.T) {
 	}
 }
 
-// TestKiloStatusReportsWindowsAndExhaustion.
-//
-// kilo says more here than any other engine in this repository: its windows
-// carry an explicit per-resource state, so "not throttled" is an answer rather
-// than an inference from the absence of an error.
-func TestKiloStatusReportsWindowsAndExhaustion(t *testing.T) {
-	u := providerUsage{Items: []providerUsageSnapshot{{
-		ProviderID: "kilocode", ProviderLabel: "Kilo Code", PlanLabel: "Pro",
-		FetchState: "ok",
-		Windows: []providerUsageWindow{
-			{Resource: "credits", Unit: "USD", Used: 12, Limit: 50, State: "active"},
-			{Resource: "requests", State: "exhausted"},
-			{Resource: "images", State: "not_in_plan"},
-			{Resource: "tokens", State: "unlimited"},
-		},
-	}}}
-
-	got := formatProviderUsage(u)
-	for _, want := range []string{"Kilo Code Pro", "requests exhausted", "credits 12/50 USD"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("status = %q, want %q", got, want)
-		}
+// TestStatusPassesKiloProviderUsageThrough is 0208-PLAN P5 step 3 for kilo
+// `/status` (Deviation 5): kilo 7.8.18's answer to GET /kilocode/provider-usage,
+// byte for byte, named by the request that got it, and nothing else asked.
+func TestStatusPassesKiloProviderUsageThrough(t *testing.T) {
+	captured, err := os.ReadFile("testdata/wire/7.8.18/provider-usage.json")
+	if err != nil {
+		t.Fatalf("read capture: %v", err)
 	}
-	// A window outside the plan and an unlimited one carry no number worth
-	// showing, and padding the line with them makes the real figures harder to
-	// find.
-	for _, unwanted := range []string{"images", "tokens"} {
-		if strings.Contains(got, unwanted) {
-			t.Errorf("status = %q, should omit the %q window", got, unwanted)
-		}
+	captured = bytes.TrimSpace(captured)
+	var calls []string
+	api := func(_ context.Context, method, path string, _, out any) error {
+		calls = append(calls, method+" "+path)
+		return json.Unmarshal(captured, out)
+	}
+	res, err := (&httpDialect{}).RuntimeStatus(context.Background(), api)
+	if err != nil {
+		t.Fatalf("RuntimeStatus: %v", err)
+	}
+	if len(calls) != 1 || calls[0] != "GET /kilocode/provider-usage" {
+		t.Fatalf("engine calls = %v, want exactly [GET /kilocode/provider-usage]", calls)
+	}
+	if !bytes.Equal(res.Body, captured) {
+		t.Errorf("body = %s\nwant kilo's answer unchanged: %s", res.Body, captured)
+	}
+	if res.Method != "GET /kilocode/provider-usage" || res.Text != "" {
+		t.Errorf("method = %q, text = %q; want the request that answered and no text", res.Method, res.Text)
 	}
 }
 
-// TestKiloStatusOnAnAccountWithNoPlan.
-//
-// An empty items list is the normal shape for a bring-your-own-key setup: kilo
-// meters nothing because the spend is on the upstream provider's bill. Saying
-// that is different from saying usage is unavailable.
-func TestKiloStatusOnAnAccountWithNoPlan(t *testing.T) {
-	got := formatProviderUsage(providerUsage{})
-	if !strings.Contains(got, "meters upstream") {
-		t.Errorf("status = %q, want it to explain why there is no plan usage", got)
-	}
-	if strings.Contains(strings.ToLower(got), "unavailable") {
-		t.Errorf("status = %q — an account with no plan is not an unavailable one", got)
-	}
-}
-
-// TestKiloStatusSaysWhenTheEngineCouldNotFetch keeps a failed per-provider
-// fetch distinct from an account that has no plan.
-func TestKiloStatusSaysWhenTheEngineCouldNotFetch(t *testing.T) {
-	u := providerUsage{Items: []providerUsageSnapshot{
-		{ProviderID: "anthropic", ProviderLabel: "Anthropic", FetchState: "error"},
-	}}
-	got := formatProviderUsage(u)
-	if !strings.Contains(got, "usage unavailable") {
-		t.Errorf("status = %q, want the failed fetch named", got)
+// TestStatusReturnsTheEnginesError leaves the text to httpagent, which shows a
+// failed read rather than nothing (its TestStatusReportsADialectFailureAsText).
+func TestStatusReturnsTheEnginesError(t *testing.T) {
+	want := errors.New("engine refused: 503")
+	api := func(context.Context, string, string, any, any) error { return want }
+	if _, err := (&httpDialect{}).RuntimeStatus(context.Background(), api); !errors.Is(err, want) {
+		t.Fatalf("err = %v, want the engine's error", err)
 	}
 }
