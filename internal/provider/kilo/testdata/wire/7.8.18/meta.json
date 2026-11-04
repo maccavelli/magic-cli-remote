@@ -10,6 +10,7 @@
   "http_answers": {
     "captured_at": "2026-11-04",
     "source": "a private kilo serve on loopback, with the owner's credentials and no prompt (0208-PLAN P5 Deviation 5); the response bodies byte for byte",
-    "provider-usage.json": "GET /kilocode/provider-usage: an account with no plan windows"
+    "provider-usage.json": "GET /kilocode/provider-usage: an account with no plan windows",
+    "session.json": "GET /session/{id}: a new session, no turn, created in a scratch directory; the macOS per-user temp root redacted as above, in `directory` and `path`"
   }
 }

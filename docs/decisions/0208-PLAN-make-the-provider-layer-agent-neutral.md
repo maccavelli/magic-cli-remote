@@ -2004,3 +2004,53 @@ P5's remainder was deferred until 0214 was done ("P6 brought forward", above). 0
 * `internal/provider/kilo/runtime.go` and `runtime_test.go`;
 * `internal/provider/kilo/testdata/wire/7.8.18/provider-usage.json` (new) and `meta.json`;
 * this plan.
+
+*The owner committed the kilo `/status` commit as `376f063b`.*
+
+### P5, kilo `/usage` commit, 2026-11-04: the session object as kilo sent it
+
+**The capture** is the kilo `/status` commit's: `GET /session/{id}` on a new session with no turn.
+`p5r/redact_session.py` (session scratchpad) put it into `kilo/testdata/wire/7.8.18/session.json`.
+It replaced the macOS per-user temp root, in `directory` and `path`, with `/var/folders/<id>/<user>/T`
+(the stream capture's rule), and changed nothing else. `meta.json` describes it.
+
+**What changed** (`internal/provider/httpagent/runtime.go`).
+* `RuntimeUsage` passes `GET /session/{id}` through unchanged, with `Method: "GET /session/<id>"`,
+  through a new `runtimeUsage` seam that takes the `API`, as `runtimeStatus` does.
+* A session with no engine id, and a failed read, are still a line of text: there is no engine
+  answer to pass.
+* `sessionTotals`, `fetchSessionTotals` and `formatSessionTotals` are deleted. Nothing else read
+  them. So are their tests:
+  * `TestSessionTotalsDecodeFromTheSessionObject`;
+  * `TestFormatSessionTotalsStatesSubCentCosts`;
+  * `TestLivePayloadsFromBothEnginesDecodeIdentically`, with their hand-trimmed payloads.
+* `TestSessionUsageReadsTheSessionObjectAndNothingElse` is restated as
+  `TestUsagePassesTheSessionObjectThrough`. It reads the capture from kilo's testdata, and still
+  allows exactly one engine call.
+
+**Tests, each seen failing** (`p5r/plant_usage.py`, on scratch copies):
+
+| Break | Fails |
+| --- | --- |
+| the answer returned as text | `TestUsagePassesTheSessionObjectThrough`: `body = null`, and the text holds the answer |
+| `model-usage` read as well | the same: `engine calls = [GET /session/ses_… GET /session/ses_…/model-usage]` |
+| the method without the id | the same: `method = "GET /session"` |
+| the engine called with no session id | `TestUsageWithoutAnEngineAnswerIsText`: "a session with no engine id must not call the engine" |
+| a failed read returned as nothing | the same: `usage = {Method: Body:null Text:}` |
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (2 Go files) | "2 file(s) clean (gofmt, golint, govulncheck)" |
+| `go test -race -count=1 ./...` | exit 0, 47 packages ok, no race |
+| `make lint`; `make staticcheck`; `make vet-tags` | exit 0 |
+
+**Not done:**
+* The live check (step 4), as for `/status`.
+* `/context` is the next commit.
+
+**Files for this commit:**
+* `internal/provider/httpagent/runtime.go` and `runtime_test.go`;
+* `internal/provider/kilo/testdata/wire/7.8.18/session.json` (new) and `meta.json`;
+* this plan.

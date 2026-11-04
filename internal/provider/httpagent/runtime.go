@@ -2,7 +2,7 @@ package httpagent
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -11,47 +11,21 @@ import (
 
 var _ provider.RuntimeSession = (*session)(nil)
 
-// Runtime status and usage for the HTTP-engine transports (MADR 0138 Phase 11).
+// Runtime status and usage for the HTTP-engine transports (MADR 0138 Phase 11),
+// each the engine's own answer, passed through unchanged (MADR 0208 D12).
 //
-// The usage half is shared. kilo 7.5.6 and opencode publish byte-identical
-// schemas for the session object's cost and token totals — verified against
-// each engine's own OpenAPI document, read live rather than assumed — so one
-// read serves both dialects:
-//
-//	GET /session/{id} -> {"cost": number,
-//	                      "tokens": {"input","output","reasoning",
-//	                                 "cache": {"read","write"}}}
+// The usage half is shared: the session object, `GET /session/{id}`, carries
+// the session's cost (a JSON number in USD) and token totals.
 //
 // The status half is not shared, because what an engine can say about an
-// account differs: kilo publishes plan usage and opencode publishes none. That
-// goes through [RuntimeDialect], following the AuthDialect pattern above it.
+// account differs. That goes through [RuntimeDialect], following the
+// AuthDialect pattern above it.
 
 // runtimeProbeTimeout bounds a status or usage read.
 //
-// These run from a slash command with a person waiting, and both engines are on
+// These run from a slash command with a person waiting, and the engine is on
 // loopback, so this is generous rather than tuned.
 const runtimeProbeTimeout = 5 * time.Second
-
-// sessionTotals is the cost and token accounting an engine keeps on the session
-// object itself.
-//
-// `cost` is a JSON **number in USD** — not cents, and not grok's 1e10 ticks.
-// Three transports in this repository, three money units; each is named at its
-// decode site so no one has to remember which is which.
-type sessionTotals struct {
-	Cost   float64      `json:"cost"`
-	Tokens sessionTokid `json:"tokens"`
-}
-
-type sessionTokid struct {
-	Input     float64 `json:"input"`
-	Output    float64 `json:"output"`
-	Reasoning float64 `json:"reasoning"`
-	Cache     struct {
-		Read  float64 `json:"read"`
-		Write float64 `json:"write"`
-	} `json:"cache"`
-}
 
 // RuntimeDialect is optionally implemented by a [Dialect] whose engine can
 // report account-level plan or quota state.
@@ -124,21 +98,28 @@ func titleID(id provider.ID) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-// RuntimeUsage implements [provider.RuntimeSession] from the session object's
-// own totals.
+// RuntimeUsage implements [provider.RuntimeSession]: the engine's session
+// object, as the engine sent it, for the phone to show as JSON (MADR 0208 D12;
+// PLAN P5 Deviation 5). It carries the session's cost and token totals.
 func (s *session) RuntimeUsage(ctx context.Context) (provider.Result, error) {
-	agentID := s.AgentSessionID()
-	if agentID == "" {
-		return provider.Result{Text: "Usage is unavailable: this session has no engine session id."}, nil
-	}
 	callCtx, cancel := context.WithTimeout(ctx, runtimeProbeTimeout)
 	defer cancel()
+	return runtimeUsage(callCtx, s.p.api, s.AgentSessionID()), nil
+}
 
-	totals, err := fetchSessionTotals(callCtx, s.p.api, agentID)
-	if err != nil {
-		return provider.Result{Text: "Usage is unavailable: " + clipErr(err, 160)}, nil
+// runtimeUsage is RuntimeUsage's engine half, split out as runtimeStatus is so
+// a test can drive it with a stub API. Like runtimeStatus it returns no error:
+// a failure comes back as text, or /usage would show nothing.
+func runtimeUsage(ctx context.Context, api API, agentID string) provider.Result {
+	if agentID == "" {
+		return provider.Result{Text: "Usage is unavailable: this session has no engine session id."}
 	}
-	return provider.Result{Text: formatSessionTotals(totals)}, nil
+	path := sessionUsagePath(agentID)
+	var body json.RawMessage
+	if err := api(ctx, "GET", path, nil, &body); err != nil {
+		return provider.Result{Text: "Usage is unavailable: " + clipErr(err, 160)}
+	}
+	return provider.Result{Method: "GET " + path, Body: body}
 }
 
 // sessionUsagePath is the one endpoint these totals come from.
@@ -148,37 +129,3 @@ func (s *session) RuntimeUsage(ctx context.Context) (provider.Result, error) {
 // carries the numbers, and a second source for one figure is how the two come
 // to disagree. Named here so a change of mind has to edit something explicit.
 func sessionUsagePath(agentID string) string { return "/session/" + agentID }
-
-func fetchSessionTotals(ctx context.Context, api API, agentID string) (sessionTotals, error) {
-	var totals sessionTotals
-	if err := api(ctx, "GET", sessionUsagePath(agentID), nil, &totals); err != nil {
-		return sessionTotals{}, err
-	}
-	return totals, nil
-}
-
-// formatSessionTotals renders the engine's cumulative accounting.
-func formatSessionTotals(t sessionTotals) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Usage: %.0f input + %.0f output tokens", t.Tokens.Input, t.Tokens.Output)
-	if t.Tokens.Cache.Read > 0 {
-		fmt.Fprintf(&b, " (%.0f cached)", t.Tokens.Cache.Read)
-	}
-	if t.Tokens.Reasoning > 0 {
-		fmt.Fprintf(&b, " · %.0f reasoning", t.Tokens.Reasoning)
-	}
-	// Cost is USD from the engine. Four decimals under a dollar for the same
-	// reason as grok's: a real session commonly costs fractions of a cent, and
-	// two decimals would render it as $0.00.
-	switch {
-	case t.Cost >= 1:
-		fmt.Fprintf(&b, " · $%.2f", t.Cost)
-	case t.Cost > 0:
-		fmt.Fprintf(&b, " · $%.4f", t.Cost)
-	default:
-		// Zero here is a reported zero, not an absent field: both engines make
-		// `cost` required in their schemas.
-		b.WriteString(" · $0.00")
-	}
-	return b.String()
-}
