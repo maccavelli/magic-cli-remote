@@ -55,11 +55,17 @@ func startLiveV2Session(t *testing.T) (*v2Home, provider.Session, *liveEvents) {
 	h := newV2Home(t)
 	for _, kv := range h.env {
 		k, v, _ := strings.Cut(kv, "=")
+		// Windows keeps each drive's working directory in a variable named
+		// "=C:" and the like, which cannot be set; it is not the home's to
+		// change (0214 PLAN P9 Deviation 2).
+		if k == "" {
+			continue
+		}
 		t.Setenv(k, v)
 	}
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
-		if v2Credential.MatchString(k) || strings.EqualFold(k, "BASH_ENV") {
+		if strippedCredential(k) {
 			t.Setenv(k, "")
 		}
 	}
@@ -77,9 +83,14 @@ func startLiveV2Session(t *testing.T) (*v2Home, provider.Session, *liveEvents) {
 	// h.project is a temporary directory, which on macOS is reached through
 	// the /var symlink: the Spec's RealCWD is what makes undo work there.
 	p := opencode.NewACP(acpagent.Config{Bin: "opencode", DefaultCWD: h.project, AlwaysApprove: true, AllowRemoteShell: true})
+	// Registered before the session's Close, so it runs after it: Shutdown
+	// stops the control plane and waits for it, which releases the home's
+	// database before the temp dir goes. Windows cannot delete an open file
+	// (0214 PLAN P9 Deviation 1).
+	t.Cleanup(p.Shutdown)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	s, err := p.Start(ctx, provider.StartOptions{CWD: h.project, Model: v2FreeModel})
+	s, err := p.Start(ctx, provider.StartOptions{CWD: h.project, Model: liveV2Model()})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}

@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-11-01
+status: complete
+date: 2026-11-04
 associated-madr: "0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -53,6 +53,9 @@ The work breakdown is
   every credential-shaped variable (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`) and
   `BASH_ENV` are also removed from the engine's environment; a run that needs a credential sets
   it alone.
+  ~~*Amended 2026-11-04 (P9 Deviation 2):* `npm_config_cache`, in any case, is also pointed into
+  the isolated home.~~ *Withdrawn the same day: the cache was not the cause, and the owner chose
+  "Revert it" (P9 Deviation 2, corrected).*
 * **C5 — The server password** (D2) is generated per launch, set only in the child's environment,
   and never in argv, a log, a capture or a file. A test asserts each.
 * **C6 — Captures are read before they are committed,** values judged by shape, identifiers made
@@ -128,7 +131,9 @@ Each is seen failing first on a scratch copy with its key assertion inverted (C3
   * a shell the server runs sees neither the password nor its variable names;
   * a lease close exits 0, and SIGTERM exits 130 on POSIX.
 
-  `opencode acp`: `initialize` names version 2.x, and a lease close exits 0. No prompt.
+  `opencode acp`: `initialize` names version 2.x, and a lease close exits 0. No prompt. *Annotated
+  2026-11-04 (P9 Deviation 1): the pin never asserted the version; `opencode --version` was the only
+  check. P9 adds it.*
 * **G4:** after the control plane removes a throwaway key, the running engine still accepts an
   OpenRouter model, and a fresh engine lists none. The test is D8's reason, and fails when
   opencode clears it. No prompt. *Amended (P3 Deviation 1):* the running engine is left 20 s to
@@ -2376,5 +2381,274 @@ P8 is complete with this commit. P9, acceptance, is next.
   `engines_test.go`;
 * `README.md`, `docs/guides/config.md`, `docs/guides/protocol-v1.md`,
   `docs/guides/chat-performance.md` and `docs/architecture.md`;
+* the MADR;
+* this plan.
+
+### P9 Deviation 1, 2026-11-04 — the free limit on Linux, an answer that differs there, the Windows host's cgo setting and a held database, missing pins, and drops never named. The owner decided: "Use a paid model with your key", "Stream it over ssh stdin", "Let me list the catalog first", "Probe Linux first", "Fix the test, unset CGO for the run", "Name them in P9" and "Add the pins in P9"
+
+Found in step 1's runs, on HEAD `11728543` (C8: `v2.2.3` on all three hosts), and in step 2's audit.
+The owner's word for the live runs: "Yes, all three hosts", and "Run it too" for the control plane's
+MCP pin (`control/live_mcp_test.go`), which `make live-opencode` does not cover.
+
+* **macOS: every run passed.** `make test` and `make race` (47 packages each); `make
+  live-opencode`, all 9 live tests; the MCP pin.
+* **The Linux test host.**
+  * `make test`, `make race` (47 packages each) and the MCP pin passed.
+  * **The free limit.** `TestLiveV2LoadReplaysPromptsAndNoUsage` and
+    `TestLiveV2RevertAndShellFromControlPlane` were answered "Free usage limit reached. Connect a
+    provider or subscribe to OpenCode Go to keep going, or switch models." `TestLiveV2UndoAndRedo`'s
+    first turn wrote nothing within 3 s, most likely the same limit.
+  * **A different answer.** `TestLiveV2IntegrationsWaitForActivation` (`live_acp_auth_test.go:60`):
+    the first `GET /api/integration/openrouter` in a new location answered `200`, where macOS and
+    Windows answered `404`. The product's list-first order works either way.
+* **The Windows test host.**
+  * **`make test` and `make race`** failed `TestReleaseBuildReportsTheTag` and
+    `TestLocalBuildReportsLocal`: "refusing to build a release binary with CGO_ENABLED=1".
+    * The host's environment sets `CGO_ENABLED=1`, and the Makefile's `CGO_ENABLED ?= 0` yields to it
+      (`Makefile:40`, `:268-274`).
+    * `make ci-windows` sets `CGO_ENABLED=0` itself (`scripts/ci-windows-local.ps1:112`), which is
+      why it passed at every phase. The failure predates 0214.
+  * **Two live tests failed their cleanup.** `TestLiveV2UndoAndRedo` and `TestLiveV2Shell` passed
+    every assertion, then failed: "TempDir RemoveAll cleanup: … opencode.db: The process cannot
+    access the file because it is being used by another process."
+    * `startLiveV2Session` (`live_acp_revert_test.go:79-86`) closes the session but never shuts the
+      provider down, so its control plane keeps the database open.
+    * Windows cannot delete an open file. `control.Plane.Close` waits for the child to exit
+      (`control/control.go:451-478`, `:767-776`).
+  * The other live tests and the MCP pin passed.
+* **The audit (step 2).**
+  * **Pins the Confirmation asks for and nothing asserts:** the help surface, and `initialize`'s
+    capabilities. `initialize`'s version is not asserted either: `startV2Acp` only calls it, and
+    `newV2Home` checks `opencode --version` (P3's text is annotated). `session/new`'s options are
+    read by G4's pin.
+  * **Drops no 0214 record names:**
+    * **rename:** the Spec sets no `Ops.Rename`, so the phone is told "session … does not support
+      rename" (`internal/session/manager.go:2919-2922`). 0220's matrix lists it as the control
+      plane's (`PATCH /api/session/{id}`);
+    * **artifacts:** the v2 provider emits no `artifact` event; 1.x's `artifact.go` went at P7, and
+      0220's matrix has no row for it;
+    * **fork:** only the command table names it, "Magic does not fork OpenCode v2 sessions yet".
+* **A credential for Linux.** That host has no OpenCode key; this host's shell has one. The pins
+  use the free model alone (`v2FreeModel`), and `newV2Home` drops every `*_API_KEY` (C4).
+
+**Decided.**
+
+* **"Use a paid model with your key"**, **"Stream it over ssh stdin"** and **"Let me list the
+  catalog first".**
+  * The pins take their model from `MCREMOTE_LIVE_OPENCODE_MODEL`, the free model by default, as
+    kilo's take `MCREMOTE_LIVE_KILO_MODEL` (C2a).
+  * `MCREMOTE_LIVE_OPENCODE_CREDENTIAL` names the one credential variable a run keeps, as C4 allows
+    ("a run that needs a credential sets it alone"). Every other credential variable is still
+    removed.
+  * The key goes from this host's environment to the Linux run over ssh's stdin, read into the
+    remote test process's environment. It is never in argv, a file or a log, and never read into
+    the session.
+  * The model is the owner's pick from a no-prompt catalog listing in an isolated home with the key.
+  * Linux's three prompting tests are rerun on it.
+* **"Probe Linux first".** A no-prompt probe on the Linux host finds why the first get answers
+  `200`, before the pin is touched.
+* **"Fix the test, unset CGO for the run".**
+  * `startLiveV2Session` shuts the provider down at cleanup, after the session closes. The two tests
+    are rerun on Windows.
+  * Windows' `make test` and `make race` are rerun with `CGO_ENABLED` removed from that run's
+    environment, as the other two hosts have it. `make race` still gets cgo, the toolchain default
+    there with gcc on the path.
+* **"Name them in P9".** rename, artifacts and fork join D11's named drops (the MADR, added at P9),
+  with their reasons. Restoring any of them takes a record of its own.
+* **"Add the pins in P9".** No prompt and no quota:
+  * `opencode --help` lists `acp` and `serve`;
+  * `initialize` names version 2.x in `agentInfo`;
+  * it reports D1's capabilities: `loadSession`, image prompts and one auth method.
+
+  Each is seen failing on a scratch copy, then run on all three hosts.
+* **Files added to P9:** `internal/provider/opencode/live_v2_gates_test.go` and
+  `live_acp_revert_test.go`, and `live_acp_auth_test.go` if the probe says so;
+  [0217-MADR-update-every-pin-to-its-current-release.md](0217-MADR-update-every-pin-to-its-current-release.md)
+  and
+  [0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md](0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md)
+  (step 3).
+
+### P9 Deviation 2, 2026-11-04 — ~~the Linux test host's npm cache reaches the isolated home~~ the first integration get races plugin activation. The owner decided: ~~"Isolate the npm cache"~~ "Pin the fact, not the race" and "Revert it" (corrected below)
+
+The probe ("Probe Linux first", Deviation 1) sent no prompt. On the Linux test host,
+`TestLiveV2IntegrationsWaitForActivation` ran twice each way, on HEAD plus the P9 pins so far:
+
+| The run's environment | The first get in a new location | The pin |
+| --- | --- | --- |
+| as the host has it, `npm_config_cache` set | `200`, twice | failed, twice |
+| `npm_config_cache` removed (`env -u`) | `404`, twice | passed, twice |
+
+* ~~The host sets `npm_config_cache`, and C4's recipe did not override it. The engine therefore
+  shared an npm cache with the real home, so its plugins were installed and active at once.~~
+* ~~macOS and Windows set no such variable, so plugins install into the empty home first, and the
+  first get waits for them.~~ *Both struck: later runs disproved them (correction below).*
+* The product is unaffected: acp_auth.go lists first either way.
+
+~~**Decided: "Isolate the npm cache".** `newV2Home` points `npm_config_cache` (any case) into the
+isolated home, and C4 is amended to name it. The pin stays as written. The as-is run above is its
+failure; the same run after the change is its pass.~~ *Superseded by the correction below.*
+
+### P9 Deviation 2, corrected, 2026-11-04 — the cold get is a race, not the npm cache. The owner decided: "Pin the fact, not the race" and "Revert it"
+
+With the change made, the same pin on the Linux test host still answered `200`. Two more runs, no
+prompt:
+
+| The run's environment | The first get |
+| --- | --- |
+| the harness pointing `npm_config_cache` into the isolated home | `200` |
+| `npm_config_cache` removed, then the harness pointing it there | `200`, then `404` |
+
+* One command in one environment answered both. The first get races plugin activation in the new
+  location; the variable is not the cause, and the two `404`s before were the race's other outcome.
+* P6b's fact stands as recorded: the get answers `404` *until* plugins have activated there. A
+  `200` means activation won. The pin assumed its first request always loses.
+* The product is unaffected: acp_auth.go lists first, whatever the first get would answer.
+
+**Decided.**
+
+* **"Pin the fact, not the race".** The cold get may answer `404` `IntegrationNotFoundError` or
+  `200` with the integration; anything else fails. The rest of the pin is unchanged. This narrows
+  one assertion to what OpenCode guarantees.
+* **"Revert it".** The `npm_config_cache` change and its C4 amendment are withdrawn.
+* **Found in the same Windows run, and fixed under "Fix the test, unset CGO for the run":**
+  `startLiveV2Session` set every inherited variable with `t.Setenv`. Run from Git Bash rather than
+  through `make`, Windows passes the per-drive working directories as variables named `=C:` and the
+  like, which cannot be set ("setenv: The parameter is incorrect"). Those, with no name, are
+  skipped.
+
+### P9 — 2026-11-04: acceptance
+
+**What changed** (tests only, and three records).
+
+* `internal/provider/opencode/live_v2_gates_test.go`:
+  * `liveV2Model` reads `MCREMOTE_LIVE_OPENCODE_MODEL`, the free model by default. The two
+    prompting pins in this file use it.
+  * `strippedCredential` keeps the one variable `MCREMOTE_LIVE_OPENCODE_CREDENTIAL` names; every
+    other credential-shaped variable and `BASH_ENV` is still removed (C4).
+  * `startV2Acp` keeps `initialize`'s answer.
+  * New pins, no prompt: `TestLiveV2HelpListsAcpAndServe` and
+    `TestLiveV2InitializeNamesV2AndD1Capabilities` (Deviation 1).
+* `internal/provider/opencode/live_acp_revert_test.go`:
+  * `startLiveV2Session` shuts the provider down at cleanup, after the session closes, and skips
+    the variables with no name that Windows sets (`=C:`).
+  * It uses `liveV2Model` and `strippedCredential`.
+* `internal/provider/opencode/live_acp_auth_test.go`: the cold get may answer `404`
+  `IntegrationNotFoundError` or `200` with the integration (Deviation 2, corrected).
+* Step 3: dated notes in
+  [0217-MADR-update-every-pin-to-its-current-release.md](0217-MADR-update-every-pin-to-its-current-release.md)
+  F11 and
+  [0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md](0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md)
+  ("Note, 2026-11-04: D4's pin moved under 0214"). No committed line was reworded.
+
+**Tests, each seen failing.**
+
+| Break or evidence | Fails |
+| --- | --- |
+| `--version` asked instead of `--help` (`p9/plant_p9.py`) | `TestLiveV2HelpListsAcpAndServe`: lists no `acp`, no `serve` |
+| the version floor at `3.` | `TestLiveV2InitializeNamesV2AndD1Capabilities`: `agentInfo.version` 2.2.3, want 2.x |
+| `loadSession` read from another field | the same: loadSession false |
+| another auth method id | the same: auth methods `opencode-login`, want it alone |
+| both accepted cold-get answers made wrong (`p9/plant_p9b.py`) | `TestLiveV2IntegrationsWaitForActivation`: answered 404 `IntegrationNotFoundError` |
+| HEAD's harness on the Windows test host (Deviation 1) | `TestLiveV2UndoAndRedo`, `TestLiveV2Shell`: `opencode.db` in use at cleanup |
+| the first harness fix, run from Git Bash on Windows (Deviation 2, corrected) | the same two: "setenv: The parameter is incorrect" |
+
+**Gates.** C8 printed `v2.2.3` on all three hosts. HEAD is `11728543`; "the final tree" is HEAD plus
+the three test files above.
+
+| Host | Run | Result |
+| --- | --- | --- |
+| macOS | `make test`; `make race` (HEAD) | exit 0; 47 packages ok each |
+| macOS | `make live-opencode` (HEAD), and the control plane's MCP pin | exit 0; all 9 live tests passed; the MCP pin passed |
+| macOS | every live test but the prompting three (the final tree) | 8 passed, the two new pins included |
+| the Linux test host | `make test`; `make race` (HEAD) | exit 0; 47 packages ok each |
+| the Linux test host | `make live-opencode` (HEAD); the MCP pin | 4 failed (Deviation 1); the MCP pin passed |
+| the Linux test host | every live test but the prompting three (the final tree), and the cold get three more times | exit 0; 8 passed; 3 passed |
+| the Linux test host | the prompting three on `opencode/deepseek-v4.1-flash`, the key streamed over ssh's stdin | exit 0; `TestLiveV2UndoAndRedo`, `TestLiveV2LoadReplaysPromptsAndNoUsage` and `TestLiveV2RevertAndShellFromControlPlane` passed |
+| the Windows test host | `make test`; `make race` (HEAD) | failed: the host's `CGO_ENABLED=1` (Deviation 1) |
+| the Windows test host | `env -u CGO_ENABLED make test`; `env -u CGO_ENABLED make race` | exit 0; 46 packages ok each |
+| the Windows test host | `make test`; `make race`, after the host's `CGO_ENABLED=1` was removed | exit 0; 46 packages ok each; the run's environment had no `CGO_ENABLED` |
+| the Windows test host | `make live-opencode` (HEAD); the MCP pin | 7 of 9 live tests passed, the prompting load and revert pins among them; undo and shell failed their cleanup; the MCP pin passed |
+| the Windows test host | every live test but the load and revert pins (the final tree) | exit 0; 9 passed, undo and shell among them |
+| this host | `make pre-add-check FILES=…` (3 files); `make lint`; `make check-records`; `make markdownlint-docs` | exit 0 each; "3 file(s) clean" |
+
+Quota: free-model turns on macOS (6) and the Windows test host (9). On the Linux test host the free
+model was refused, and 6 paid turns ran on the owner's key.
+
+**The MADR's Confirmation, item by item.**
+
+* **`live_opencode` tests for the no-prompt probe facts.**
+  * The help surface: `TestLiveV2HelpListsAcpAndServe` (new).
+  * The ready line, `401` without auth and JSON `/api/info`: `TestLiveV2ServeStdioLease`.
+  * The location parameter: the same test's `POST /api/session` with `location.directory`, and
+    `TestLiveV2ResumeReplaysNoHistory`'s `-32602` for another `cwd`.
+  * The `initialize` capabilities: `TestLiveV2InitializeNamesV2AndD1Capabilities` (new).
+  * The `session/new` options: `TestLiveV2RemovedCredentialStaysInRunningEngine` reads the model
+    option.
+* **G1 to G6.**
+  * G1 through unit tests on its capture (`TestG1ChildUpdatesReachTheHandler`,
+    `TestRetryMarkerReachesItsHandler`, `TestACPCommandTableOnG1sCommands`).
+  * G2: `TestLiveV2ResumeReplaysNoHistory`, `TestLiveV2LoadReplaysPromptsAndNoUsage`.
+  * G3: `TestLiveV2ServeStdioLease`, `TestLiveV2AcpLease`.
+  * G4: `TestLiveV2RemovedCredentialStaysInRunningEngine`.
+  * G5: `TestLiveV2RevertAndShellFromControlPlane`.
+  * **G6 is not pinned:** it needs the owner's keys (P3).
+* **Each seen failing first:** the P3 record for the earlier pins, and the table above for P9's.
+* **Unit tests on recorded frames.**
+  * Child updates: `TestACPChildUpdatesFillTheSubagentPanel`.
+  * Retry `_meta`: `TestACPRetryShortIsANotice`, `TestACPRetryLongEndsTheTurnWithTheLimitCard`.
+  * Compaction `_meta`: not sent under D1's capabilities and not handled (amendment C). The standard
+    `compaction_update` is `TestACompactionArrivesOverTheWire`.
+  * Permission choice by kind: `TestACPAutoAllowsOnceByKind`, `TestAutoApprovalPicksByKindOnly`.
+  * Catalog grouping: `TestACPModelsFromOptionGroupsByVendor`, `TestACPModelProvidersGroupsConnected`.
+* **The content-type tests against an HTML `200`:** `TestStartServerRefusesAnHTMLHealthAnswer` and
+  `TestEventStreamRefusesAnHTMLAnswer`, on kilo's dialect paths. OpenCode's HTTP dialect is gone
+  (P7), and its control plane refuses an answer that is not JSON (P6d).
+* **`make test`, `make race` and `make live-opencode` on three hosts:** the gates above, with the
+  splits and the paid model that Deviation 1 records.
+* **Every dropped surface, with its reason (D11):**
+
+| Surface | Why it is not offered on v2 | Where decided |
+| --- | --- | --- |
+| share links, and `allow_remote_share` | v2 has no share API | D11; D4 |
+| the todo panel | experimental in v2, with no read API | D11 |
+| LSP and formatter status | no v2 route | D10 |
+| workspace text search | no v2 route ([#34](https://github.com/maccavelli/magic-cli-remote/issues/34)) | the owner's answers; P6d |
+| plugins | a record of its own, `0228-MADR-add-an-agent-neutral-plugins-section-with-declared-read-and-manage-operations.md` (proposed) | P6d Deviation 1 |
+| skill refresh | a record of its own, `0229-MADR-make-skill-discovery-freshness-and-refresh-agent-neutral.md` (proposed) | P6d Deviation 1 |
+| MCP state from the control plane | the control plane starts no MCP server; the session's own list is shown | P6d Deviation 1; [0230-MADR-keep-the-opencode-control-plane-from-starting-the-users-mcp-servers.md](0230-MADR-keep-the-opencode-control-plane-from-starting-the-users-mcp-servers.md) |
+| `/status`, `/usage` | OpenCode exposes neither | P4's command table |
+| rename | no ACP method, and the control plane's route is not called | P9 Deviation 1 |
+| artifacts | the v2 provider emits none | P9 Deviation 1 |
+| fork | `session/fork` is not called | P9 Deviation 1 |
+
+  Revert, undo, unrevert and the `!` shell are not drops: G5 lifted their deferral (amendment B),
+  and P6e built them.
+
+**Not done:**
+* G6 is not pinned (P3).
+* **Runs not repeated on the final tree:**
+  * macOS's undo pin, after the Shutdown cleanup was added; it passed at HEAD.
+  * The Windows test host's load and revert pins, which `startLiveV2Session` does not reach; they
+    passed at HEAD.
+  * The Linux test host's prompting three ran on the tree that still had the withdrawn
+    `npm_config_cache` change. That change did not reach the prompting paths.
+* **The Windows test host's `CGO_ENABLED=1` is removed** (owner: "remove it and re-run them").
+  * It was a persistent User environment variable, left from enabling `-race` there (MADR 0160
+    records it). `-race` does not need it: Go turns cgo on itself where gcc is on the path.
+  * Plain `make test` and `make race` then passed (the gates above). The repository was not changed
+    for it.
+  * Go's own env file on that host (`go env -w`) still holds `CGO_ENABLED=1`. The Makefile passes
+    its own value to every build, so no gate reads it.
+* **`make live-opencode`** still omits the control plane's package, and its Makefile comment still
+  says "Live OpenCode HTTP suite". Neither is P9's to change.
+* rename, artifacts and fork stay dropped until records of their own.
+
+P9 is complete with this commit, and so is this plan. 0208-PLAN P5 to P10 no longer wait on it.
+
+**Files for this commit:**
+* `internal/provider/opencode/live_v2_gates_test.go`, `live_acp_revert_test.go` and
+  `live_acp_auth_test.go`;
+* `docs/decisions/0217-MADR-update-every-pin-to-its-current-release.md` and
+  `0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md`;
 * the MADR;
 * this plan.

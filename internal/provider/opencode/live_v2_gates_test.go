@@ -38,7 +38,35 @@ import (
 // v2FreeModel is the model G1, G2 and G5 ran on.
 const v2FreeModel = "opencode/deepseek-v4.1-flash-free"
 
+// liveModelEnv names the model the prompting pins use instead of the free one,
+// and liveCredentialEnv the one credential variable a run keeps (0214 PLAN P9
+// Deviation 1: OpenCode's free limit stopped a host's runs).
+const (
+	liveModelEnv      = "MCREMOTE_LIVE_OPENCODE_MODEL"
+	liveCredentialEnv = "MCREMOTE_LIVE_OPENCODE_CREDENTIAL"
+)
+
+// liveV2Model is the model a prompting pin runs on: the free one unless
+// liveModelEnv names another.
+func liveV2Model() string {
+	if m := os.Getenv(liveModelEnv); m != "" {
+		return m
+	}
+	return v2FreeModel
+}
+
 var v2Credential = regexp.MustCompile(`(?i)(_API_KEY|_TOKEN|_SECRET|_PASSWORD)$`)
+
+// strippedCredential reports whether variable name is removed from the
+// engine's environment: every credential-shaped one and BASH_ENV, except the
+// one liveCredentialEnv names (PLAN C4: a run that needs a credential sets it
+// alone).
+func strippedCredential(name string) bool {
+	if keep := os.Getenv(liveCredentialEnv); keep != "" && strings.EqualFold(name, keep) {
+		return false
+	}
+	return v2Credential.MatchString(name) || strings.EqualFold(name, "BASH_ENV")
+}
 
 // v2Home is an isolated home: its environment and a project directory in it.
 type v2Home struct {
@@ -77,7 +105,7 @@ func newV2Home(t *testing.T) *v2Home {
 		if _, overridden := set[strings.ToUpper(name)]; overridden {
 			continue
 		}
-		if v2Credential.MatchString(name) || strings.EqualFold(name, "BASH_ENV") {
+		if strippedCredential(name) {
 			continue
 		}
 		env = append(env, kv)
@@ -163,6 +191,8 @@ type v2Acp struct {
 	msgs chan v2Msg
 	wmu  sync.Mutex
 	next int
+	// init is initialize's answer.
+	init json.RawMessage
 }
 
 func startV2Acp(t *testing.T, h *v2Home) *v2Acp {
@@ -195,9 +225,11 @@ func startV2Acp(t *testing.T, h *v2Home) *v2Acp {
 		_ = in.Close()
 		_ = cmd.Process.Kill()
 	})
-	if _, err := a.call("initialize", map[string]any{"protocolVersion": 1, "clientCapabilities": map[string]any{}}, 3*time.Minute); err != nil {
+	init, err := a.call("initialize", map[string]any{"protocolVersion": 1, "clientCapabilities": map[string]any{}}, 3*time.Minute)
+	if err != nil {
 		t.Fatalf("initialize: %v", err)
 	}
+	a.init = init
 	return a
 }
 
@@ -542,6 +574,58 @@ func TestLiveV2ServeStdioLease(t *testing.T) {
 	}
 }
 
+// TestLiveV2HelpListsAcpAndServe pins the help surface the MADR's
+// Confirmation names: the two subcommands Magic runs (D1, D2). No prompt.
+func TestLiveV2HelpListsAcpAndServe(t *testing.T) {
+	h := newV2Home(t)
+	out, err := h.command(context.Background(), "--help").CombinedOutput()
+	if err != nil {
+		t.Fatalf("opencode --help: %v\n%s", err, out)
+	}
+	for _, sub := range []string{"acp", "serve"} {
+		// 2.2.3 lists each as "  acp   Start an Agent Client Protocol server".
+		if !regexp.MustCompile(`(?m)^\s+` + sub + `\s{2,}\S`).Match(out) {
+			t.Errorf("opencode --help lists no %q subcommand:\n%s", sub, out)
+		}
+	}
+}
+
+// TestLiveV2InitializeNamesV2AndD1Capabilities pins initialize's answer: the
+// version in agentInfo (D3 reads it there), loadSession and image prompts
+// (D1), and opencode-login as the one auth method (P4). No prompt.
+func TestLiveV2InitializeNamesV2AndD1Capabilities(t *testing.T) {
+	h := newV2Home(t)
+	a := startV2Acp(t, h)
+	defer a.close()
+	var init struct {
+		AgentInfo struct {
+			Version string `json:"version"`
+		} `json:"agentInfo"`
+		AgentCapabilities struct {
+			LoadSession        bool `json:"loadSession"`
+			PromptCapabilities struct {
+				Image bool `json:"image"`
+			} `json:"promptCapabilities"`
+		} `json:"agentCapabilities"`
+		AuthMethods []struct {
+			ID string `json:"id"`
+		} `json:"authMethods"`
+	}
+	if err := json.Unmarshal(a.init, &init); err != nil {
+		t.Fatalf("initialize answered %s: %v", a.init, err)
+	}
+	if !strings.HasPrefix(init.AgentInfo.Version, "2.") {
+		t.Errorf("initialize's agentInfo.version = %q, want 2.x", init.AgentInfo.Version)
+	}
+	if !init.AgentCapabilities.LoadSession || !init.AgentCapabilities.PromptCapabilities.Image {
+		t.Errorf("initialize's capabilities: loadSession %v, image prompts %v; want both",
+			init.AgentCapabilities.LoadSession, init.AgentCapabilities.PromptCapabilities.Image)
+	}
+	if len(init.AuthMethods) != 1 || init.AuthMethods[0].ID != "opencode-login" {
+		t.Errorf("initialize's auth methods %+v, want opencode-login alone", init.AuthMethods)
+	}
+}
+
 // TestLiveV2AcpLease is G3 for `opencode acp` (B5).
 func TestLiveV2AcpLease(t *testing.T) {
 	h := newV2Home(t)
@@ -661,8 +745,8 @@ func TestLiveV2LoadReplaysPromptsAndNoUsage(t *testing.T) {
 	a := startV2Acp(t, h)
 	s := a.newSession(h.project)
 	configID, _ := s.models()
-	if err := a.setModel(s.SessionID, configID, v2FreeModel); err != nil {
-		t.Fatalf("set the free model: %v", err)
+	if err := a.setModel(s.SessionID, configID, liveV2Model()); err != nil {
+		t.Fatalf("set the model %s: %v", liveV2Model(), err)
 	}
 	const prompt = "Reply with exactly one word: apple"
 	if stop := a.prompt(s.SessionID, prompt); stop != "end_turn" {
@@ -722,8 +806,8 @@ func TestLiveV2RevertAndShellFromControlPlane(t *testing.T) {
 	a := startV2Acp(t, h)
 	s := a.newSession(h.project)
 	configID, _ := s.models()
-	if err := a.setModel(s.SessionID, configID, v2FreeModel); err != nil {
-		t.Fatalf("set the free model: %v", err)
+	if err := a.setModel(s.SessionID, configID, liveV2Model()); err != nil {
+		t.Fatalf("set the model %s: %v", liveV2Model(), err)
 	}
 	for _, w := range []string{"apple", "banana"} {
 		if stop := a.prompt(s.SessionID, "Reply with exactly one word: "+w); stop != "end_turn" {

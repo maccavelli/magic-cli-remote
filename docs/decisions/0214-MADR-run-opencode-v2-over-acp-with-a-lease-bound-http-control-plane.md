@@ -1149,3 +1149,24 @@ always adds one and makes it active, and removing the active one makes the next 
 * **acpagent records the agents it starts** in the engine registry, under the Spec's id, so
   `mcremote engines` names an ACP agent and the control plane apart, and reaps an orphaned one. This
   is agent-neutral. *Owner: "Register ACP children".*
+
+### Added at P9, 2026-11-04 (PLAN P9 Deviation 1)
+
+* **D11: three more named drops.** P9's audit found them named in no record:
+  * **rename:** no v2 ACP method, and Magic does not call the control plane's
+    `PATCH /api/session/{id}`, so the phone is told the session does not support it;
+  * **artifacts:** the v2 provider emits no `artifact` event. 1.x read them from `FilePart`s and
+    completed tools' attachments, and nothing reads them from ACP;
+  * **fork:** ACP's `session/fork` is not called, and the command table says "Magic does not fork
+    OpenCode v2 sessions yet".
+
+  Restoring any of them takes a record of its own. *Owner: "Name them in P9".*
+* **D13: a live run may keep one credential.** `MCREMOTE_LIVE_OPENCODE_CREDENTIAL` names it; every
+  other credential variable is still removed. `MCREMOTE_LIVE_OPENCODE_MODEL` names the model, the
+  free one by default. *Owner: "Use a paid model with your key", after OpenCode's free limit
+  stopped the Linux test host's prompting pins.*
+* ~~**D13: the isolated home also covers the npm cache.** A host that sets `npm_config_cache` shared
+  installed plugins with the isolated home, and changed what the engine answered (PLAN P9 Deviation
+  2). *Owner: "Isolate the npm cache".*~~ *Withdrawn the same day: the first integration get races
+  plugin activation, and the cache was not the cause (PLAN P9 Deviation 2, corrected). Owner:
+  "Revert it".*

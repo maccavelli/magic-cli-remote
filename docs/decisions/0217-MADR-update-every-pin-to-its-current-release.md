@@ -372,6 +372,11 @@ re-reads them at 3.47.9.
 * opencode 2.x is the subject of
   [0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md),
   proposed.
+* *Note, 2026-11-04:* opencode's pin moved under
+  [0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md). `KnownGoodVersion`
+  is 2.2.3 and `MinVersion` 2.1.0 (`internal/provider/opencode/version.go`): set at its P4, and
+  made the only pins at P7, when the 1.x dialect and its 1.18.26 pin were retired. Its P9 ran the
+  live suite on the three hosts. 0214 was accepted on 2026-11-01.
 
 **F12. The host standard in magic-git is stale against 0169's own amendments.**
 

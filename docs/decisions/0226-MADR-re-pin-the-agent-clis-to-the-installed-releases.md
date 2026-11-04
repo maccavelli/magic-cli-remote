@@ -198,6 +198,14 @@ record, though each in its own phase, commit and live run. It was written and ap
 citing D10; that was found after R3, while R4 was being prepared. *The owner, 2026-11-01: "Keep
 0226 as is".* Each pin kept its own phase, commit and live run.
 
+### Note, 2026-11-04: D4's pin moved under 0214
+
+As D4 and the owner's answer say, opencode's pin moved under
+[0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md), not this record.
+`KnownGoodVersion` is 2.2.3 and `MinVersion` 2.1.0 (`internal/provider/opencode/version.go`), set
+at its P4. Its P7 retired the 1.x dialect with the 1.18.26 pin, and its P9 ran the live suite on
+the three hosts, which closes what 0208-PLAN P5 was waiting for.
+
 ### Related records
 
 * [0217-MADR-update-every-pin-to-its-current-release.md](0217-MADR-update-every-pin-to-its-current-release.md):

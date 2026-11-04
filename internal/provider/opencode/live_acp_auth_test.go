@@ -54,11 +54,19 @@ func TestLiveV2IntegrationsWaitForActivation(t *testing.T) {
 		return out
 	}
 
+	// Until plugins have activated in a location the get answers 404
+	// IntegrationNotFoundError, and once they have, 200. Which the first get
+	// meets is a race with activation: the Linux test host has seen both, on
+	// one command (0214 PLAN P9 Deviation 2). Either is the fact; anything
+	// else is not.
 	q := at("cold")
-	if st, _, raw := c.do("GET", "/api/integration/openrouter"+q, nil, true); st != http.StatusNotFound ||
-		!strings.Contains(string(raw), "IntegrationNotFoundError") {
-		t.Errorf("the first get in a new location answered %d %s; 2.2.3 answers 404 until plugins activate there. "+
-			"If opencode changed this, acp_auth.go's list-first ordering can be revisited", st, raw)
+	switch st, _, raw := c.do("GET", "/api/integration/openrouter"+q, nil, true); {
+	case st == http.StatusNotFound && strings.Contains(string(raw), "IntegrationNotFoundError"):
+	case st == http.StatusOK && strings.Contains(string(raw), `"id":"openrouter"`):
+	default:
+		t.Errorf("the first get in a new location answered %d %s; 2.2.3 answers 404 IntegrationNotFoundError "+
+			"until plugins activate there, and 200 once they have. If opencode changed this, acp_auth.go's "+
+			"list-first ordering can be revisited", st, raw)
 	}
 
 	q = at("warm")
