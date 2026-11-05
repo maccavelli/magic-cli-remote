@@ -438,7 +438,7 @@ state whose shape depends on the outcome here.
 
 `docs/guides/headscale.md:91` sets `override_local_dns: false`, so Headscale does not
 push MagicDNS to clients and the phone may not resolve
-`devbox.ts.lallygag.net` at all. The natural workaround — dialling the raw
+`devbox.ts.example.com` at all. The natural workaround — dialling the raw
 `100.x.y.z` — can **never** work under Let's Encrypt, which does not issue for
 IP addresses (`100.64.0.0/10` is CGNAT).
 

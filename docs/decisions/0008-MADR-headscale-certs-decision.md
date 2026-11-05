@@ -54,7 +54,7 @@ IP-SAN limitation.
 
 Reopen when **Headscale ships #2527** (a release noting `/machine/set-dns` +
 `DNSConfig.CertDomains` + node-side DNS-01 provisioning) **and** the operator is
-willing to make `ts.lallygag.net` an ACME-issuable zone with write credentials
+willing to make `ts.example.com` an ACME-issuable zone with write credentials
 on the control plane. If a browser/`curl` client (which pinning cannot serve) is
 also wanted at that time, the two motivations combine and the swap becomes
 worthwhile.

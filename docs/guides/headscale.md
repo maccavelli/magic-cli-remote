@@ -23,9 +23,9 @@ This is the path when the control server is an EC2 (or similar) host and the pho
 
 | Item | Value |
 |------|--------|
-| Public IPv4 | `52.2.52.22` (verify with `curl -4 ifconfig.me`) |
-| Headscale FQDN | `headscale.lallygag.net` |
-| MagicDNS base domain | `ts.lallygag.net` (must **differ** from the Headscale hostname’s zone usage; see config) |
+| Public IPv4 | `203.0.113.10` (verify with `curl -4 ifconfig.me`) |
+| Headscale FQDN | `headscale.example.com` |
+| MagicDNS base domain | `ts.example.com` (must **differ** from the Headscale hostname’s zone usage; see config) |
 | ACME email | set in `acme_email` (e.g. operator Gmail) |
 | mcremote port | **7531** (tailnet only) |
 
@@ -34,19 +34,19 @@ This is the path when the control server is an EC2 (or similar) host and the pho
 Create:
 
 ```text
-headscale.lallygag.net.  IN  A  52.2.52.22
+headscale.example.com.  IN  A  203.0.113.10
 ```
 
 Optional (not required for control plane): records under MagicDNS base are managed by the tailnet, not public DNS.
 
 Wait until the name resolves from the public internet (phone LTE DNS or an external checker) to **exactly** this host’s public IP.
 
-**Split-horizon / VPC DNS:** On this AWS host, the VPC resolver (`10.10.0.2`) serves a private view of `lallygag.net` that may **not** include `headscale` even when public DNS does. That does **not**
+**Split-horizon / VPC DNS:** On this AWS host, the VPC resolver (`10.10.0.2`) serves a private view of `example.com` that may **not** include `headscale` even when public DNS does. That does **not**
 block Let’s Encrypt (validators use public DNS). For same-host tools (`curl`, `tailscale up`), either:
 
 ```bash
 # one-line local override (already used on the utility box)
-echo '127.0.0.1 headscale.lallygag.net' | sudo tee -a /etc/hosts
+echo '127.0.0.1 headscale.example.com' | sudo tee -a /etc/hosts
 ```
 
 or add the same A record to the **private** Route 53 hosted zone so VPC DNS matches public.
@@ -72,12 +72,12 @@ Local host firewall is currently inactive on the utility box; if you enable `ufw
 Headscale v0.29+ can obtain and renew certs without certbot. After DNS + SG are ready, set roughly:
 
 ```yaml
-server_url: https://headscale.lallygag.net
+server_url: https://headscale.example.com
 listen_addr: 0.0.0.0:8080
 
 acme_url: https://acme-v02.api.letsencrypt.org/directory
 acme_email: you@example.com
-tls_letsencrypt_hostname: headscale.lallygag.net
+tls_letsencrypt_hostname: headscale.example.com
 tls_letsencrypt_cache_dir: /var/lib/headscale/cache
 tls_letsencrypt_challenge_type: HTTP-01
 tls_letsencrypt_listen: ":http"
@@ -89,7 +89,7 @@ policy:
 dns:
   magic_dns: true
   # Must not collide with how you think about server_url; use a dedicated tailnet zone.
-  base_domain: ts.lallygag.net
+  base_domain: ts.example.com
   override_local_dns: false   # safer on multi-use servers; set true only if you want full MagicDNS push
 ```
 
@@ -108,7 +108,7 @@ sudo journalctl -u headscale -n 80 --no-pager
 Sanity:
 
 ```bash
-curl -sSI https://headscale.lallygag.net/ | head
+curl -sSI https://headscale.example.com/ | head
 # expect HTTP/2 or HTTP/1.1 200/404/etc from headscale, with a valid LE cert
 ```
 
@@ -192,7 +192,7 @@ Install Tailscale client if missing, then:
 
 ```bash
 sudo tailscale up \
-  --login-server=https://headscale.lallygag.net \
+  --login-server=https://headscale.example.com \
   --authkey='<host-preauth-key>' \
   --advertise-tags=tag:mcremote-host \
   --accept-dns=false
@@ -210,7 +210,7 @@ tailscale ip -4    # e.g. 100.64.0.1 — phone will use this for mcremote
 
 1. Install **Tailscale** from the Play Store / App Store.  
 2. Open the app → account menu → **Use custom coordination server** / Headscale.  
-3. Server URL: `https://headscale.lallygag.net`  
+3. Server URL: `https://headscale.example.com`  
 4. Authenticate with the **phone** preauth key (or interactive login if you enable that).  
 5. Confirm the phone appears in `sudo headscale nodes list`.
 
@@ -235,7 +235,7 @@ App host field:
 
 ```text
 <host-tailscale-ip>:7531
-# or MagicDNS name, e.g. awsutility.ts.lallygag.net:7531
+# or MagicDNS name, e.g. relay-host.ts.example.com:7531
 ```
 
 WebSocket path: `/v1/ws` (see [protocol-v1.md](protocol-v1.md)).

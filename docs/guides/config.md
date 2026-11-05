@@ -513,8 +513,8 @@ export MCREMOTE_CONFIG=/etc/mcremote/config.yaml
 export MCREMOTE_PAIR_ADVERTISE_HOST=100.64.0.1:7531   # pair QR host; selfsigned mode (== config pair.advertise_host)
 
 # Let's Encrypt (DNS-01 via Route 53)
-export MCREMOTE_TLS_DOMAINS=devbox.ts.lallygag.net
-export MCREMOTE_TLS_EMAIL=ops@lallygag.net
+export MCREMOTE_TLS_DOMAINS=devbox.ts.example.com
+export MCREMOTE_TLS_EMAIL=ops@example.com
 export MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID=Z0123456789ABCDEFGHIJ
 export MCREMOTE_TLS_ROUTE53_REGION=us-east-1
 export MCREMOTE_TLS_ACME_STAGING=true      # drop once staging succeeds

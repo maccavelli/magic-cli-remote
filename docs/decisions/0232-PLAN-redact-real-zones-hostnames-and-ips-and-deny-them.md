@@ -160,3 +160,62 @@ and D1's replacements. P2 and P3 still need the owner's word in their own turns.
   index is still deferred.
 
 **Files for this commit:** this pair and the 0231 PLAN.
+
+### P1 — The redaction commit (2026-11-05)
+
+Scripts and logs are in the session scratchpad, under `0232/`.
+
+* **Step 1, the script** (`redact.py`). It has five pattern rules: the zone in either form,
+  case-insensitive, with the separator kept; each IPv4 with digit and dot boundaries; the relay
+  alias as a whole word; and the installation ID as a literal. The Linux alias is handled by an
+  explicit table of 18 `(file, line)` positions, each asserted to hold the word exactly once. The
+  two English uses are listed as kept.
+  * `redact.py prove` on sample text: every form was replaced, including an upper-case one. A
+    longer address that contains the relay's, a longer word that contains the alias, the model
+    name, the English uses and an unlisted line holding the alias were all left alone. "proof
+    ok".
+  * The first proof run stopped on the one-per-line assertion, because the sample put two aliases
+    on one line. None of the 18 real positions does. The sample was corrected; the assertion was
+    not.
+* **Step 2, dry run:** 30 files and 130 lines. Totals: zone 111, relay IP 4, droplet IP 2, relay
+  alias 10, installation ID 1, Linux alias 18. Each equals MADR F1. The set of changed
+  `(file, line)` pairs equals the set that `git grep` finds independently for each pattern, minus
+  the two kept English lines and the opencode fixture: "checks pass".
+* **Step 3, apply.**
+  * `git grep -i` for every F1 value returns nothing. The only remaining whole-word matches for the
+    Linux alias are the two kept English lines.
+  * `git diff --stat` lists the 30 files, plus the owner's own uncommitted `docs/README.md` and
+    0179 pair, which this phase did not touch.
+  * `verify.py`: each of the 30 files equals `redact_text` of its `HEAD` version, byte for byte:
+    "30 files checked, 0 differ". Seen failing: its `selftest` mode adds one extra edit in memory
+    to `config_test.go`, and the check reports "1 differ".
+  * The word diff was read in full. Every change is a D1 replacement, and each reads correctly in
+    place. The headscale guide still names a VPC resolver at a private address. That address is
+    not reachable from outside and is not one of F1's values, so it is kept.
+  * The guard's own `redact`, with `DISCLOSURE_DENY` set to a scratch list of D3's four rules,
+    reports "would edit 0 file(s)" on the tree. In a scratch repository planted with all four
+    values, the same command reports "would edit 1 file(s)", with D1's four replacements. The
+    scratch repository was removed.
+* **Step 4.** `gofmt -l` on the four Go files prints nothing. markdownlint needed no re-padding.
+* **Step 5, gates** (logs `0232/*.log`):
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check FILES=` the four Go files | exit 0, "4 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go test -race -count=1` over `internal/config`, `internal/cli`, `internal/daemon`, `internal/provider/codex` | exit 0, four `ok` |
+  | `make race` | exit 0; 48 `ok`, no FAIL, panic or race |
+  | `check_records.py --check-all` | exit 0 |
+  | markdownlint over `README.md` and the three guides | "0 issues" |
+
+  No host runs: the edits are string literals and help text, with no build tag, path or OS
+  behaviour.
+* **Step 6, seen failing** (`0232/plant_p1.py`, on a scratch copy that was removed after): with the
+  old zone put back in `TestTLSValidateAccepts`' `PrimaryDomain` comparison only, the test fails
+  with `config_test.go:469: primary="devbox.ts.example.com"`. So the fixture and the assertion
+  were both redacted.
+* **Step 7.** Staged after the pair's commit (`8992071d`) landed, so the commits stay separate: the
+  30 files and this PLAN. `verify.py`, re-run just before staging, again found each of the 30 files
+  byte-equal to its redacted `HEAD` version. The owner commits and pushes. P2 waits for `master` to
+  be level with `origin`, and for the owner's word.
+
+**Files for this commit:** the 30 redacted files and this PLAN.

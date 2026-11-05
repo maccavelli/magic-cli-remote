@@ -358,7 +358,7 @@ keeps MCP. Codex never took the "next" slot.
   JDK 17, the Android SDK, and `rg` 15.2.0. Measured then: `pubspec.lock`
   reproduces unchanged, `dart format` changes 0 files, `flutter analyze` reports
   no issues, `flutter test` passes 1415, and a release arm64 APK builds, on
-  Windows and in WSL alike. wonder was moved to Flutter 3.47.2 the same day and
+  Windows and in WSL alike. linux-host was moved to Flutter 3.47.2 the same day and
   passes the same gates. This host is therefore now a Flutter host, and the
   mobile phase can run here. The commands still use `git grep`, now because it
   searches exactly the tracked files on every host, which the allow-list in D14
@@ -877,7 +877,7 @@ make ci-windows
 | 0073 cited by live non-Goose code | `internal/provider/codex/provider.go:571`; `codex/session.go:2317`; `kilo/lifecycle.go:122`; `opencode/lifecycle.go:122` |
 | PLAN status vocabulary has no `superseded` | `madr-and-plan-writing` skill, PLAN frontmatter rules |
 | `rg`, `flutter`, `dart` absent at first; race works | measured: `which`; WSL `Ubuntu-24.04` `command -v`; `go test -race ./internal/picker/` |
-| Later 2026-09-18: Flutter 3.47.2 gates pass on Windows, WSL and wonder; APK builds on Windows and WSL | measured: `flutter --version`; `flutter pub get` + `git diff --stat pubspec.lock` (empty); `dart format`/`flutter analyze`/`flutter test` (+1415); `flutter build apk --release --target-platform android-arm64` |
+| Later 2026-09-18: Flutter 3.47.2 gates pass on Windows, WSL and linux-host; APK builds on Windows and WSL | measured: `flutter --version`; `flutter pub get` + `git diff --stat pubspec.lock` (empty); `dart format`/`flutter analyze`/`flutter test` (+1415); `flutter build apk --release --target-platform android-arm64` |
 | Baseline `go test ./...`: 42 ok of 48 packages, 1 FAIL `TestLoadDisplayNameUnset` | measured 2026-09-18 at `b3d3355` |
 | Ten tests load the default config path | `internal/config/acp_config_test.go:91`; `config_test.go:54,68,85,107,181,223,673,1069,1163` |
 | Diagnostic pattern to copy | `internal/config/load.go:453-455,525-527`; `internal/cli/paths.go:48,69` |

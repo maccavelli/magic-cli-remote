@@ -451,7 +451,7 @@ session end and its name is randomised so it cannot be pre-squatted.
   `run-instances --generate-cli-skeleton`.
 
 **DigitalOcean.** Account `<owner-account>`, **droplet limit 3**, one
-droplet already running (`wonder-lallygag-net`), so **two slots are free**.
+droplet already running (`linux-host-example-com`), so **two slots are free**.
 SSH key `vms-hosted-key` (`58480117`) is already registered and its MD5
 fingerprint matches this workstation's `~/.ssh/id_ecdsa.pub` — droplets are
 SSH-able the moment they boot, with no key work at all.
@@ -518,7 +518,7 @@ Controls, in the order they matter:
 4. **Teardown asserted, not assumed** — the empty-result queries in
    §Confirmation, then a tag-filtered Cost Explorer check the following day.
 5. **Blast radius.** Everything lands in the existing `smithclass` VPC
-   alongside a running `awsutility` instance. Nothing in this procedure
+   alongside a running `relay-host` instance. Nothing in this procedure
    modifies shared VPC state — no route table, IGW, or existing security group
    is edited. Only per-session resources are created and deleted.
 

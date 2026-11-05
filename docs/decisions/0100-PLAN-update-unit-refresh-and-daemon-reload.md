@@ -434,7 +434,7 @@ on their own.
 ### Phase 0 — Confirm the readings on a host — ✅ done 2026-08-18
 
 **Deliverable:** an observation for each code reading the design rests on.
-Executed on **wonder** (Ubuntu 26.04, systemd 259); full evidence in
+Executed on **linux-host** (Ubuntu 26.04, systemd 259); full evidence in
 [0100-REPORT-update-refresh.md](../reports/0100-REPORT-update-refresh.md).
 
 | Item | Result |
@@ -603,7 +603,7 @@ update as the only option.
 ### Phase 7 — Host verification — ✅ done 2026-08-18
 
 **Deliverable:** C1-C9 observed on a real host, not inferred. Executed on
-wonder against linux/amd64 binaries built from the implementation branch; full
+linux-host against linux/amd64 binaries built from the implementation branch; full
 evidence in [0100-REPORT-update-refresh.md](../reports/0100-REPORT-update-refresh.md)
 §"Phase 7". Host restored to its exact pre-Phase-7 state afterward.
 
@@ -703,7 +703,7 @@ backup. Drop-ins under `<unit>.d/` are never read, written, or removed.
 - [x] F3 reproduced: update fails and rolls back with no unit installed
 - [x] `<unit>.prev` confirmed inert in the unit directory
 - [x] F4 discovered; MADR §"third constraint" and plan §1a added
-- [x] `docs/reports/0100-REPORT-update-refresh.md` written; wonder left unchanged
+- [x] `docs/reports/0100-REPORT-update-refresh.md` written; linux-host left unchanged
 
 **Phase 1 — `RefreshUnit`**
 

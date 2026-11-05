@@ -549,7 +549,7 @@ may stay cold if the package clears the bar), docs updated, full suite green.
 ## Rollout and Rollback
 
 **Rollout.** Land as 8 commits on `master` (no push without an explicit ask).
-Deploying to the production relay (`headscale.lallygag.net`) is a separate
+Deploying to the production relay (`headscale.example.com`) is a separate
 operator action: `mcrelay update` on the relay host after a release is cut;
 the F6 knob requires no config change (default 0 preserves today's 1 MiB).
 After deploy, watch `journalctl` for: absence of `phone slot divergence

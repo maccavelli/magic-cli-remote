@@ -410,8 +410,8 @@ both scripts.
 | 1 | Fresh install — unit created, enabled, lingering set | Lima VM, Ubuntu 26.04 **aarch64** | exit 0; daemon listening, self-signed cert generated first run |
 | 2 | `linux/arm64` binary actually executes | same VM | `ELF ARM aarch64`, reports `0.13.3.1` |
 | 3 | Upgrade, mcremote-only service | `<linux-host>`, Ubuntu 26.04 amd64 | exit 0; existing unit preserved, service restarted |
-| 4 | Upgrade, **both** daemons as services | `awsutility`, Ubuntu 26.04 amd64 | exit 0; both restarted; `/proc/<pid>/exe` confirmed no stale inode; relay re-registered 3 hosts |
-| 5 | Idempotent re-run | VM + `awsutility` | exit 0; one unit; no temp dirs |
+| 4 | Upgrade, **both** daemons as services | `relay-host`, Ubuntu 26.04 amd64 | exit 0; both restarted; `/proc/<pid>/exe` confirmed no stale inode; relay re-registered 3 hosts |
+| 5 | Idempotent re-run | VM + `relay-host` | exit 0; one unit; no temp dirs |
 | 6 | `--uninstall` | VM | service stopped, process gone, binaries and unit removed |
 | 7 | musl portability | `alpine:3.22` container | the *same* amd64 binary ran unmodified |
 | 8 | runit backend | `alpine:3.22` + runit | run script created; reported supervision without claiming boot persistence |
@@ -426,7 +426,7 @@ priority order:
 | **WSL2 without systemd** | Advisory text and exit-0 behaviour never seen on a real WSL host | untested |
 | **WSL1** | Rejection/advisory path | untested |
 | **SELinux enforcing (Oracle 9 / Rocky 9)** | Containers do not exercise SELinux or a real user unit; open question 2 below | untested |
-| **`--with-relay-service`** | Creating a relay service from scratch has never run; `awsutility` already had one | untested |
+| **`--with-relay-service`** | Creating a relay service from scratch has never run; `relay-host` already had one | untested |
 | **s6 backend** | Stub-tested only; never run against a real `s6-svscan` | untested |
 | **`openrc-user` backend** | Stub-tested only; experimental upstream. Delete the backend rather than carry a half-working path if it fails | untested |
 | **`openrc-system` / sysvinit messaging** | Message correctness on a real host | untested |
@@ -443,7 +443,7 @@ the *first* run in a new environment:
 1. **`<linux-host>`** — an existing unit made `setup-service` refuse to overwrite;
    the installer had already stopped the daemon and left it down. Fixed by
    keeping the existing unit and restarting, plus a restore-on-failure path.
-2. **`awsutility`** — only `mcremote` was cycled while *both* binaries were
+2. **`relay-host`** — only `mcremote` was cycled while *both* binaries were
    replaced, so `mcrelay` would have kept running old code on its old inode
    while reporting the new version. Fixed by tracking every active service.
 3. **VM** — `--uninstall` deleted the binaries without stopping the daemons,

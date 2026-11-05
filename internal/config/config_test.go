@@ -260,8 +260,8 @@ func TestTLSModeResolution(t *testing.T) {
 
 	t.Run("letsencrypt when domain and email are set", func(t *testing.T) {
 		tc := base()
-		tc.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
-		tc.LetsEncrypt.Email = "ops@lallygag.net"
+		tc.LetsEncrypt.Domains = []string{"devbox.ts.example.com"}
+		tc.LetsEncrypt.Email = "ops@example.com"
 		if got := tc.ResolvedMode(); got != config.TLSModeLetsEncrypt {
 			t.Fatalf("mode=%s", got)
 		}
@@ -275,7 +275,7 @@ func TestTLSModeResolution(t *testing.T) {
 
 	t.Run("domain without email stays selfsigned", func(t *testing.T) {
 		tc := base()
-		tc.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
+		tc.LetsEncrypt.Domains = []string{"devbox.ts.example.com"}
 		if got := tc.ResolvedMode(); got != config.TLSModeSelfSigned {
 			t.Fatalf("mode=%s", got)
 		}
@@ -286,8 +286,8 @@ func TestTLSModeResolution(t *testing.T) {
 
 	t.Run("legacy enabled=false means off", func(t *testing.T) {
 		tc := base()
-		tc.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
-		tc.LetsEncrypt.Email = "ops@lallygag.net"
+		tc.LetsEncrypt.Domains = []string{"devbox.ts.example.com"}
+		tc.LetsEncrypt.Email = "ops@example.com"
 		tc.Enabled = false
 		if got := tc.ResolvedMode(); got != config.TLSModeOff {
 			t.Fatalf("mode=%s", got)
@@ -300,8 +300,8 @@ func TestTLSModeResolution(t *testing.T) {
 	t.Run("explicit mode wins over auto-detection", func(t *testing.T) {
 		tc := base()
 		tc.Mode = config.TLSModeSelfSigned
-		tc.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
-		tc.LetsEncrypt.Email = "ops@lallygag.net"
+		tc.LetsEncrypt.Domains = []string{"devbox.ts.example.com"}
+		tc.LetsEncrypt.Email = "ops@example.com"
 		if got := tc.ResolvedMode(); got != config.TLSModeSelfSigned {
 			t.Fatalf("mode=%s", got)
 		}
@@ -309,8 +309,8 @@ func TestTLSModeResolution(t *testing.T) {
 
 	t.Run("WithEnabled toggles off and back", func(t *testing.T) {
 		tc := base()
-		tc.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
-		tc.LetsEncrypt.Email = "ops@lallygag.net"
+		tc.LetsEncrypt.Domains = []string{"devbox.ts.example.com"}
+		tc.LetsEncrypt.Email = "ops@example.com"
 		off := tc.WithEnabled(false)
 		if off.Mode != config.TLSModeOff {
 			t.Fatalf("mode=%s", off.Mode)
@@ -382,7 +382,7 @@ func TestTLSValidate(t *testing.T) {
 			name: "letsencrypt without domains",
 			cfg: withTLS(func(t *config.TLSConfig) {
 				t.Mode = config.TLSModeLetsEncrypt
-				t.LetsEncrypt.Email = "ops@lallygag.net"
+				t.LetsEncrypt.Email = "ops@example.com"
 			}),
 			wantErr: "domains is empty",
 		},
@@ -390,7 +390,7 @@ func TestTLSValidate(t *testing.T) {
 			name: "letsencrypt without email",
 			cfg: withTLS(func(t *config.TLSConfig) {
 				t.Mode = config.TLSModeLetsEncrypt
-				t.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
+				t.LetsEncrypt.Domains = []string{"devbox.ts.example.com"}
 			}),
 			wantErr: "email is empty",
 		},
@@ -398,23 +398,23 @@ func TestTLSValidate(t *testing.T) {
 			name: "letsencrypt with an IP domain",
 			cfg: withTLS(func(t *config.TLSConfig) {
 				t.LetsEncrypt.Domains = []string{"100.64.0.1"}
-				t.LetsEncrypt.Email = "ops@lallygag.net"
+				t.LetsEncrypt.Email = "ops@example.com"
 			}),
 			wantErr: "is an IP address",
 		},
 		{
 			name: "letsencrypt with a host:port domain",
 			cfg: withTLS(func(t *config.TLSConfig) {
-				t.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net:7531"}
-				t.LetsEncrypt.Email = "ops@lallygag.net"
+				t.LetsEncrypt.Domains = []string{"devbox.ts.example.com:7531"}
+				t.LetsEncrypt.Email = "ops@example.com"
 			}),
 			wantErr: "bare hostname",
 		},
 		{
 			name: "bad directory url",
 			cfg: withTLS(func(t *config.TLSConfig) {
-				t.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
-				t.LetsEncrypt.Email = "ops@lallygag.net"
+				t.LetsEncrypt.Domains = []string{"devbox.ts.example.com"}
+				t.LetsEncrypt.Email = "ops@example.com"
 				t.LetsEncrypt.DirectoryURL = "acme.example.com"
 			}),
 			wantErr: "http(s) URL",
@@ -437,8 +437,8 @@ func TestTLSValidate(t *testing.T) {
 			cfg: withTLS(func(t *config.TLSConfig) {
 				t.CertFile = "/tmp/tls.crt"
 				t.KeyFile = "/tmp/tls.key"
-				t.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
-				t.LetsEncrypt.Email = "ops@lallygag.net"
+				t.LetsEncrypt.Domains = []string{"devbox.ts.example.com"}
+				t.LetsEncrypt.Email = "ops@example.com"
 			}),
 			wantErr: "only valid with tls.mode",
 		},
@@ -459,13 +459,13 @@ func TestTLSValidate(t *testing.T) {
 func TestTLSValidateAccepts(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.TLS.Mode = config.TLSModeLetsEncrypt
-	cfg.TLS.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net", "alt.ts.lallygag.net"}
-	cfg.TLS.LetsEncrypt.Email = "ops@lallygag.net"
+	cfg.TLS.LetsEncrypt.Domains = []string{"devbox.ts.example.com", "alt.ts.example.com"}
+	cfg.TLS.LetsEncrypt.Email = "ops@example.com"
 	cfg.TLS.LetsEncrypt.Staging = true
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.TLS.LetsEncrypt.PrimaryDomain(); got != "devbox.ts.lallygag.net" {
+	if got := cfg.TLS.LetsEncrypt.PrimaryDomain(); got != "devbox.ts.example.com" {
 		t.Fatalf("primary=%q", got)
 	}
 
@@ -500,8 +500,8 @@ func TestLoadLetsEncryptFromFileAndEnv(t *testing.T) {
 tls:
   letsencrypt:
     domains:
-      - devbox.ts.lallygag.net
-    email: ops@lallygag.net
+      - devbox.ts.example.com
+    email: ops@example.com
     route53:
       hosted_zone_id: Z123456
 `

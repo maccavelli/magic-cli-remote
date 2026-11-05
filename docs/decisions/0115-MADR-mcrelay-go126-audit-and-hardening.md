@@ -174,7 +174,7 @@ deliberately deferred, unchanged here); `hub.allow` read without a lock
 ## Decision Drivers
 
 * The relay is a **public internet edge** in production
-  (`wss://headscale.lallygag.net:8443`); pre-auth resource behaviour (F2) and
+  (`wss://headscale.example.com:8443`); pre-auth resource behaviour (F2) and
   self-reclamation of parked connections (F1) matter more here than anywhere
   else in the codebase.
 * Prior relay MADRs set a precedent: findings become numbered decisions with
@@ -295,7 +295,7 @@ approved**, per `AGENTS.md`.
   0091 D3/D5/D10 for the later edge hardening this audit verified as wired.
 * 0017 E5 (metrics) remains deferred and is unchanged by this record.
 * Ops context: `docs/guides/ops-mcrelay.md`; production relay
-  `wss://headscale.lallygag.net:8443` with one registered host
+  `wss://headscale.example.com:8443` with one registered host
   (`<mac-host>`).
 
 ## Observed — execution results (2026-08-25)
@@ -328,7 +328,7 @@ relayhost suites, with `e2e_test.go` unmodified throughout.
 Accepted by the owner on 2026-08-25 after reviewing this record.
 
 **Rolled out 2026-08-25 (owner-confirmed):** the production relay at
-`headscale.lallygag.net` and this host's `mcremote` both run the v0.14.10
+`headscale.example.com` and this host's `mcremote` both run the v0.14.10
 release (`363bb70`). The host daemon registered with the relay 131 ms after
 startup (`registered with mcrelay`, 18:43:43 local), exercising the new
 bounded register exchange and shared envelope I/O against the hardened edge.

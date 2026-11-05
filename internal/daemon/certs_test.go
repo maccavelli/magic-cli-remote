@@ -56,7 +56,7 @@ func TestEnsureTLSFallsBackWhenACMEFails(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.DataDir = t.TempDir()
 	cfg.TLS.Mode = config.TLSModeLetsEncrypt
-	cfg.TLS.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
+	cfg.TLS.LetsEncrypt.Domains = []string{"devbox.ts.example.com"}
 	// Email deliberately omitted — EnsureACME rejects it locally.
 
 	id, err := EnsureTLS(context.Background(), cfg, quietLogger())
@@ -76,7 +76,7 @@ func TestEnsureTLSFallsBackWhenACMEFails(t *testing.T) {
 	}
 	// The self-signed fallback must still cover the ACME name so a phone that
 	// pins the fingerprint out-of-band can at least match the hostname.
-	if err := id.SelfSigned.Leaf.VerifyHostname("devbox.ts.lallygag.net"); err != nil {
+	if err := id.SelfSigned.Leaf.VerifyHostname("devbox.ts.example.com"); err != nil {
 		t.Fatalf("fallback leaf missing ACME SAN: %v", err)
 	}
 }

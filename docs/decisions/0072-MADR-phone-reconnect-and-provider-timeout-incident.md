@@ -91,7 +91,7 @@ POV.
 
 `com.magiccliremote.mcrelay` appears **disabled** in
 `launchctl print-disabled` on this Mac. Relay **server** is expected on
-the headscale host (`wss://headscale.lallygag.net:8443`); local mcrelay
+the headscale host (`wss://headscale.example.com:8443`); local mcrelay
 agent disable is only relevant if this laptop was also meant to run a
 relay. Host **registration** still requires a live **mcremote** with
 `relay.url` set — which it is not, while down.
@@ -105,7 +105,7 @@ Path: `~/.config/mcremote/config.yaml` (mtime 2026-08-04 21:52).
 | `listen` | `tailscale:7531` | same pattern | Sane |
 | `tls` | selfsigned (empty mode, enabled) | OK for mesh IP advertise | OK; fingerprint must match phone pin |
 | `auth.require_client_key` | true | product default | OK |
-| `relay.url` | `wss://headscale.lallygag.net:8443` | empty = off | OK for phone path |
+| `relay.url` | `wss://headscale.example.com:8443` | empty = off | OK for phone path |
 | `relay.host_id` | `<mac-host>` | — | OK |
 | `limits.max_ws_clients` | 8 | 8 | OK |
 | `limits.max_live_sessions` | 16 | 16 | OK |

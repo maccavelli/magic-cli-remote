@@ -316,7 +316,7 @@ verification waits for it.
 **Flutter host** means any host on Flutter 3.47.2, the CI `FLUTTER_VERSION`
 (`.github/workflows/ci.yml:27`), because the `pubspec.lock` gate and analyzer
 results depend on the exact version. As of 2026-09-18 that is this Windows
-host (natively and in WSL `Ubuntu-24.04`), wonder, or the Mac. Confirm with
+host (natively and in WSL `Ubuntu-24.04`), linux-host, or the Mac. Confirm with
 `flutter --version` before P4; a host on another version is not a Flutter host
 for this plan. On this host P4 needs no pull. On another host, pull P1 first.
 

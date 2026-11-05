@@ -44,7 +44,7 @@ All measured 2026-09-18 at `b3d3355`.
   files: `apps/mobile/README.md:50` MD013.
 
 **[unverified]** Whether `flutter pub get` under 3.44.6 would change this
-`pubspec.lock`. wonder ran 3.44.6 until 2026-09-18 but was upgraded without
+`pubspec.lock`. linux-host ran 3.44.6 until 2026-09-18 but was upgraded without
 checking first. The decision does not depend on it: the gate's own error text
 asks for "that exact version".
 

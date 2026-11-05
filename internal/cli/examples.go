@@ -32,11 +32,11 @@ const rootExample = `
   # The advertised host follows tls.mode: the ACME domain in letsencrypt mode,
   # the mesh IP in selfsigned mode. --host overrides either.
   mcremote pair code --name phone --qr
-  mcremote pair code --name phone --host devbox.ts.lallygag.net:7531 --qr   # letsencrypt
+  mcremote pair code --name phone --host devbox.ts.example.com:7531 --qr   # letsencrypt
   mcremote pair code --name phone --host 100.64.0.1:7531 --qr               # selfsigned only
   mcremote pair code --name phone --ttl 5m
   mcremote pair create --name phone --qr
-  mcremote pair create --name phone --qr --host devbox.ts.lallygag.net:7531
+  mcremote pair create --name phone --qr --host devbox.ts.example.com:7531
   mcremote pair list
   mcremote pair revoke phone
 
@@ -59,10 +59,10 @@ const serveExample = `
 
   # TLS: Let's Encrypt via ACME DNS-01 (Route 53) — the default once a domain
   # and an email are set. Test against staging first.
-  mcremote serve --tls-domain devbox.ts.lallygag.net --tls-email ops@lallygag.net \
+  mcremote serve --tls-domain devbox.ts.example.com --tls-email ops@example.com \
     --tls-route53-zone-id Z0123456789ABCDEFGHIJ --tls-route53-region us-east-1 \
     --tls-acme-staging
-  mcremote serve --tls-domain devbox.ts.lallygag.net --tls-email ops@lallygag.net \
+  mcremote serve --tls-domain devbox.ts.example.com --tls-email ops@example.com \
     --tls-route53-zone-id Z0123456789ABCDEFGHIJ
 
   # TLS: pinned self-signed (mesh IPs, no public DNS) or plaintext
@@ -74,7 +74,7 @@ const pairExample = `
   # Preferred: 8-char code (5 min, one-shot) — type or scan in the phone app
   mcremote pair code --name phone
   mcremote pair code --name phone --qr
-  mcremote pair code --name phone --host devbox.ts.lallygag.net:7531 --qr   # letsencrypt
+  mcremote pair code --name phone --host devbox.ts.example.com:7531 --qr   # letsencrypt
   mcremote pair code --name phone --host 100.64.0.1:7531 --qr               # selfsigned only
   mcremote pair code --name phone --ttl 5m --qr
   mcremote pair code --name phone --copy     # URI to the clipboard via the terminal (OSC 52)
@@ -83,7 +83,7 @@ const pairExample = `
   # Long-lived device token (shown once)
   mcremote pair create --name phone
   mcremote pair create --name phone --qr
-  mcremote pair create --name phone --qr --host devbox.ts.lallygag.net:7531
+  mcremote pair create --name phone --qr --host devbox.ts.example.com:7531
   mcremote pair create --name desktop --qr
 
   # Manage devices
@@ -99,11 +99,11 @@ const pairExample = `
 const pairCodeExample = `
   mcremote pair code --name phone
   mcremote pair code --name phone --qr
-  mcremote pair code --name phone --host devbox.ts.lallygag.net:7531 --qr   # letsencrypt
+  mcremote pair code --name phone --host devbox.ts.example.com:7531 --qr   # letsencrypt
   mcremote pair code --name phone --host 100.64.0.1:7531 --qr               # selfsigned only
   mcremote pair code --name phone --ttl 5m
   mcremote pair code --name phone --ttl 10m --qr
-  mcremote pair code --name android --host devbox.ts.lallygag.net:7531
+  mcremote pair code --name android --host devbox.ts.example.com:7531
   mcremote pair code --name android --copy   # paste the URI into the app; over SSH and in tmux too
   mcremote pair code --name phone --data-dir ~/.local/share/mcremote
 `
@@ -111,7 +111,7 @@ const pairCodeExample = `
 const pairCreateExample = `
   mcremote pair create --name phone
   mcremote pair create --name phone --qr
-  mcremote pair create --name phone --qr --host devbox.ts.lallygag.net:7531
+  mcremote pair create --name phone --qr --host devbox.ts.example.com:7531
   mcremote pair create --name phone --qr --host 100.64.0.1:7531   # selfsigned only
   mcremote pair create --name desktop --qr
   mcremote pair create --name smoke

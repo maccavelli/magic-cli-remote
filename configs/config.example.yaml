@@ -30,7 +30,7 @@ tls:
     # pair`. Must be real DNS names — Let's Encrypt never issues for an IP,
     # so a 100.64.0.0/10 mesh address cannot be used here.
     domains: []
-    #   - devbox.ts.lallygag.net
+    #   - devbox.ts.example.com
     email: ""                # ACME account contact (required)
     # Point at the staging CA while testing; certs are untrusted but the rate
     # limits are ~100x higher. Or set staging: true for the same endpoint.

@@ -243,7 +243,7 @@ unattended once the rules were removed.
 
 Rules applied and removed in the same session;
 `iptables -L -n | grep -cE '7531|8443'` printed 0 afterwards. Relay endpoint
-was `52.2.52.22:8443`, found from the emulator's own socket table.
+was `203.0.113.10:8443`, found from the emulator's own socket table.
 
 ### What this rules out, and what is left
 
@@ -309,7 +309,7 @@ Run 1 (`0.15.3.16`, service isolate owning, single-path mesh flap):
 06:07:01.269  app:    last trace — connected, socket=yes
               ... four minutes, live=0, device Awake, not dozing ...
               notification: "Connected to host — Listening for approvals"
-              emulator socket to relay 52.2.52.22:8443 still ESTABLISHED
+              emulator socket to relay 203.0.113.10:8443 still ESTABLISHED
 ```
 
 `mWakefulness=Awake`, `deviceidle mState=ACTIVE` — **sleep is not the

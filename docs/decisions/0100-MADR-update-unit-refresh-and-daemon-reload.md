@@ -313,7 +313,7 @@ currently installed binary predates this record.
 | C9 | End to end | On a Linux host: install a unit with the 0099 F4a directives, `mcrelay update --force`, unit no longer carries them and the service is active |
 | C10 | A refresh does not rewrite the environment block | `TestRefreshPinsRenderedEnvironment`: render with one `PATH`, refresh under another, `Environment=PATH=` unchanged; `XDG_RUNTIME_DIR` unset in the caller does not drop the line |
 
-**Observed** ([0100-REPORT-update-refresh.md](../reports/0100-REPORT-update-refresh.md), wonder, Ubuntu
+**Observed** ([0100-REPORT-update-refresh.md](../reports/0100-REPORT-update-refresh.md), linux-host, Ubuntu
 26.04 / systemd 259). Phase 0 (2026-08-18, pre-implementation): F2 — a restart
 without `daemon-reload` runs the cached definition while reporting success;
 F3 — `update` on a host with no unit rolls back a byte-identical binary and

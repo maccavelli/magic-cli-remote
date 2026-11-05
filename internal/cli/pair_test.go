@@ -19,8 +19,8 @@ func leConfig(t *testing.T) config.Config {
 	t.Helper()
 	cfg := config.Defaults()
 	cfg.DataDir = t.TempDir()
-	cfg.TLS.LetsEncrypt.Domains = []string{"devbox.ts.lallygag.net"}
-	cfg.TLS.LetsEncrypt.Email = "ops@lallygag.net"
+	cfg.TLS.LetsEncrypt.Domains = []string{"devbox.ts.example.com"}
+	cfg.TLS.LetsEncrypt.Email = "ops@example.com"
 	cfg.TLS = cfg.TLS.Normalized()
 	if cfg.TLS.Mode != config.TLSModeLetsEncrypt {
 		t.Fatalf("mode=%s want letsencrypt", cfg.TLS.Mode)
@@ -48,8 +48,8 @@ func TestResolvePairHostLetsEncryptUsesDomain(t *testing.T) {
 	cfg.Pair.AdvertiseHost = "100.64.0.1:7531"
 
 	got := resolvePairHost("", cfg)
-	if got != "devbox.ts.lallygag.net:7531" {
-		t.Fatalf("host=%q want devbox.ts.lallygag.net:7531", got)
+	if got != "devbox.ts.example.com:7531" {
+		t.Fatalf("host=%q want devbox.ts.example.com:7531", got)
 	}
 }
 
@@ -334,7 +334,7 @@ func TestPairQRStaysScannable(t *testing.T) {
 		"&hid=mac-host" +
 		"&host=wss%3A%2F%2F100.64.0.3%3A7531" +
 		"&mode=selfsigned" +
-		"&relay=wss%3A%2F%2Fheadscale.lallygag.net%3A8443"
+		"&relay=wss%3A%2F%2Fheadscale.example.com%3A8443"
 
 	var buf bytes.Buffer
 	qrterminal.GenerateWithConfig(uri, qrterminal.Config{

@@ -4,7 +4,7 @@
 
 > Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](../decisions/0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
 
-Executed 2026-08-18 on **wonder** (Ubuntu 26.04 LTS, x86_64, systemd 259,
+Executed 2026-08-18 on **linux-host** (Ubuntu 26.04 LTS, x86_64, systemd 259,
 `mcremote` 0.13.7.1 / `6b7b470`), per
 [0100-PLAN-update-unit-refresh-and-daemon-reload.md](../decisions/0100-PLAN-update-unit-refresh-and-daemon-reload.md) Phase 0.
 
@@ -147,7 +147,7 @@ that would have:
    `XDG_RUNTIME_DIR` when the caller had none.
 
 That is precisely the silent-configuration-loss this record's D2 forbids, caused
-by the fix rather than prevented by it. wonder happens to pin PATH in a drop-in
+by the fix rather than prevented by it. linux-host happens to pin PATH in a drop-in
 (`mcremote.service.d/path.conf`, whose own comment warns *"If `mcremote
 setup-service` ever changes the generated PATH, re-derive this line"*), so the
 running daemon would have survived — but a host without that drop-in would not.
@@ -175,7 +175,7 @@ ssh <linux-host> 'env -u XDG_RUNTIME_DIR ~/.local/bin/mcremote setup-service --p
 
 ## Phase 7 — host verification of the implemented fix
 
-Executed 2026-08-18 on **wonder**, against linux/amd64 binaries built from the
+Executed 2026-08-18 on **linux-host**, against linux/amd64 binaries built from the
 implementation branch (`0.13.7.99.g0100test`). All test artifacts (a scratch
 `mc0100p7` binary dir, a scratch `mcrelay` unit, a scratch XDG config tree, and
 the `mcrelay` config directory `setup-service` created) were removed

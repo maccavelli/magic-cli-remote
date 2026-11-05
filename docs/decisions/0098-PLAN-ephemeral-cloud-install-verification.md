@@ -48,9 +48,9 @@ recording results; raising findings.
 | Auto-assign public IP | **false** — every launch needs `--associate-public-ip-address` |
 | Quotas | on-demand standard 1920 vCPU, spot standard 256 vCPU |
 | Usable AWS key pairs | none — `EC2`/`ec2api` are RSA with no local private half |
-| DO droplet limit | 3, one in use (`wonder-lallygag-net`) → **2 free** |
+| DO droplet limit | 3, one in use (`linux-host-example-com`) → **2 free** |
 | DO SSH key | `vms-hosted-key` (`58480117`) already matches `~/.ssh/id_ecdsa.pub` |
-| Workstation identity | **is** `wonder-lallygag-net` — DO droplet, nyc2, egress `107.170.40.212` |
+| Workstation identity | **is** `linux-host-example-com` — DO droplet, nyc2, egress `203.0.113.20` |
 | Windows out-of-band access | instance profile `AmazonSSMRoleForInstancesQuickSetup` exists, with `AmazonSSMManagedInstanceCore` attached |
 
 **The workstation is itself one of the three droplets, and one of 0097's
@@ -61,7 +61,7 @@ state, not a fixture. The only local actions are `aws` and `ssh` calls — and
 under **C2** the workstation's own droplet is the sole DigitalOcean resource
 involved in this sweep at all.
 
-`107.170.40.212/32` is the address the Phase 0 security group opens to.
+`203.0.113.20/32` is the address the Phase 0 security group opens to.
 
 **Do not use `subnet-7e5b3912` (`us-east-1a`).** It has a correct route to the
 internet gateway and looks usable from every check short of an actual
@@ -73,7 +73,7 @@ looks like the instance's fault. Discovered by burning one host.
 
 Use `subnet-0fc17839ef9f6d906` (`us-east-1c`, NACL `acl-07657d162f5d2adff`),
 which carries real allow rules and is proven reachable — the long-running
-`awsutility` instance sits in it and accepts SSH from this workstation. All four
+`relay-host` instance sits in it and accepts SSH from this workstation. All four
 required instance types (`t3.small`, `t4g.small`, `c7g.medium`, `m8i.xlarge`)
 are offered in `us-east-1c`.
 
@@ -481,7 +481,7 @@ process exists.
 **1.4 — S4 idempotent re-run, then S5 uninstall.** After uninstall assert the
 s6 service directory *and* both binaries are gone, and that no `mcremote`
 process survives (`pgrep -u "$(id -u)" mcremote` empty) — the deleted-inode
-failure mode 0097 found on `awsutility`.
+failure mode 0097 found on `relay-host`.
 
 **Exit criterion:** rows 6, 7/8a, 10 recorded with verbatim `INIT` and
 `SERVICE_RESULT`; open question 2 answered yes or no.

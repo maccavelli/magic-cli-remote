@@ -6,8 +6,8 @@ the policy; surrounding design and configuration live in the root
 [README TLS section](../../README.md#tls) and [config.md](config.md).
 
 Everything below assumes the worked example from
-[headscale.md](headscale.md): registered domain `lallygag.net`, MagicDNS base
-domain `ts.lallygag.net`, daemon name `devbox.ts.lallygag.net`.
+[headscale.md](headscale.md): registered domain `example.com`, MagicDNS base
+domain `ts.example.com`, daemon name `devbox.ts.example.com`.
 
 ---
 
@@ -16,29 +16,29 @@ domain `ts.lallygag.net`, daemon name `devbox.ts.lallygag.net`.
 **Do this first. Getting it wrong is the most common failure, and the error it
 produces (`NXDOMAIN` during validation) does not point at the cause.**
 
-`ts.lallygag.net` is a **MagicDNS base domain**. Headscale serves it *inside
+`ts.example.com` is a **MagicDNS base domain**. Headscale serves it *inside
 the tailnet*; it is not necessarily delegated in public DNS. Let's Encrypt
 validators are on the public internet and resolve
-`_acme-challenge.devbox.ts.lallygag.net` through the **public** DNS hierarchy,
+`_acme-challenge.devbox.ts.example.com` through the **public** DNS hierarchy,
 so the TXT record must be created in whichever public hosted zone is
-authoritative for that name — which is usually **`lallygag.net`, not
-`ts.lallygag.net`**.
+authoritative for that name — which is usually **`example.com`, not
+`ts.example.com`**.
 
-Check whether `ts.lallygag.net` is publicly delegated:
+Check whether `ts.example.com` is publicly delegated:
 
 ```bash
-dig +short NS ts.lallygag.net @1.1.1.1
+dig +short NS ts.example.com @1.1.1.1
 ```
 
 | Result | Authoritative zone | Use this zone's ID |
 |---|---|---|
-| **empty** (no delegation — most likely) | `lallygag.net` | `lallygag.net` |
-| returns nameservers | `ts.lallygag.net` | `ts.lallygag.net` |
+| **empty** (no delegation — most likely) | `example.com` | `example.com` |
+| returns nameservers | `ts.example.com` | `ts.example.com` |
 
 Confirm the zone you picked is the closest public ancestor:
 
 ```bash
-dig +short SOA lallygag.net @1.1.1.1
+dig +short SOA example.com @1.1.1.1
 ```
 
 > If neither zone is public — for example the whole domain is internal-only —
@@ -56,8 +56,8 @@ The intended split is:
 
 | Record | Served by | Purpose |
 |---|---|---|
-| `_acme-challenge.devbox.ts.lallygag.net` TXT | **public** Route 53 (`lallygag.net`) | Let's Encrypt validation only |
-| `devbox.ts.lallygag.net` A | **MagicDNS**, inside the tailnet | what the phone dials |
+| `_acme-challenge.devbox.ts.example.com` TXT | **public** Route 53 (`example.com`) | Let's Encrypt validation only |
+| `devbox.ts.example.com` A | **MagicDNS**, inside the tailnet | what the phone dials |
 
 The public zone never needs an address record for the daemon.
 
@@ -68,7 +68,7 @@ override_local_dns: false   # safer on multi-use servers
 ```
 
 With that setting Headscale does **not** push MagicDNS to clients, so an
-Android phone may not resolve `devbox.ts.lallygag.net` at all. The connection
+Android phone may not resolve `devbox.ts.example.com` at all. The connection
 then fails at DNS, or the user falls back to dialling the raw `100.x.y.z`,
 which cannot match any Let's Encrypt certificate — LE never issues for IPs, and
 `100.64.0.0/10` is CGNAT space.
@@ -77,7 +77,7 @@ Pick one before enabling `letsencrypt` mode:
 
 1. **Set `override_local_dns: true`** so MagicDNS reaches clients. Cleanest,
    but it takes over DNS on every device in the tailnet.
-2. **Publish a public A record** for `devbox.ts.lallygag.net` → the tailnet IP.
+2. **Publish a public A record** for `devbox.ts.example.com` → the tailnet IP.
    Works without MagicDNS, but puts your internal addressing in public DNS, and
    some resolvers filter RFC1918/CGNAT answers (DNS rebinding protection).
 3. **Stay on `selfsigned`** for hosts the phone reaches by IP. Pinning does not
@@ -86,12 +86,12 @@ Pick one before enabling `letsencrypt` mode:
 Verify from a phone actually on the tailnet:
 
 ```bash
-dig +short devbox.ts.lallygag.net       # must return the 100.x tailnet IP
+dig +short devbox.ts.example.com       # must return the 100.x tailnet IP
 ```
 
 ### Do not reuse the Headscale name
 
-`headscale.lallygag.net` already runs its own ACME client
+`headscale.example.com` already runs its own ACME client
 (`tls_letsencrypt_hostname`, HTTP-01 on port 80 — `docs/guides/headscale.md:78-80`).
 Give the daemon a distinct name. Two ACME clients renewing the same hostname
 fight over the certificate and burn the "5 duplicate certificates per week"
@@ -103,16 +103,16 @@ limit.
 
 ```bash
 aws route53 list-hosted-zones-by-name \
-  --dns-name lallygag.net \
+  --dns-name example.com \
   --query "HostedZones[?Config.PrivateZone==\`false\`].[Name,Id]" \
   --output text
 ```
 
-Output looks like `lallygag.net. /hostedzone/Z0123456789ABCDEFGHIJ`. You want
+Output looks like `example.com. /hostedzone/Z0123456789ABCDEFGHIJ`. You want
 the bare ID (`Z0123456789ABCDEFGHIJ`) — strip the `/hostedzone/` prefix.
 
 **Make sure `PrivateZone` is false.** `docs/guides/headscale.md` notes this account
-also runs a *private* Route 53 view of `lallygag.net` for the VPC resolver.
+also runs a *private* Route 53 view of `example.com` for the VPC resolver.
 Writing challenge records into the private zone is invisible to Let's Encrypt
 and fails validation every time. The query above filters it out; verify you got
 exactly one row.
@@ -295,7 +295,7 @@ tls:
   mode: letsencrypt
   letsencrypt:
     domains:
-      - devbox.ts.lallygag.net
+      - devbox.ts.example.com
     email: you@example.com
     staging: true          # keep true until a real cert issues cleanly
   route53:
@@ -322,7 +322,7 @@ aws route53 list-resource-record-sets --hosted-zone-id "$ACME_ZONE_ID" \
 aws route53 change-resource-record-sets \
   --hosted-zone-id "$ACME_ZONE_ID" --profile mcremote \
   --change-batch '{"Changes":[{"Action":"UPSERT","ResourceRecordSet":{
-    "Name":"evil.lallygag.net","Type":"A","TTL":60,
+    "Name":"evil.example.com","Type":"A","TTL":60,
     "ResourceRecords":[{"Value":"1.2.3.4"}]}}]}'
 ```
 
@@ -333,7 +333,7 @@ Then start the daemon with `staging: true` and confirm issuance, watching the
 public TXT record appear and disappear:
 
 ```bash
-watch -n2 'dig +short TXT _acme-challenge.devbox.ts.lallygag.net @1.1.1.1'
+watch -n2 'dig +short TXT _acme-challenge.devbox.ts.example.com @1.1.1.1'
 ```
 
 Only once that works, set `staging: false`. Let's Encrypt production limits
@@ -347,10 +347,10 @@ through while debugging IAM.
 If you would rather not grant write access to your primary zone, delegate just
 the challenge name to a throwaway zone:
 
-1. Create a hosted zone `acme.lallygag.net`.
-2. In `lallygag.net`, add a static CNAME:
-   `_acme-challenge.devbox.ts.lallygag.net` → `devbox.acme.lallygag.net`
-3. Scope the policy in Step 2 to the `acme.lallygag.net` zone ID only.
+1. Create a hosted zone `acme.example.com`.
+2. In `example.com`, add a static CNAME:
+   `_acme-challenge.devbox.ts.example.com` → `devbox.acme.example.com`
+3. Scope the policy in Step 2 to the `acme.example.com` zone ID only.
 
 The credential then has no access at all to your real zone. Let's Encrypt
 follows the CNAME when validating. The cost is one static CNAME per daemon
@@ -364,7 +364,7 @@ name, added by hand.
 |---|---|
 | `AccessDenied` on `ChangeResourceRecordSets` | Policy not attached, wrong zone ID, or the name did not start with `_acme-challenge.` |
 | `AccessDenied` on `GetChange` | Tighten/widen the `change/*` ARN to `"*"` |
-| Validation fails, `NXDOMAIN` | Records went into the **private** zone, or you used `ts.lallygag.net` when it is not publicly delegated — revisit Step 0 |
+| Validation fails, `NXDOMAIN` | Records went into the **private** zone, or you used `ts.example.com` when it is not publicly delegated — revisit Step 0 |
 | `NoSuchHostedZone` | Zone ID belongs to another account or is the private view |
 | `exceeded max wait time for ResourceRecordSetsChanged waiter` | Route 53 did not report the change `INSYNC` within 2 minutes. Let's Encrypt was not asked, so no failed validation was counted. Restart, and check the AWS Health Dashboard for Route 53 |
 | `timed out waiting for record to fully propagate` | Route 53 reported `INSYNC`, but the zone's nameservers did not serve the record within 30 seconds. No failed validation was counted. Confirm the zone is the public one the name is delegated to, with the `dig` above |

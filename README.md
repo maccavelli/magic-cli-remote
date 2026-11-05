@@ -515,8 +515,8 @@ carries `fp=` in both TLS-on modes. See
 
 ```bash
 mcremote serve \
-  --tls-domain devbox.ts.lallygag.net \
-  --tls-email ops@lallygag.net \
+  --tls-domain devbox.ts.example.com \
+  --tls-email ops@example.com \
   --tls-route53-zone-id Z0123456789ABCDEFGHIJ \
   --tls-route53-region us-east-1 \
   --tls-acme-staging          # drop once staging works
@@ -528,7 +528,7 @@ DNS-01 needs a `_acme-challenge` TXT record in a **public** Route 53 zone.
 
 Consequences for pairing:
 
-- The QR advertises the **DNS name** (`devbox.ts.lallygag.net:7531`), never the
+- The QR advertises the **DNS name** (`devbox.ts.example.com:7531`), never the
   `100.64.0.0/10` mesh IP — Let's Encrypt does not issue for IPs.
 - The QR **does** carry `fp=` and `mode=letsencrypt`. The pin is the
   **self-signed fallback leaf**, not the ACME leaf. While ACME is healthy the
@@ -775,8 +775,8 @@ export MCREMOTE_LOG_LEVEL=info
 export MCREMOTE_PAIR_HOST=100.64.0.1:7531   # selfsigned mode only
 
 # Let's Encrypt over Route 53 DNS-01
-export MCREMOTE_TLS_DOMAINS=devbox.ts.lallygag.net
-export MCREMOTE_TLS_EMAIL=ops@lallygag.net
+export MCREMOTE_TLS_DOMAINS=devbox.ts.example.com
+export MCREMOTE_TLS_EMAIL=ops@example.com
 export MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID=Z0123456789ABCDEFGHIJ
 ```
 
