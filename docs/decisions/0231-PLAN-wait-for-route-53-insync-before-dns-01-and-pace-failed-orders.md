@@ -384,3 +384,60 @@ The owner: "D1 insync alone D2 leave HTTP-01 alone it works fine. D3 we will com
 * **Step 4.** Staged: this pair. The owner commits.
 
 **Files for this commit:** this PLAN and the 0231 MADR.
+
+### P1 — The `INSYNC` wait and the bounds (2026-11-05)
+
+* **Step 1.** The fields are as the step names them.
+  * `DNSManager` has `DNSProvider`, `TTL`, `PropagationDelay`, `PropagationTimeout`, `Resolvers`
+    and `Logger`.
+  * libdns/route53's `Provider` has `Route53MaxWait`, `WaitForRoute53Sync`,
+    `SkipRoute53SyncOnDelete`, `HostedZoneID` and `Logger *slog.Logger`.
+  * The waiter's `MinDelay` is 30 s.
+* **Steps 2 to 4, `internal/certs/acme.go`.**
+  * `acmePropagationTimeout` is 30 s.
+  * New: `acmeRoute53SyncWait` (2 min) and `acmeCABudget` (30 s), each with the comment the step
+    gives. `ACMEStartupTimeout` stays 3 min, and its comment names the budget.
+  * `newDNS01Solver` builds the solver with an explicit `DNSManager`, with `WaitForRoute53Sync`,
+    `Route53MaxWait: acmeRoute53SyncWait`, `SkipRoute53SyncOnDelete` and the provider's `Logger`.
+    It sets no `PropagationDelay`, and its comment states issue #35's race.
+  * `EnsureACME` passes a debug `slog` text handler on stderr when `Verbose`, and nil otherwise.
+    It imports `log/slog`. No dependency was added.
+* **Step 5, `internal/certs/acme_test.go`:** `TestDNS01SolverWaitsForRoute53Sync` and
+  `TestDNS01BudgetFitsTheStartBound`, as the step specifies.
+* **Step 6, seen failing** (`le/plant_p1.py`, on a scratch copy, removed after):
+
+  | Break | Fails, with |
+  | :--- | :--- |
+  | `WaitForRoute53Sync: false` | `TestDNS01SolverWaitsForRoute53Sync`: "WaitForRoute53Sync is false: the CA can validate before every Route 53 server has the record (0231 D1)" |
+  | the `Route53MaxWait` line removed | the same test: "Route53MaxWait = 0s, want 2m". The library applies its 1-minute default only at first use, so the field reads zero |
+  | `acmeRoute53SyncWait = time.Minute` | `TestDNS01BudgetFitsTheStartBound`: "acmeRoute53SyncWait = 1m0s: under 90 s the waiter never checks after Route 53's 60 s (0231 F3)" |
+  | `acmePropagationTimeout = 2 * time.Minute` | the solver test: "PropagationTimeout = 2m0s, want 30s (0231 D2)"; and the budget test: "Route 53 sync 2m0s + propagation 2m0s + CA 30s = 4m30s, more than ACMEStartupTimeout 3m0s (0231 D2)" |
+  | `PropagationDelay: 60 * time.Second` added | the solver test: "PropagationDelay = 1m0s, want 0: INSYNC is the wait, not a fixed delay (0231 D1)" |
+
+* **Step 7, `docs/guides/iam-route53-acme.md`.**
+  * A section "When validation starts" gives the four steps and their times, the 3-minute bound,
+    why a wait that runs out costs no failed validation, and the two debug lines.
+  * The troubleshooting row "Validation times out" is replaced by two rows. One is for the
+    waiter's "exceeded max wait time for ResourceRecordSetsChanged waiter". The other is for
+    certmagic's "timed out waiting for record to fully propagate", whose text was checked at
+    certmagic v0.25.6 `solvers.go:481`.
+  * A third new row is for issue #35's "No TXT record found" from older builds.
+  * `check_records.py --check-all`: exit 0. markdownlint on the guide: "0 issues".
+* **Step 8, the gates** (logs `le/p1-*.log`):
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check FILES="internal/certs/acme.go internal/certs/acme_test.go"` | exit 0, "2 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go vet ./...` on darwin/arm64, windows/amd64, linux/amd64 | exit 0 each |
+  | `make vet-tags`, `make lint` | exit 0 |
+  | `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" |
+  | `make vulncheck` | exit 0, "clear; allowlisted required-module findings: GO-2026-5932" |
+  | `make race` | exit 0; 48 `ok` (`internal/certs`, `internal/relay`, `internal/daemon` and `internal/cli/service`, with `TestUnitIsTypeNotify` unchanged, among them), no FAIL, panic or race |
+  | the Linux test host, `go test -race -count=1 ./...` on `HEAD` plus the two files (`PINS_PHASE=0231p1`) | exit 0, `go1.27.3`, 48 `ok` lines |
+  | the Windows test host, `make ci-windows` on the same | exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED", 48 `ok` lines |
+
+  Both scratch trees were removed and checked gone.
+* **The index** is still deferred (P0 step 2).
+
+**Files for this commit:** `internal/certs/acme.go`, `internal/certs/acme_test.go`,
+`docs/guides/iam-route53-acme.md` and this PLAN.

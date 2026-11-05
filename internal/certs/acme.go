@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -26,15 +27,31 @@ import (
 
 const (
 	// ACMEStartupTimeout bounds first-run issuance. Exceeding it is not fatal:
-	// the caller falls back to the self-signed identity.
+	// the caller falls back to the self-signed identity. It must cover
+	// acmeRoute53SyncWait + acmePropagationTimeout + acmeCABudget (MADR 0231
+	// D2). A run cut off while the record is published or awaited ends before
+	// the challenge is submitted, so it costs no failed validation (0231 F4).
 	ACMEStartupTimeout = 3 * time.Minute
 
 	// acmeChallengeTTL is the TTL on the temporary _acme-challenge TXT record.
 	acmeChallengeTTL = 5 * time.Minute
 
-	// acmePropagationTimeout bounds how long we wait for the TXT record to be
-	// visible to public resolvers before asking the CA to validate.
-	acmePropagationTimeout = 2 * time.Minute
+	// acmeRoute53SyncWait is the longest we wait for Route 53 to report the
+	// TXT change INSYNC, "propagated to all Route 53 DNS servers managing the
+	// hosted zone". The SDK's waiter checks at 30 s steps, so 2 minutes gives a
+	// check between 60 s and 90 s, after Route 53's documented 60 seconds; the
+	// library's 1-minute default stops checking at about 30 s (MADR 0231 D1, F3).
+	acmeRoute53SyncWait = 2 * time.Minute
+
+	// acmePropagationTimeout caps certmagic's poll of the zone's authoritative
+	// nameservers. It is a cap, not a wait: the poll ends at the first
+	// nameserver that has the record (0231 F1). After INSYNC every Route 53
+	// server has it, so the poll confirms and does not wait (0231 D2).
+	acmePropagationTimeout = 30 * time.Second
+
+	// acmeCABudget is the allowance, in the startup budget only, for the CA's
+	// validation, finalisation and download (MADR 0231 D2).
+	acmeCABudget = 30 * time.Second
 )
 
 // Route53Options selects the Route 53 zone used for DNS-01. Credentials are
@@ -77,6 +94,35 @@ type ACMEBundle struct {
 	cache *certmagic.Cache
 }
 
+// newDNS01Solver builds EnsureACME's DNS-01 solver. certmagic's propagation
+// check returns at the first authoritative nameserver that has the TXT record,
+// so on its own it let the CA validate while other Route 53 servers still
+// answered NXDOMAIN (issue #35). The provider therefore waits for Route 53 to
+// report the change INSYNC before returning, and only then does certmagic
+// confirm and the CA validate (MADR 0231 D1). There is no fixed
+// PropagationDelay: INSYNC is the signal, and a fixed delay was rejected.
+func newDNS01Solver(r Route53Options, logger *zap.Logger, providerLog *slog.Logger) *certmagic.DNS01Solver {
+	return &certmagic.DNS01Solver{
+		DNSManager: certmagic.DNSManager{
+			DNSProvider: &route53.Provider{
+				Region:       r.Region,
+				Profile:      r.Profile,
+				HostedZoneID: r.HostedZoneID,
+				MaxRetries:   r.MaxRetries,
+				// Wait for GetChange to report INSYNC when the record is written.
+				// Removing it after validation needs no wait.
+				WaitForRoute53Sync:      true,
+				Route53MaxWait:          acmeRoute53SyncWait,
+				SkipRoute53SyncOnDelete: true,
+				Logger:                  providerLog,
+			},
+			TTL:                acmeChallengeTTL,
+			PropagationTimeout: acmePropagationTimeout,
+			Logger:             logger,
+		},
+	}
+}
+
 // EnsureACME obtains (or loads from storage, or renews) certificates for
 // opts.Domains and returns a bundle whose TLSConfig serves them.
 //
@@ -105,17 +151,14 @@ func EnsureACME(ctx context.Context, opts ACMEOptions) (*ACMEBundle, error) {
 
 	logger := acmeLogger(opts.Verbose)
 
-	solver := &certmagic.DNS01Solver{
-		DNSProvider: &route53.Provider{
-			Region:       opts.Route53.Region,
-			Profile:      opts.Route53.Profile,
-			HostedZoneID: opts.Route53.HostedZoneID,
-			MaxRetries:   opts.Route53.MaxRetries,
-		},
-		TTL:                acmeChallengeTTL,
-		PropagationTimeout: acmePropagationTimeout,
-		Logger:             logger,
+	// The Route 53 provider's own debug events ("waiting for Route53 sync",
+	// "Route53 sync complete") reach stderr only when verbose; nil discards
+	// them (MADR 0231 D3).
+	var providerLog *slog.Logger
+	if opts.Verbose {
+		providerLog = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}
+	solver := newDNS01Solver(opts.Route53, logger, providerLog)
 
 	storage := &certmagic.FileStorage{Path: opts.StorageDir}
 

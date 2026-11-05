@@ -197,6 +197,26 @@ oversight. `GetChange` is scoped to the `change/*` ARN here; if your region or
 partition rejects that, widen it to `"*"` (it only reveals change status, no
 record data).
 
+### When validation starts
+
+Let's Encrypt is asked to validate only after Route 53 has the record on every
+one of its servers for the zone. In order:
+
+1. The daemon writes the `_acme-challenge` TXT record.
+2. It waits up to 2 minutes for `GetChange` to report the change `INSYNC`,
+   which AWS defines as "propagated to all Route 53 DNS servers managing the
+   hosted zone". Route 53 says this generally happens within 60 seconds. The
+   check runs at about 0 s and 30 s, then between 60 s and 90 s.
+3. It checks the zone's nameservers for the record, for up to 30 seconds.
+4. Only then is Let's Encrypt asked to validate.
+
+A first issuance as a whole is bounded at 3 minutes. If a wait in step 2 or 3
+runs out, the attempt ends before step 4, so it does not count against Let's
+Encrypt's limit of 5 failed validations per name per hour
+([0231-MADR](../decisions/0231-MADR-wait-for-route-53-insync-before-dns-01-and-pace-failed-orders.md)).
+With `log.level: debug`, the log shows "waiting for Route53 sync" and then
+"Route53 sync complete".
+
 ---
 
 ## Step 3 — Attach it
@@ -346,7 +366,9 @@ name, added by hand.
 | `AccessDenied` on `GetChange` | Tighten/widen the `change/*` ARN to `"*"` |
 | Validation fails, `NXDOMAIN` | Records went into the **private** zone, or you used `ts.lallygag.net` when it is not publicly delegated — revisit Step 0 |
 | `NoSuchHostedZone` | Zone ID belongs to another account or is the private view |
-| Validation times out | Propagation slower than the solver's patience; re-run, and confirm the TXT is publicly visible with the `dig` above |
+| `exceeded max wait time for ResourceRecordSetsChanged waiter` | Route 53 did not report the change `INSYNC` within 2 minutes. Let's Encrypt was not asked, so no failed validation was counted. Restart, and check the AWS Health Dashboard for Route 53 |
+| `timed out waiting for record to fully propagate` | Route 53 reported `INSYNC`, but the zone's nameservers did not serve the record within 30 seconds. No failed validation was counted. Confirm the zone is the public one the name is delegated to, with the `dig` above |
+| `No TXT record found` or `During secondary validation: No TXT record found`, from a build before 0231 | The daemon asked Let's Encrypt to validate as soon as one Route 53 server had the record. Upgrade: current builds wait for `INSYNC` first (issue #35) |
 | Worked once, fails ~60 days later | Credential rotated or revoked. Renewal is unattended — an expired key surfaces only as a renewal failure in the daemon log |
 
 Certificates renew at roughly two-thirds of lifetime (~60 days). A host powered
