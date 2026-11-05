@@ -712,6 +712,15 @@ UTC. Logs are in `le/p3/`.
 * **Step 2.** The comment for issue #35 is drafted in the session scratchpad
   (`le/issue35-comment.md`), with placeholders only. The owner pushes. After that, on the owner's
   word, the agent runs the disclosure guard over the text, posts it, and closes the issue.
+  * **Done 2026-11-05**, after the owner pushed `c2b858e3` and said "proceed".
+    * The text was checked with the guard's own `load_rules` and `scan_text`, which reported 17
+      content rules and 0 hits, and against this session's identifiers, with 0 hits. The check
+      was first seen failing on a planted file, with one `<user>` hit and two session hits.
+    * Posted as issue comment `6665117603`, then `gh issue close 35 --reason completed`. The issue
+      reads `CLOSED`, `COMPLETED`.
+    * The issue's own body still names the relay's host. Redacting it is
+      [0232-PLAN-redact-real-zones-hostnames-and-ips-and-deny-them.md](0232-PLAN-redact-real-zones-hostnames-and-ips-and-deny-them.md)
+      P3.
 * **Not done by this plan, and why:**
   * The records index (P0 step 2): `docs/README.md` still holds the owner's uncommitted edits.
     The first record change after they are committed runs `--write-index`.
