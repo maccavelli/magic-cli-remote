@@ -1949,3 +1949,90 @@ gobble-cli's own move.
 
 **Files for this commit:** `go.mod`, `go.sum`, `.github/workflows/ci.yml`, this PLAN and the 0217
 MADR.
+
+### P3e — `acp-go-sdk2` v1.33.0 and `go-tui-lib/v2` v2.12.0
+
+#### Deviation 19 (2026-11-04): two libraries tagged after P3d
+
+**Found** by the owner: "We need to update pins for magic-cli-remote and gobble-cli". At
+`e2d6493b`, `go.mod` requires `acp-go-sdk2 v1.31.2`, `go-selfupdate-lib v1.24.0` and `go-tui-lib/v2
+v2.9.0`. The newest tags, what they change and the checks run before the move are the MADR's F3f:
+* `acp-go-sdk2 v1.33.0`, with v1.32.0 between: the SDK refuses values it used to send, and none
+  that Magic sends; the API change is additive only;
+* `go-tui-lib/v2 v2.12.0`: nothing Magic builds changes;
+* `go-selfupdate-lib`: current.
+
+`go list -m -u` also shows indirect modules behind. Asked whether to move them too, as D4 says,
+the owner answered "Sibling libs only".
+
+**Decided: pin the two current tags.** The owner: "Proceed to update the pins for magic-cli-remote
+as proposed". The step is P3e, P3d's steps for these two modules. `ci.yml` names neither library,
+so it does not change.
+
+1. P0: the tree holds only this record, the 0217 MADR, and the owner's own uncommitted edits
+   (`docs/README.md`, the 0179 pair, the 0228 and 0229 drafts), none staged. `v1.33.0^{}`
+   (`6e04da6e…`) and `v2.12.0^{}` (`bbfd52fa…`) are re-peeled with `git ls-remote`, each still the
+   newest tag. `go.mod` and `go.sum` are copied aside.
+2. `go get github.com/maccavelli/acp-go-sdk2@v1.33.0 github.com/maccavelli/go-tui-lib/v2@v2.12.0`,
+   then `go mod tidy`. `go.mod` changes only those two lines, `go 1.27.3` stays, `go.sum` changes
+   only their lines, and `go list -m -u` shows no direct sibling module behind.
+3. The gates of P3d step 4:
+   * `make pre-add-check`;
+   * `go vet` on three GOOS and `make vet-tags`;
+   * `make staticcheck`;
+   * `make vulncheck`;
+   * `make race`, with `internal/provider/acpagent`, `internal/wirecap`, `internal/auth` and
+     `internal/cli` among its packages;
+   * check-libs on the step's content.
+
+   Then `make check-libs` runs on the owner's commit. No live agent run: no wire value Magic sends
+   changes (F3f).
+4. P3d step 5's host runs: `go test -race ./...` on the Linux test host and `make ci-windows` on
+   the Windows test host.
+5. Stage `go.mod`, `go.sum`, this PLAN and the 0217 MADR.
+
+**Scope.** No file is added. No source or test changes. No check is added, so there is nothing
+to see fail.
+
+#### P3e, executed (2026-11-04; approved by the owner: "Proceed to update the pins for magic-cli-remote as proposed")
+
+* **Step 1.** `git status` at `e2d6493b` showed only this pair's edits and the owner's own
+  uncommitted files: `docs/README.md` and the 0179 pair, modified, and the 0228 pair and 0229
+  MADR, untracked. None was staged. `git ls-remote` gave `v1.33.0^{}` `6e04da6e3f73…` and
+  `v2.12.0^{}` `bbfd52fa4036…`, each still the newest tag (`libs/newest_tag.py`). `go.mod` and
+  `go.sum` were copied to `libs/p3e-base/`.
+* **Step 2** (`libs/p3e-goget.log`): "upgraded …acp-go-sdk2 v1.31.2 => v1.33.0" and "upgraded
+  …go-tui-lib/v2 v2.9.0 => v2.12.0".
+  * After `go mod tidy`, `go.mod` changes only those two lines and `go.sum` only their four. Each
+    library's `/go.mod` hash is unchanged, so neither library's requirements moved.
+  * `go 1.27.3` is unchanged. `go list -m -u`, filtered to direct modules, lists none behind.
+* **Step 3, this Mac** (logs `libs/p3e-*.log`):
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check` | exit 0, "995 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go vet ./...` (`libs/vet_goos.py`) | darwin/arm64, windows/amd64, linux/amd64: exit 0 each |
+  | `make vet-tags` | exit 0, every tag ok |
+  | `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" for each GOOS |
+  | `make vulncheck` | exit 0, "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+  | `make race` | exit 0; 48 `ok` (`internal/auth`, `internal/cli`, `internal/provider/acpagent` and `internal/wirecap` among them), no FAIL, panic or data race |
+  | check-libs on the step's content (`libs/check_libs_content.py go.mod go.sum`) | exit 0, "0 failing checks; scratch removed"; "pinned v1.33.0, checking v1.33.0" and "pinned v1.24.0, checking v1.24.0", every check ok; the clone removed and checked gone |
+
+  The API comparison across the move is F3f's run on `e2d6493b`: `acp-go-sdk2` "api: ok" from
+  v1.31.2 to v1.33.0. `check_libs.py` does not cover `go-tui-lib` (F3f), so its coverage is the
+  build, vet and race rows here and F3f's empty diff of the packages Magic builds.
+* **Step 4** (`PINS_PHASE=p3e`; `HEAD` `e2d6493b` plus `go.mod` and `go.sum`):
+  * the Linux test host: `go1.27.3`, `go test -race -count=1 ./...` exit 0, 48 `ok` lines;
+  * the Windows test host: `go1.27.3`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED
+    CHECKS PASSED", 48 `ok` lines.
+
+  Neither log has a FAIL, panic or race line. Both scratch trees were removed and checked gone.
+* **Step 5.** Staged: `go.mod`, `go.sum`, this PLAN and the 0217 MADR. `make check-libs` runs
+  again on the owner's commit.
+
+**Not done in P3e:**
+* The indirect modules `go list -m -u` shows behind, by the owner's choice (D4's amendment of this
+  date).
+* gobble-cli's own pins (F3f). Its records are that repository's.
+
+**Files for this commit:** `go.mod`, `go.sum`, this PLAN and the 0217 MADR.

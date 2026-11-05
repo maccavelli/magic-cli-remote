@@ -48,8 +48,8 @@ the host standard and the host installs are in scope only where an advisory is a
 | `github.com/caddyserver/certmagic` | v0.25.4 | v0.25.6 |
 | `golang.org/x/mod` | v0.41.0 | v0.42.0 |
 | `github.com/maccavelli/go-selfupdate-lib` | v1.22.3 | ~~v1.23.0~~ ~~v1.23.1 (F3, F3a)~~ **v1.24.0** (F3e) |
-| `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | ~~v1.26.0, current~~ ~~v1.27.0 (F3b)~~ ~~v1.28.0 (F3c)~~ ~~v1.31.1 (F3d; v1.30.0 came by 0224)~~ **v1.31.2** (F3e) |
-| `github.com/maccavelli/go-tui-lib/v2` | (not yet required; v2.7.0 since 0219) | **v2.9.0** (F3d) |
+| `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | ~~v1.26.0, current~~ ~~v1.27.0 (F3b)~~ ~~v1.28.0 (F3c)~~ ~~v1.31.1 (F3d; v1.30.0 came by 0224)~~ ~~v1.31.2 (F3e)~~ **v1.33.0** (F3f) |
+| `github.com/maccavelli/go-tui-lib/v2` | (not yet required; v2.7.0 since 0219) | ~~v2.9.0 (F3d)~~ **v2.12.0** (F3f) |
 
 * `go list -m -u all` lists 33 indirect modules with a newer version. They include the AWS SDK used
   by `libdns/route53` (`aws-sdk-go-v2` v1.39.1 → v1.47.5, `service/route53` v1.58.3 → v1.70.6),
@@ -237,6 +237,67 @@ each library's release notes, `CHANGELOG.md` and `git diff` at its tags; `go lis
   * *Added 2026-11-03, at PLAN P3d.* The owner: "gobble is also moving to current acp-go-sdk2".
     gobble's move is gobble-cli's own record and commit, not this one. Once both land, the two
     repositories share `v1.31.2` again.
+
+**F3f. On 2026-11-04, two of Magic's three libraries have newer tags. Neither changes an API
+Magic calls, and Magic's tests pass on both.** *Observed 2026-11-04 (`git ls-remote` of each
+repository; each library's release notes and `git diff` at its tags; `go list -m -u` and go-shared's
+`check_libs.py` on `e2d6493b`; a scratch clone with `go-tui-lib/v2` moved).*
+
+| Module | Pinned | Newest tag | Peeled commit, date |
+| :--- | :--- | :--- | :--- |
+| `acp-go-sdk2` | v1.31.2 (F3e) | **v1.33.0** (v1.32.0 between) | `6e04da6e…`, 2026-11-04 |
+| `go-selfupdate-lib` | v1.24.0 (F3e) | v1.24.0, current | (no change) |
+| `go-tui-lib/v2` | v2.9.0 (F3d) | **v2.12.0** (v2.10.0, v2.11.0 between) | `bbfd52fa…`, 2026-11-04 |
+
+* `go list -m -u` lists these two as the only direct sibling modules behind. Indirect modules
+  are behind too, and the owner chose to leave them (D4's amendment of this date).
+* **`acp-go-sdk2` v1.32.0** fixes nine defects of the SDK surface, its 0049 S1 to S9
+  (`docs/reports/0049-REPORT-release-notes-v1-32-0.md` at the tag). `make api` against v1.31.2:
+  "0 incompatible, 26 compatible". Most of the fixes refuse a value the SDK used to send.
+  `go.mod`, `go.sum`, the schema (1.25.0) and `agentproc/` are unchanged.
+  * **S5, a boolean `session/set_config_option`,** is sent only by a client that advertises
+    `session.configOptions.boolean`. Magic sends one (`internal/provider/acpagent/session.go:1192`)
+    and advertises it (`acpagent.go:1325`), so nothing changes.
+  * **S8, an unadvertised auth method,** is refused before it is sent, with an error wrapping
+    `acp.ErrUnadvertisedAuthMethod`. Magic's auth selection picks from the advertised list. Only
+    the configured `auth_method_id` branch (`acpagent.go:737`) sends an id it did not check. An id
+    the agent never advertised failed there before, with the agent's error, and now fails with the
+    SDK's. Either way, the session start fails and names the id.
+  * **S6, closed enumerations,** are checked on send. Magic's production code sends none of them.
+    Its test agents return an empty `PromptResponse` only together with an error, which is
+    answered as that error (`lifecycle_test.go:170`, `prewarm_rearm_test.go:97,136`,
+    `queue_test.go:62`), and its tests pass at v1.33.0.
+  * **S6 on receipt:** a `tool_call`'s unknown `kind` or `status` now reads as empty, where the
+    unknown string was kept before. **S7:** `AuthMethod`'s `"type":"agent"` decodes into `Agent`,
+    where it was kept in `Unknown`. Magic reads neither field's raw unknown value.
+  * S1, S2, S3, S4 and S9 concern an agent's handlers, `ToolCallUpdate` construction, the unstable
+    methods, the timelines and unlisted prompt-block types. Magic is a client, builds no
+    `ToolCallUpdate`, calls no unstable method, uses neither timeline, and sends only listed block
+    types.
+* **`acp-go-sdk2` v1.33.0** fixes nine subpackage defects, its 0049 P1 to P9
+  (`docs/reports/0049-REPORT-release-notes-v1-33-0.md`). `make api` against v1.32.0: "0
+  incompatible, 2 compatible", both in `remote`, which Magic does not import. The root package,
+  `go.mod`, `go.sum` and the schema are unchanged.
+  * **P7 reaches Magic.** `agentproc.LineTap` now guards its held line with a mutex, so a `Close`
+    from another goroutine no longer races a `Write`. Magic's wire capture builds its tap with
+    `LineTap` (`internal/wirecap/wirecap.go:271`).
+  * The other eight concern `remote`, `clienthost` and `Transcript`, which Magic does not use.
+* **`go-tui-lib` v2.10.0 to v2.12.0** add the streaming engine (`stream`, `frame`,
+  `inputfilter`, `streamtea`) and `Printer.Printed` reprinting. Magic imports `safetext`, `termcap`
+  and `termsvc`. Those three, the packages they import from the library (`glyph`, `msgcat`,
+  `internal/enum`, `internal/sanitize`), and the library's `go.mod` and `go.sum` are unchanged:
+  `git diff --stat v2.9.0 v2.12.0` over them is empty. So the move changes no code Magic builds.
+* **The checks before the move**, none of which wrote the tree:
+  * `check_libs.py` on `e2d6493b`, `acp-go-sdk2` at v1.33.0: "0 failing checks". Get and tidy,
+    version, modules, build, vet on three GOOS, test, api, govulncheck and advisories were each ok.
+  * `check_libs.py` cannot check `go-tui-lib`, because it refuses a `/v2` module path. A scratch
+    clone with `go-tui-lib/v2` moved to v2.12.0: get, tidy and build ok, `go vet` of
+    `internal/auth` and `internal/cli` on three GOOS ok, and their tests ok.
+* **gobble** pins `acp-go-sdk2 v1.31.2`. Its 0035 PLAN's Deviation 23 (proposed, not executed)
+  takes v1.32.0. Its `check_libs.py` at v1.33.0 fails only two tests, `TestErrors` and
+  `TestAuthenticate`, on S8's refusal, which that deviation already plans to fix. gobble's move is
+  gobble-cli's own record and commit. Until it lands, Magic is ahead. As in F3d, 0184 D12's shared
+  pin is needed only before `live-gobble`.
 
 **F4. CI actions: four of eight are behind.** Each is pinned by commit, with a version comment.
 
@@ -552,7 +613,10 @@ Chosen option: **"B — Tiered by risk"**, because:
     tagged release. we need to update the pin."* Then to v1.28.0 (F3c). *Amended again 2026-11-01
     (PLAN Deviation 16), by the owner: "assess acp-go-sdk2 and go-selfupdate-lib, and go-tui-lib.
     pin the current tagged versions."* Then `acp-go-sdk2` to v1.31.1 and `go-tui-lib/v2` to
-    v2.9.0; `go-selfupdate-lib` is already current (F3d).
+    v2.9.0; `go-selfupdate-lib` is already current (F3d). *Amended again 2026-11-04 (PLAN
+    Deviation 19), by the owner: "We need to update pins for magic-cli-remote and gobble-cli",
+    then "Sibling libs only".* Then `acp-go-sdk2` to v1.33.0 and `go-tui-lib/v2` to v2.12.0
+    (F3f). The indirect modules `go list -m -u` shows behind stay where they are.
   * `make vulncheck` must stay "clear" apart from `GO-2026-5932`.
 * **D5 — `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1, as an amendment to 0207 (F3, F3a).**
   *Amended 2026-10-30 by the owner, before phase 3: "pin go-selfupdate-lib to current v1.23.1".*
