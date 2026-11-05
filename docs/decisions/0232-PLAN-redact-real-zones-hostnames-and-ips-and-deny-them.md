@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-05
 associated-madr: "0232-MADR-redact-real-zones-hostnames-and-ips-and-deny-them.md"
 ---
@@ -219,3 +219,65 @@ Scripts and logs are in the session scratchpad, under `0232/`.
   be level with `origin`, and for the owner's word.
 
 **Files for this commit:** the 30 redacted files and this PLAN.
+
+#### Deviation, 2026-11-05: the commit message named both aliases
+
+* **Found.** The owner's push was refused. The hook-written message of the P1 commit listed both
+  real aliases in parentheses on its fifth line. The guard blocked it on the Linux alias (MADR F4).
+  The commit's files were clean, and the pair's commit passed.
+* **Chosen** by the owner, of three offered (the owner rewords it; the agent amends this once;
+  regenerate through the hook): "I amend, this once".
+* **Done.** `0232/reword.py` wrote the message with that one line changed, asserted to be the
+  only line that differs. The index matched `HEAD`. `git commit --amend -F` gave `2ad168ff`, and
+  `git diff --quiet` shows its tree equal to the refused commit's. The guard's `pre-push` passed
+  both outgoing commits (exit 0). `le/guard_text.py` found 0 hits in both messages, and on the
+  original message it reported both aliases. The owner then pushed.
+
+### P2 — The rules (2026-11-05)
+
+Script: `0232/p2.py`.
+
+* **Step 1, preconditions.** After `git fetch`, `HEAD` equals `origin/master`. The clone scan
+  applied the four rules to every tracked text file of every clone under `~/gitrepos` with a
+  GitHub remote: 0 clones hold a D3 value. Seen failing first: over a scratch root holding one
+  planted clone with a GitHub remote, it reported that clone, with hits for the zone and the relay
+  IP. The scratch root was removed.
+* **Step 2.** On the owner's "pushed proceed": the list was copied to `disclosure-deny.bak-0232`
+  and checked equal byte for byte, then the four lines were appended. Line count 35 → 39; the
+  guard loads 21 rules, which was 17.
+* **Step 3, proof.**
+  * Changed from the step as written: with `master` level, `HEAD` against `origin/master` has no
+    commits to scan. The guard's `pre-push` was run over `HEAD` against `HEAD~1` instead. That
+    scans `HEAD`'s full tree and message, a stricter check. Exit 0.
+  * A scratch clone, with one commit holding one planted string per rule: `pre-push` exit 1, with
+    four `BLOCKED` lines, one per rule (placeholders `example\1com`, `203.0.113.10`,
+    `203.0.113.20` and `relay-host`). The clone was removed.
+* **Also probed** (MADR F4): how the existing rules treat the Linux alias, with the guard's
+  `scan_text` on sample lines.
+
+### P3 — Issue #35 (2026-11-05)
+
+Script: `0232/issue35_redact.py`.
+
+* **Step 1.** The fetched body holds the relay's full hostname twice: in the setup line, and in
+  the quoted ACME error. Both became `<relay-host>`, and the replaced text was asserted to hold
+  neither the zone nor the alias. The diff is those two lines. `le/guard_text.py` found 0 hits on
+  the new body. On the old body it found 4 under the guard's rules (21 by then) and 4 session
+  identifiers.
+* **Step 2.** `gh issue edit 35 --body-file`. The body fetched again equals the intended body, plus
+  the one trailing newline that `jq` adds on output. It holds 0 identifiers. The issue's title and
+  comments hold 0 too, and it is still closed. GitHub keeps the previous body in the issue's edit
+  history, which only the owner can delete, from the web.
+* **Step 3.** This record. The PLAN is complete. The records index waits for the owner's
+  `docs/README.md` edits, as in 0231.
+
+| # | Result |
+| :--- | :--- |
+| V1 | P1 step 3: 0 values in the tree |
+| V2 | P1 steps 2 and 3: the dry run's 30 files, D1 replacements only |
+| V3 | P1 steps 5 and 6 |
+| V4 | P2 step 3 |
+| V5 | P2 step 1 |
+| V6 | P3 step 2 |
+
+**Files for this commit:** this pair.

@@ -56,7 +56,8 @@ all of this allowed through?"
 * **The push guard is a deny list.** `github-disclosure.py` refuses only what a rule in
   `~/.config/git/disclosure-deny` matches. The list has 35 lines. It has no rule for the zone,
   either IP, or either host alias, and no generic detector for IPs or domain names. Everything in
-  F1 passed every push.
+  F1 passed every push. (Corrected in F4: the existing rules match the Linux alias in three
+  contexts, never as a bare word.)
 * **The agent-side scan is narrow, and lives in a session scratchpad.** The `id_scan.py` that
   0214 and 0231 ran looks for the local account name, the Linux and Windows test-host aliases,
   home and temp paths, and one mail domain, and only in added lines. It has no pattern for domain
@@ -79,6 +80,20 @@ all of this allowed through?"
   re-checked in P2.
 * 0171-MADR did this once already: one redaction commit, neutral valid values for fixtures, no
   history rewrite.
+
+### F4. Found when P1 was pushed (amendment, 2026-11-05)
+
+* **Generated commit messages are a route of their own.** The `prepare-commit-msg` hook writes the
+  message from the staged diff. For P1's commit it listed both real aliases in parentheses, taken
+  from the lines the diff removed. The guard refused the push on the Linux alias. The relay alias
+  passed, because its rule had not been added yet. The files were clean. The owner authorized a
+  one-time `git commit --amend -F` that removed the two names and changed nothing else. The PLAN
+  records it. A message written from a redaction diff needs the same scan as the files.
+* **The existing rules match the Linux alias in some contexts.** Probed with the guard's own
+  `scan_text` on sample lines, without reading the list: they match the alias inside a
+  parenthesized list before a comma, after `ssh`, and after `host`. They do not match it as a bare
+  word, after a colon, or before `.ts`. So F2's first bullet holds for the bare word only, which is
+  why the tree's 18 positions passed every push. D3 is unchanged: no bare-word rule is added.
 
 ## Decision Drivers
 
@@ -124,6 +139,7 @@ instruction widens that to every identifying class.
   droplet's IPv4 and the relay alias.
   * The Linux alias gets no rule. It is an English word, and part of a model's name in a
     fixture, so a rule would refuse legitimate text. The agent-side scan already looks for it.
+    Existing rules already match it in three contexts (F4).
   * The rules go into the global list only after these hold: the redaction commit exists; every
     earlier commit whose tree holds one of the strings is on `origin` (F3), which includes
     0231's unpushed commits; and a re-run of the clone scan finds no other GitHub clone holding
