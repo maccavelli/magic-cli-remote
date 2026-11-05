@@ -448,6 +448,10 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0227 | PLAN | Implement allow-list of read-only agent commands and tools | [0227-PLAN-agent-readonly-command-and-tool-allowlist.md](decisions/0227-PLAN-agent-readonly-command-and-tool-allowlist.md) |
 | 0230 | MADR | Keep the OpenCode control plane from starting the user's MCP servers | [0230-MADR-keep-the-opencode-control-plane-from-starting-the-users-mcp-servers.md](decisions/0230-MADR-keep-the-opencode-control-plane-from-starting-the-users-mcp-servers.md) |
 | 0230 | PLAN | Implement: keep the OpenCode control plane from starting the user's MCP servers | [0230-PLAN-keep-the-opencode-control-plane-from-starting-the-users-mcp-servers.md](decisions/0230-PLAN-keep-the-opencode-control-plane-from-starting-the-users-mcp-servers.md) |
+| 0231 | MADR | Wait for Route 53 to report INSYNC before DNS-01 validation, and stop re-ordering after a failed validation | [0231-MADR-wait-for-route-53-insync-before-dns-01-and-pace-failed-orders.md](decisions/0231-MADR-wait-for-route-53-insync-before-dns-01-and-pace-failed-orders.md) |
+| 0231 | PLAN | Implement waiting for Route 53 INSYNC before DNS-01 validation, and pacing failed orders | [0231-PLAN-wait-for-route-53-insync-before-dns-01-and-pace-failed-orders.md](decisions/0231-PLAN-wait-for-route-53-insync-before-dns-01-and-pace-failed-orders.md) |
+| 0232 | MADR | Redact the real zones, hostnames and IPs from the tree, then deny them at push time | [0232-MADR-redact-real-zones-hostnames-and-ips-and-deny-them.md](decisions/0232-MADR-redact-real-zones-hostnames-and-ips-and-deny-them.md) |
+| 0232 | PLAN | Implement redacting the real zones, hostnames and IPs, then denying them | [0232-PLAN-redact-real-zones-hostnames-and-ips-and-deny-them.md](decisions/0232-PLAN-redact-real-zones-hostnames-and-ips-and-deny-them.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
