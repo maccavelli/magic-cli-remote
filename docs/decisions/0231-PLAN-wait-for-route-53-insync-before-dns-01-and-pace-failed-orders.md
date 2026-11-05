@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-05
 associated-madr: "0231-MADR-wait-for-route-53-insync-before-dns-01-and-pace-failed-orders.md"
 ---
@@ -302,6 +302,20 @@ host's facts are the MADR's "The relay host, probed 2026-11-05".
    log showing the same three Route 53 lines. Otherwise record that none does.
 7. Remove the temporary config copy and the staging cache. Keep the backups until the owner
    removes them.
+8. **Added 2026-11-05 by deviation 4 below: refresh the host's unit.** The installed unit is
+   `Type=simple` (deviation 1). The owner chose to bring it to the current template under this
+   plan. The templates themselves are not changed.
+   * Preview with `mcrelay setup-service --refresh --print-only`. The rendered unit must differ
+     from the installed one only in `Type=notify`, `TimeoutStartSec=240` and their comments.
+   * Back the unit up as `mcrelay.service.bak-0231` and confirm with `cmp`. Record the SHA-256
+     fingerprint of the cached production certificate.
+   * `mcrelay setup-service --refresh`, which writes `mcrelay.service.prev` and reloads the user
+     manager. Then `systemctl --user show` reports `Type=notify` and a 4-minute start timeout.
+   * `systemctl --user restart mcrelay`. It returns at `READY=1` (`internal/relay/server.go:291`).
+     The unit is `active (running)`, the journal shows `listening`, the certificate's fingerprint
+     is unchanged (a stored certificate places no order, D4), and `openssl s_client` verifies.
+   * Rollback: move `mcrelay.service.prev` back over the unit, `systemctl --user daemon-reload`,
+     and restart.
 
 ### P4 — Close-out
 
@@ -543,3 +557,170 @@ The owner: "D1 insync alone D2 leave HTTP-01 alone it works fine. D3 we will com
 **Files for this commit:** `internal/certs/acme.go`, `internal/certs/acme_test.go`,
 `internal/certs/acme_cooldown.go`, `internal/certs/acme_cooldown_test.go`, `go.mod`,
 `docs/guides/iam-route53-acme.md` and this PLAN.
+
+### P3 — Live acceptance on the relay host (2026-11-05; the owner: "committed proceed")
+
+Run by the agent over SSH to `<relay-host>`. Every remote call went through a Python driver
+(`le/p3/remote.py`), one command per call, with `BatchMode=yes` and `ConnectTimeout=5`. Times are
+UTC. Logs are in `le/p3/`.
+
+* **Step 1, the build.**
+  * Cross-built on this Mac at `09d82a8c`: `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build
+    -trimpath -tags netgo,osusergo`, with the `-ldflags` that `make -n build-relay` prints, into
+    the scratchpad. The version is `0.24.0.g09d82a8c-dirty`. The suffix comes from the owner's
+    uncommitted documentation edits; `git status` showed no other change, so the Go sources are the
+    commit's.
+  * sha256 `9da5eee86b5ee9ae23aba9fa643d555e2839e6c5216d764c54f28938bcdb0894`, the same on the
+    host after `scp` to `~/.local/bin/mcrelay.0231`.
+  * `mcrelay.0231 version`: "0.24.0.g09d82a8c-dirty (local) 09d82a8cc112-dirty".
+  * The installed `mcrelay 0.20.1 (a078372b)` was copied to `mcrelay.bak-0231`, and `cmp` found
+    them identical.
+* **Step 2, before.**
+  * The unit was `inactive`, `NRestarts=0`.
+  * `aws route53 get-change` with a made-up id: "An error occurred (NoSuchChange)", so
+    `GetChange` is still allowed.
+  * The config and the ACME cache (`<data_dir>/acme`) were copied to `config.yaml.bak-0231` and
+    `acme.bak-0231`. `cmp` and `diff -r` found each identical.
+  * The cache held a staging certificate for `<name>` and no production certificate, as issue #35
+    left it.
+* **Step 3, staging into an empty cache.**
+  * `le/p3/host/mkcopy.py`, on the host, wrote a 0600 copy of the config that differs in exactly
+    three lines, asserted: `staging: true`, a new empty `cache_dir`, and `level: debug`. Before
+    the run the copy's `directory_url` was confirmed empty, since a set one outranks `staging`
+    (`internal/relay/fileconfig.go:113-121`). No `MCRELAY_*` variable was set in the host's
+    environment.
+  * `le/p3/host/run.py` ran `mcrelay.0231 serve --config <copy>` with a 240 s limit. It stopped the
+    relay with SIGTERM two seconds after `listening`, in place of the step's `timeout 240`, so the
+    run did not hold the port for the rest of the 240 s. Outcome "listening", exit 0.
+  * `le/p3/order.py` over the log: every event present, in order.
+
+    | t (s) | Event, as logged |
+    | ---: | :--- |
+    | 0.61 | "Route53 change submitted" (`status=PENDING`), then "waiting for Route53 sync" with `max_wait=2m0s` |
+    | 30.66 | "Route53 sync complete", 30.05 s later: the waiter's first `GetChange` after its 30 s `MinDelay` |
+    | 34.72 | "authorization finalized" with `authz_status` "valid", then "validations succeeded; finalizing order" |
+    | 38.24 | "certificate obtained successfully" from the staging issuer, then `listening` |
+
+    The 4 s after `INSYNC` held certmagic's authoritative check and Let's Encrypt's validation.
+    The cleanup logged "skipping Route53 sync wait for delete operation", which is
+    `SkipRoute53SyncOnDelete`.
+* **Step 4, production, once.**
+  * `mcrelay.0231` was copied over `~/.local/bin/mcrelay` (`cmp` identical; `version` as in step
+    1), and `systemctl --user start mcrelay` was run at 17:12:18.
+  * The relay logged "TLS: Let's Encrypt (DNS-01 / Route 53)" with the production directory, and
+    `listening`, at 17:12:52.79, 34.5 s after the start. The three Route 53 lines are not in the
+    log at `info`, as the step expects; step 3 is their evidence.
+  * The cache gained `certificates/acme-v02.api.letsencrypt.org-directory/<name>`. Its
+    certificate: issuer "C=US, O=Let's Encrypt, CN=YE2", subject `<name>`, valid until
+    2027-02-03.
+  * `openssl s_client -connect <name>:8443 -servername <name> -verify_return_error -brief`, on
+    the host and from this Mac: "Verification: OK", TLSv1.3. A staging certificate does not
+    verify against the system trust store.
+  * After 17:12:52 the unit stayed `active (running)`, with `NRestarts=0`.
+  * The zone holds no `_acme-challenge` TXT for `<name>` afterwards, so the delete that the log
+    does not show at `info` happened.
+  * One order was placed. No second order was placed.
+* **Step 5, the cooldown against staging: not run.** The step needs the owner's word in the turn,
+  and it was not asked for before this record. The owner then said to run it; deviation 5 records
+  why it cannot run as written.
+* **Step 6, the daemon.** No daemon host reachable from here uses Let's Encrypt. This Mac, the
+  Linux test host and the Windows test host each have `tls.mode` empty, with no
+  `letsencrypt.domains` and no `email`, so they run self-signed. Only those fields were read. The
+  relay admits four hosts; the fourth is not reachable from here and was not checked.
+* **Step 7.** The host's work directory (the two scripts, the staging copy, the staging cache and
+  the run log) was removed and checked gone. Kept until the owner removes them:
+  `mcrelay.bak-0231`, `config.yaml.bak-0231` and `acme.bak-0231`. `mcrelay.0231`, identical to
+  the installed binary, is also still there.
+* **Step 8, the unit refresh** (added by deviation 4).
+  * `mcrelay setup-service --refresh --print-only` rendered the installed unit with `Type=simple`
+    replaced by `Type=notify` and `TimeoutStartSec=240`, with their two comments. Nothing else
+    differed.
+  * The unit was copied to `mcrelay.service.bak-0231` (`cmp` identical). The cached production
+    certificate's SHA-256 fingerprint was recorded before the restart (`E5:B2:77:3B:…:74:0F`).
+  * `mcrelay setup-service --refresh --json` returned `"verdict": "refreshed"`, `"changed": true`,
+    `"reloaded": true`, and a backup at `mcrelay.service.prev`. `cmp` found that `.prev` identical
+    to `.bak-0231`. `diff` against the backup showed only the six lines above.
+    `systemctl --user show` then reported `Type=notify`, `TimeoutStartUSec=4min` and
+    `NeedDaemonReload=no`.
+  * `systemctl --user restart mcrelay` at 17:22:35. The journal shows systemd's "Starting" at
+    .204, the relay's `listening` at .240, and systemd's "Started" at .241. With `Type=simple`,
+    "Started" had come before any line from the relay. The unit is `active (running)`,
+    `Type=notify`, `NRestarts=0`.
+  * The fingerprint is unchanged and no certificate directory was added, so the restart placed
+    no order. No `mcremote-issuance-failure.json` exists. `openssl s_client … -verify_return_error`
+    on the host: "Verification: OK".
+
+**Deviations (2026-11-05):**
+
+1. **The host's unit is `Type=simple`, not the template's `Type=notify`.** The unit file says
+   "Managed by `mcrelay setup-service`". It was written before 0207-MADR D22, and it has no
+   `TimeoutStartSec`, so systemd's default of 90 s applies. `Restart=always`, `RestartSec=5`,
+   `StartLimitIntervalSec=300` and `StartLimitBurst=30` match F4, as the MADR's host section says.
+   * Consequence: `systemctl --user start` returned when the process started, not at `listening`.
+     Systemd does not bound the start; `ACMEStartupTimeout` (3 min, in code) is the only bound on
+     this host. The cooldown still applies there, because it runs in the relay, not in the unit.
+   * No MADR fact is contradicted. F5 describes the templates, and the MADR says only F4's facts
+     hold on the host.
+   * Not changed here. The unit templates are out of this plan's scope, and rewriting the host's
+     unit is a change to a production service that the owner has not asked for. *(Superseded the
+     same day by deviation 4: the owner chose to refresh it, and step 8 did.)*
+2. **Where the relay's log is read.** On this host `journalctl --user -u mcrelay` shows only
+   systemd's "Started" line. The process's lines are in the system journal, read with
+   `journalctl --user-unit mcrelay`. Step 4 named the first. The second was used.
+3. **Step 3 ran under `run.py` in place of `timeout 240`**, for the reason given in step 3.
+4. **The host's unit is refreshed under this plan (the owner's decision).** Asked whether to leave
+   the unit, write a separate pair, or amend this plan, the owner chose "Amend 0231 to include it".
+   Step 8 is added for it. The Scope's "Out" items stand: the unit templates and
+   `TimeoutStartSec` are not changed. One installed unit is brought to the template it already
+   has.
+5. **Step 5 cannot run as written.** The owner said to run it ("Run it on staging"). The step's
+   example, a hosted zone that does not serve `<name>`, never reaches Let's Encrypt.
+   * certmagic's check polls the authoritative servers for the TXT for `PropagationTimeout`
+     (30 s), then returns "timed out waiting for record to fully propagate" (certmagic v0.25.6
+     `solvers.go:456-481`). That is not an `acme.Problem`. By D4 no record is written, and by F4
+     no validation is spent. The run would show the uncounted branch, not the cooldown.
+   * A counted failure needs Let's Encrypt to refuse after the TXT is in place, for example a CAA
+     record on a test name. The relay's role can write only TXT at `_acme-challenge.*`
+     (`docs/guides/iam-route53-acme.md:137-150`), so it cannot add one.
+   * **Resolved by the owner: "Close it as not runnable".** The other choices offered were a
+     temporary CAA record added by the owner on a test name, and running the uncounted branch
+     anyway. Step 5 is closed, not run. V3 rests on P2's tests, of which
+     `TestEnsureACMERecordsAFailedValidation` passes a CA's `unauthorized` problem through
+     certmagic's real wrapping. D4 has not been seen against Let's Encrypt's own error. The
+     MADR's Confirmation does not list a live cooldown check, so the MADR is unchanged.
+
+**Verification:** V6 is met by step 3, and V7 by step 4.
+
+**Files for this commit:** this PLAN.
+
+### P4 — Close-out (2026-11-05; the owner chose "Post comment and close", then "You push, I post+close")
+
+* **Step 1.** This PLAN is `complete`. The MADR was already `accepted`, dated 2026-11-05, and is
+  unchanged by P3's deviations (deviations 1 and 5 say why).
+
+  | # | Met by |
+  | :--- | :--- |
+  | V1 | P1 steps 5 and 6: `TestDNS01SolverWaitsForRoute53Sync`, failing on each of the five breaks |
+  | V2 | P1: `TestDNS01BudgetFitsTheStartBound`; `TestUnitIsTypeNotify` passes unchanged under `make race` |
+  | V3 | P2: `TestEnsureACMERefusesDuringCooldown` and `TestEnsureACMERecordsAFailedValidation`; `acme_http.go` has no change in `1f5e6413` or `09d82a8c`. Not seen live (deviation 5) |
+  | V4 | P2: `TestEnsureACMECooldownStillLoadsAStoredCertificate`; live, P3 step 8's restart loaded the stored certificate and placed no order |
+  | V5 | P1 and P2 gate tables, both hosts |
+  | V6 | P3 step 3 |
+  | V7 | P3 step 4 |
+  | V8 | P1 step 7 and P2 step 7 |
+
+* **Step 2.** The comment for issue #35 is drafted in the session scratchpad
+  (`le/issue35-comment.md`), with placeholders only. The owner pushes. After that, on the owner's
+  word, the agent runs the disclosure guard over the text, posts it, and closes the issue.
+* **Not done by this plan, and why:**
+  * The records index (P0 step 2): `docs/README.md` still holds the owner's uncommitted edits.
+    The first record change after they are committed runs `--write-index`.
+  * P3 step 5 (deviation 5).
+  * A release. The fix reaches other hosts only in a tagged release, which needs the owner's
+    word. Until then, a relay on 0.20.1 or older still has the race, and a unit installed before
+    0207-MADR D22 needs `mcrelay setup-service --refresh`, as P3 step 8 did.
+* **Found, outside this plan:** `docs/guides/iam-route53-acme.md` names the owner's real domain
+  in its example records. They came in with `ed21e326`, already pushed. The owner chose to redact
+  them going forward under a new pair. This plan does not touch them.
+
+**Files for this commit:** this PLAN.
