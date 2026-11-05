@@ -3,6 +3,7 @@ package certs
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -192,15 +193,36 @@ func EnsureACME(ctx context.Context, opts ACMEOptions) (*ACMEBundle, error) {
 	mctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	if err := magic.ManageSync(mctx, domains); err != nil {
-		cache.Stop()
-		return nil, fmt.Errorf("certs: acme: manage %s: %w", strings.Join(domains, ","), err)
-	}
-
 	directory := strings.TrimSpace(opts.DirectoryURL)
 	if directory == "" {
 		directory = certmagic.DefaultACME.CA
 	}
+
+	// No new order while a recent validation failure for these names stands,
+	// unless every name already has a certificate in storage (MADR 0231 D4).
+	stored := func(ctx context.Context, d string) error {
+		_, err := magic.CacheManagedCertificate(ctx, d)
+		return err
+	}
+	if err := refuseDuringCooldown(mctx, opts.StorageDir, directory, domains, nowFunc(), stored); err != nil {
+		cache.Stop()
+		return nil, err
+	}
+
+	if err := magic.ManageSync(mctx, domains); err != nil {
+		cache.Stop()
+		err = fmt.Errorf("certs: acme: manage %s: %w", strings.Join(domains, ","), err)
+		if problem, ok := cooldownProblem(err); ok {
+			if rerr := recordFailure(opts.StorageDir, directory, domains, problem, nowFunc()); rerr != nil {
+				err = errors.Join(err, fmt.Errorf("certs: acme: recording the failed validation: %w", rerr))
+			}
+		}
+		return nil, err
+	}
+	if err := clearFailure(opts.StorageDir); err != nil {
+		logger.Warn("could not remove the failed-validation record", zap.Error(err))
+	}
+
 	return &ACMEBundle{
 		Domains:   domains,
 		Directory: directory,

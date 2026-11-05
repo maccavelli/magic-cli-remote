@@ -441,3 +441,105 @@ The owner: "D1 insync alone D2 leave HTTP-01 alone it works fine. D3 we will com
 
 **Files for this commit:** `internal/certs/acme.go`, `internal/certs/acme_test.go`,
 `docs/guides/iam-route53-acme.md` and this PLAN.
+
+### P2 — The cooldown (2026-11-05)
+
+* **Step 1, read and recorded.**
+  * acmez v3.1.7's `acme.Problem` is a value type (`acme/problem.go:26`). A failed authorization
+    returns `fmt.Errorf("authorization failed: %w", firstProblem)` with that value
+    (`acme/authorization.go:261-269`).
+  * certmagic matches it with `errors.As(err, &problem)` (`config.go:759-762`,
+    `acmeissuer.go:427-428`). Its `ErrNoRetry` unwraps (`async.go:237`).
+  * `CacheManagedCertificate` (`certificates.go:257`) loads the key, the certificate and a
+    metadata JSON from storage (`crypto.go:261-290`) without the network. A missing one is
+    `fs.ErrNotExist`.
+* **Step 2, `internal/certs/acme_cooldown.go`** (new).
+  * `acmeCooldown` (12 min) and the record `mcremote-issuance-failure.json`, written to a temp
+    file and renamed, 0600 from `os.CreateTemp`.
+  * `cooldownProblem`, over the eight types.
+  * `recordFailure`, `activeCooldown`, `clearFailure`, and `ErrIssuanceCooldown`.
+  * `refuseDuringCooldown`, which takes the storage loader as a function. A future-dated record
+    is removed. `nowFunc` is the clock.
+  * The file's opening comment states the loop, the limit and the owner's HTTP-01 decision.
+* **Step 3, `EnsureACME`.**
+  * The directory is computed before `ManageSync`, not after.
+  * The cooldown gate runs before `ManageSync`, with `magic.CacheManagedCertificate` as the
+    loader. A counted problem is recorded after a failure; a write error is joined to the
+    returned error.
+  * After a success the record is cleared. A removal error is logged at warn through certmagic's
+    logger, because it cannot fail the start that succeeded. A stale record is harmless: the next
+    start has the certificate in storage, which the gate never blocks.
+  * `EnsureACMEHTTP` is unchanged, by the owner's decision.
+* **Step 4, `go.mod`.** `go mod tidy` moved `github.com/mholt/acmez/v3 v3.1.7` from the indirect
+  block to the direct one and changed nothing else. `go.sum` is unchanged. `go test ./internal/`,
+  the module guard, passes.
+* **Step 5, the tests.**
+  * `acme_cooldown_test.go`: `TestCooldownProblemTypes`, `TestCooldownRecordAndExpiry`,
+    `TestCooldownKeyedByDirectoryAndNames`, `TestCooldownFutureRecordIgnored` and
+    `TestCooldownRecordIsPrivate`, skipped on Windows. The types test wraps each problem as acmez
+    and certmagic do, `ErrNoRetry` included.
+  * `acme_test.go`: `TestEnsureACMERefusesDuringCooldown`, against an unreachable directory, and
+    `TestEnsureACMECooldownStillLoadsAStoredCertificate`. The step's fallback was not needed:
+    `(&certmagic.ACMEIssuer{CA: …}).IssuerKey()` derives the storage key offline. That test also
+    asserts that the success cleared the record.
+  * **Added beyond the step's list:** `TestEnsureACMERecordsAFailedValidation`. Its CA is an
+    `httptest` server that answers every request `403` with an `unauthorized` problem. It
+    shows that a failure coming through certmagic's real wrapping is recorded, and that the
+    next start refuses. That is D4's own behaviour, which the synthetic chain alone does not
+    prove. Its log line, certmagic's "could not get certificate from issuer … HTTP 403
+    urn:ietf:params:acme:error:unauthorized", shows the problem reached certmagic intact.
+* **Step 6, seen failing** (`le/plant_p2.py`, on a scratch copy, removed after):
+
+  | Break | Fails, with |
+  | :--- | :--- |
+  | `acmeCooldown = 0` | `TestCooldownRecordAndExpiry`: "until = …13:53:36…, want …14:05:36…: the cooldown is Let's Encrypt's 12-minute refill (MADR 0231 D4)" |
+  | `rateLimited` dropped from the types | `TestCooldownProblemTypes`: "urn:ietf:params:acme:error:rateLimited: cooldownProblem = …, false; want it to record the failure" |
+  | the gate in `EnsureACME` disabled | `TestEnsureACMERefusesDuringCooldown`: "err = certs: acme: manage …: registering account … with server: provisioning client: …", an attempted request in place of the sentinel |
+  | the stored-certificate check skipped | `TestEnsureACMECooldownStillLoadsAStoredCertificate`: "EnsureACME with a stored certificate: certs: acme: waiting out a failed validation: …" |
+  | the future-date rule removed | `TestCooldownFutureRecordIgnored`: "a record two minutes in the future blocks an order", and "the future record was not removed" |
+  | the record not written after a failure | `TestEnsureACMERecordsAFailedValidation`: "no failure was recorded after an unauthorized problem" |
+  | the record not cleared after a success | `TestEnsureACMECooldownStillLoadsAStoredCertificate`: "the failure record was not cleared after a successful load" |
+
+  The first plant first ran with the wrong expected text, "not active one second before". With
+  a zero cooldown the record is still active one second before its own time, so the test fails
+  on its `until` check instead. It did fail on an assertion. The expected text was corrected
+  and the plants re-run.
+* **Step 7, `docs/guides/iam-route53-acme.md`.** Two troubleshooting rows: the cooldown's
+  message, with what to do and what removing the record costs; and a relay unit left
+  `start-limit-hit`, with `reset-failed` and `start`. markdownlint "0 issues", and
+  `check_records.py --check-all` exit 0.
+* **Step 8, the gates** (logs `le/p2-*.log`):
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check FILES=` the four Go files | exit 0, "4 file(s) clean (gofmt, golint, govulncheck)". The log also holds one line from the shell, "child setpgid … Operation not permitted", which this host's sandbox prints; it is not a check result |
+  | `go vet ./...` on three GOOS, `make vet-tags`, `make lint` | exit 0 |
+  | `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" |
+  | `make vulncheck` | exit 0, "clear; allowlisted required-module findings: GO-2026-5932" |
+  | `make race` | exit 0; 48 `ok` (`internal`, `internal/certs` and `internal/relay` among them), no FAIL, panic or race |
+
+  **The hosts**, each on `HEAD` (`3929d0b9`) plus `acme.go`, `acme_test.go`, `acme_cooldown.go`,
+  `acme_cooldown_test.go` and `go.mod`:
+
+  | Run | Linux test host, `go test -race ./...` | Windows test host, `make ci-windows` |
+  | :--- | :--- | :--- |
+  | `0231p2` | exit 255. The ssh connection ended after two lines of output: no test result | exit 2: `TestOnlyOneConcurrentClaimWins` (`internal/session`), "TempDir RemoveAll cleanup: … The directory is not empty", after a background history write. 47 `ok` |
+  | `0231p2b` | exit 1: `TestNonBlockingProbeCoalescesConcurrentCallers` (`internal/provider/codex`), "no probe ran at all". 47 `ok` | exit 0, "ALL SELECTED CHECKS PASSED", 48 `ok` |
+  | `0231p2c` | exit 0, 48 `ok` | (not re-run) |
+
+  Neither failing test is in a package this plan changes. Both are recorded flakes:
+  * the Windows one is `ci-flakes.tsv`'s row for `a5737c44`, and
+    [0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md)
+    leaves it open, failing "at test cleanup";
+  * the Linux one is
+    [0193-MADR-warm-fresh-test-executables-before-timing-them.md](0193-MADR-warm-fresh-test-executables-before-timing-them.md)'s
+    "no probe ran at all" under a full race run on a loaded host. The host's 5-minute load average
+    was 2.5 on 4 cores.
+
+  Each passed on the next run. They are not fixed here, which would be outside this plan's
+  scope. Every scratch tree was removed and checked gone.
+* **The index** is still deferred (P0 step 2): `docs/README.md` still holds the owner's edits.
+
+**Files for this commit:** `internal/certs/acme.go`, `internal/certs/acme_test.go`,
+`internal/certs/acme_cooldown.go`, `internal/certs/acme_cooldown_test.go`, `go.mod`,
+`docs/guides/iam-route53-acme.md` and this PLAN.

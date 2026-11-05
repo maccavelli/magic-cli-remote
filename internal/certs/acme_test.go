@@ -2,13 +2,27 @@ package certs
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"errors"
+	"io/fs"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/caddyserver/certmagic"
 	"github.com/libdns/route53"
+	"github.com/mholt/acmez/v3/acme"
 	"go.uber.org/zap"
 )
 
@@ -142,6 +156,140 @@ func TestDNS01BudgetFitsTheStartBound(t *testing.T) {
 	if acmeRoute53SyncWait < 90*time.Second {
 		t.Errorf("acmeRoute53SyncWait = %v: under 90 s the waiter never checks after Route 53's 60 s (0231 F3)",
 			acmeRoute53SyncWait)
+	}
+}
+
+// unreachableDirectory makes any ACME request fail with a connection error,
+// so a test that sees ErrIssuanceCooldown instead knows no request was made.
+const unreachableDirectory = "http://127.0.0.1:1/directory"
+
+// TestEnsureACMERefusesDuringCooldown: with a fresh failure record and no
+// certificate in storage, EnsureACME refuses at once and orders nothing
+// (MADR 0231 D4).
+func TestEnsureACMERefusesDuringCooldown(t *testing.T) {
+	dir := t.TempDir()
+	domain := "unlikely-acme-test.invalid"
+	if err := recordFailure(dir, unreachableDirectory, []string{domain}, acme.ProblemTypeUnauthorized, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	_, err := EnsureACME(context.Background(), ACMEOptions{
+		Domains:      []string{domain},
+		Email:        "test@example.com",
+		DirectoryURL: unreachableDirectory,
+		StorageDir:   dir,
+		Timeout:      5 * time.Second,
+	})
+	if !errors.Is(err, ErrIssuanceCooldown) {
+		t.Fatalf("err = %v, want ErrIssuanceCooldown: an order was attempted during the cooldown", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("refusal took %v, want under 1s", elapsed)
+	}
+	for _, want := range []string{domain, acme.ProblemTypeUnauthorized, cooldownFileName} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q", err, want)
+		}
+	}
+}
+
+// TestEnsureACMECooldownStillLoadsAStoredCertificate: a cooldown never blocks
+// a name whose certificate is already in storage, and the success clears the
+// record (MADR 0231 D4).
+func TestEnsureACMECooldownStillLoadsAStoredCertificate(t *testing.T) {
+	dir := t.TempDir()
+	domain := "unlikely-acme-test.invalid"
+	storeTestCertificate(t, dir, unreachableDirectory, domain)
+	if err := recordFailure(dir, unreachableDirectory, []string{domain}, acme.ProblemTypeUnauthorized, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	b, err := EnsureACME(context.Background(), ACMEOptions{
+		Domains:      []string{domain},
+		Email:        "test@example.com",
+		DirectoryURL: unreachableDirectory,
+		StorageDir:   dir,
+		Timeout:      5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("EnsureACME with a stored certificate: %v", err)
+	}
+	defer b.Close()
+	if _, err := os.Stat(cooldownPath(dir)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the failure record was not cleared after a successful load: %v", err)
+	}
+}
+
+// TestEnsureACMERecordsAFailedValidation: when ManageSync fails with a counted
+// ACME problem, EnsureACME records it, and the next start refuses (MADR 0231
+// D4). The CA is a local server that answers every request with an
+// unauthorized problem, so nothing leaves the machine.
+func TestEnsureACMERecordsAFailedValidation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"type":"` + acme.ProblemTypeUnauthorized + `","detail":"test: no TXT record found"}`))
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	opts := ACMEOptions{
+		Domains:      []string{"unlikely-acme-test.invalid"},
+		Email:        "test@example.com",
+		DirectoryURL: srv.URL + "/directory",
+		StorageDir:   dir,
+		Timeout:      10 * time.Second,
+	}
+	if _, err := EnsureACME(context.Background(), opts); err == nil {
+		t.Fatal("EnsureACME succeeded against a CA that refuses everything")
+	} else if errors.Is(err, ErrIssuanceCooldown) {
+		t.Fatalf("the first start refused: %v", err)
+	}
+	rec, _, ok := activeCooldown(dir, opts.DirectoryURL, opts.Domains, time.Now())
+	if !ok {
+		t.Fatal("no failure was recorded after an unauthorized problem")
+	}
+	if rec.Problem != acme.ProblemTypeUnauthorized {
+		t.Errorf("recorded problem = %q, want %q", rec.Problem, acme.ProblemTypeUnauthorized)
+	}
+	if _, err := EnsureACME(context.Background(), opts); !errors.Is(err, ErrIssuanceCooldown) {
+		t.Errorf("second start: err = %v, want ErrIssuanceCooldown", err)
+	}
+}
+
+// storeTestCertificate writes a self-signed certificate for domain into
+// certmagic's storage layout, under the issuer key EnsureACME's issuer uses
+// for directory.
+func storeTestCertificate(t *testing.T, dir, directory, domain string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: domain},
+		DNSNames:     []string{domain},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(90 * 24 * time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuerKey := (&certmagic.ACMEIssuer{CA: directory}).IssuerKey()
+	storage := &certmagic.FileStorage{Path: dir}
+	ctx := context.Background()
+	for k, v := range map[string][]byte{
+		certmagic.StorageKeys.SiteCert(issuerKey, domain):       pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		certmagic.StorageKeys.SitePrivateKey(issuerKey, domain): pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}),
+		certmagic.StorageKeys.SiteMeta(issuerKey, domain):       []byte(`{"sans":["` + domain + `"]}`),
+	} {
+		if err := storage.Store(ctx, k, v); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

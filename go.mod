@@ -12,6 +12,7 @@ require (
 	github.com/maccavelli/go-selfupdate-lib v1.24.0
 	github.com/maccavelli/go-tui-lib/v2 v2.12.0
 	github.com/mdp/qrterminal/v3 v3.2.1
+	github.com/mholt/acmez/v3 v3.1.7
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
@@ -49,7 +50,6 @@ require (
 	github.com/libdns/libdns v1.1.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mattn/go-runewidth v0.0.27 // indirect
-	github.com/mholt/acmez/v3 v3.1.7 // indirect
 	github.com/miekg/dns v1.1.73 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
