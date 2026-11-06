@@ -1644,3 +1644,26 @@ gone. `go.mod` was `HEAD`'s, with `acp-go-sdk2` at v1.33.0.
 This PLAN is `complete` again.
 
 **Files for this commit:** `internal/session/claim_race_test.go` and this pair.
+
+### After P11, 2026-11-05: the Windows test host's temp directory
+
+By the owner's word, "Clean up that windows temp folder", for P11's "Not in P11" item. Script
+`libs/wintemp.py` in the session scratchpad. Each remote call is one PowerShell command. No path was
+printed.
+
+* **The targets:** directories directly in the default temp directory whose name is Go's
+  `t.TempDir` pattern (`Test`, word characters, ending in digits), untouched for 60 minutes or
+  more. Nothing else there was touched.
+* **Looked at first:** 1,479 targets, 157.2 MB, dated 2026-08-27 to 2026-11-05. 59 more were
+  newer than 60 minutes, from that day's diagnosis runs, and were skipped. 3 other `Test*` entries
+  do not match the pattern, and were left.
+* **Removed:** 1,479, with none failing. A survey after found 0 targets. The temp directory went from
+  5,443 entries to 3,964.
+* **What the names show.** `TestOnlyOneConcurrentClaimWins` left 89 of them. The largest groups
+  are other session tests, 190 each: `TestFlushPersistConcurrentMetaUpdate`,
+  `TestFlushPersistReReadsCurrentMeta`, `TestDurableHistorySurvivesManagerRestart` and
+  `TestLoadedThreadAdoptionSuppressesDuplicateManagedRecordsAndReco…`. Then 111 to 115 each of
+  `TestManagerWritesTheNameSource`, `TestResumeKeepsTheStoredNameSource`, `TestLineSessionTurn`,
+  `TestSessionCostIsTheLatestReportedTotal` and `TestSessionTotalsSurviveRelaunchAndRestart`. Each
+  left directory is a cleanup that failed on that host. Whether these tests leak writes as D13's
+  did is not established here. It is a finding for a record of its own.
