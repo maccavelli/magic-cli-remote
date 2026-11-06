@@ -299,6 +299,76 @@ repository; each library's release notes and `git diff` at its tags; `go list -m
   gobble-cli's own record and commit. Until it lands, Magic is ahead. As in F3d, 0184 D12's shared
   pin is needed only before `live-gobble`.
 
+**F3g. On 2026-11-05, `acp-go-sdk2` has two newer tags, v1.33.1 and v1.34.0. The first fixes a
+race at the notification queue's limit that Magic's `OverflowBlock` connections can meet. The
+second adds two exported helpers and changes `authenticate`'s refusal text. Neither changes the
+outcome of any `authenticate` call Magic makes.** *Observed 2026-11-05 (`git ls-remote --tags` of
+each sibling repository, twice, because v1.34.0 was tagged between the two reads; `go list -m -u` on
+`1c27206b`; `docs/reports/0049-REPORT-release-notes-v1-33-1.md` and
+`docs/decisions/0050-MADR-auth-method-ids-and-the-prompt-result-for-issue-14.md` at the tags;
+`diff -r` of the module trees in the module cache).*
+
+| Module | Pinned | Newest tag | Peeled commit, tag time (UTC) |
+| :--- | :--- | :--- | :--- |
+| `acp-go-sdk2` | v1.33.0 (F3f) | **v1.34.0** (v1.33.1 between) | `3013065d…`, 2026-11-06 02:09 |
+| `go-selfupdate-lib` | v1.24.0 (F3e) | v1.24.0, current | (no change) |
+| `go-tui-lib/v2` | v2.12.0 (F3f) | v2.12.0, current | (no change) |
+
+Magic requires no other sibling module, directly or indirectly (`go.mod`, `go.sum`).
+
+* **`go.mod` is the same at both tags.** Each tag's `/go.mod` hash equals v1.33.0's, so the
+  library's requirements are unchanged, and so is the schema (1.25.0).
+* **v1.33.1, no API change.** Its own `make api` against v1.33.0: "0 incompatible, 0 compatible".
+* **v1.33.1's fix, its R11:** a notification is now admitted by a count of those received and not
+  completed, up to `n + 1`, or `2n + 1` on `OverflowBlock`'s read-on path. Before, it was admitted
+  by whether a send to the queue's channel succeeded. That made the limit one notification lower
+  whenever the notification loop had not yet taken the head of the queue.
+  * **It reaches Magic.** `clientConnOptions` names `OverflowBlock` and takes the default queue of
+    1024 (`internal/provider/acpagent/acpagent.go:1269-1275`). Under that policy, a burst that
+    reached `2n` while the client's `Initialize` was in flight could close the connection one
+    notification early, with "connection ended before response". At 1024 that is rare, but the
+    outcome depended on goroutine scheduling, and now it does not.
+  * **Nothing is refused earlier** than before. The channel gains one slot.
+  * The stalled-pump tests flood `sdkNotificationQueueDepth + 200` frames
+    (`stalledpump_test.go:152,273,347`), so one slot more does not change what they assert. Magic
+    matches neither error the fix changes (`git grep` for `ErrNotificationQueueOverflow` and the
+    error's text: no match).
+* **v1.33.1's other Go changes:**
+  * `agentproc` gains an unexported test seam, `attachTree`, for `proctree.Attach`. `Start`
+    behaves as before;
+  * `types_gen.go` loses an unexported method that nothing called, `ConfigOptionUpdate.gates`;
+  * the rest are the library's tests, tooling and records.
+* **v1.34.0, by its 0050 MADR** (issue #14 there). It is a minor release: its D9 plans
+  `make api` against v1.33.1 as "0 incompatible, 2 compatible". The tree has no release-notes
+  report for it. Its Go changes are `helpers.go`, `types_gen.go` and `doc.go`, besides tests:
+  * **two new exported helpers:** `AuthMethod.ID()`, and `AuthenticateMethodIDs(methods)`, the
+    list of ids `authenticate` accepts. That list is the gate's own, generated in one function;
+  * **the gate counts an `Unknown` entry only by a string `"id"`** (its D1). Before, an entry
+    without one let `methodId: "unknown"` through. Now that id is refused;
+  * **the refusal names the accepted ids:** `…: methodId "x": <ErrUnadvertisedAuthMethod's
+    text>; authenticate accepts "a", "b"`, or `… accepts none`. `errors.Is` still holds;
+  * a godoc note that `PromptResponse.StopReason` has no default, and the package doc names
+    `ErrUnadvertisedAuthMethod`.
+* **What v1.34.0 changes for Magic: the refusal's text only.**
+  * Magic authenticates either an id `selectACPAuthMethod` picks, from its own list of `Agent`
+    entries' ids (`acpagent.go:1480-1486`) or the spec's key method, or the configured
+    `auth_method_id` (`acpagent.go:736-742`). An `Agent` id that no terminal entry names was
+    accepted before and is accepted now. A terminal id meets `ErrTerminalAuthMethod` first, as
+    before. An unadvertised id was refused before sending from v1.32.0 on (F3f, S8), and still
+    is.
+  * So on the configured-id branch, a session start that failed still fails, and its error
+    (`acp authenticate (<id>): …`) now ends with the accepted ids. No Magic test matches that
+    text (`git grep` for the sentinel and its text: no match).
+  * Magic sends no `"unknown"` id, and builds no `PromptResponse` outside its test agents, which
+    F3f already covers.
+  * **Not taken here:** the 0050 MADR's F10 reads Magic's own list of advertised ids as a copy of
+    the gate with a different rule, and offers `AuthenticateMethodIDs` in its place. Adopting it is
+    a source change, which D5's rule ("Adopting its new APIs … is not a pin") leaves to a record
+    of its own.
+* **gobble** pins `acp-go-sdk2 v1.33.1` on disk (gobble-cli's `go.mod`, read 2026-11-05). After
+  this move, Magic is one minor ahead. gobble's move is gobble-cli's own record and commit. As in
+  F3d, 0184 D12's shared pin is needed only before `live-gobble`.
+
 **F4. CI actions: four of eight are behind.** Each is pinned by commit, with a version comment.
 
 | Action | Pinned | Newest release, peeled commit |
@@ -616,7 +686,10 @@ Chosen option: **"B — Tiered by risk"**, because:
     v2.9.0; `go-selfupdate-lib` is already current (F3d). *Amended again 2026-11-04 (PLAN
     Deviation 19), by the owner: "We need to update pins for magic-cli-remote and gobble-cli",
     then "Sibling libs only".* Then `acp-go-sdk2` to v1.33.0 and `go-tui-lib/v2` to v2.12.0
-    (F3f). The indirect modules `go list -m -u` shows behind stay where they are.
+    (F3f). The indirect modules `go list -m -u` shows behind stay where they are. *Amended again
+    2026-11-05 (PLAN Deviation 20), by the owner: "pin the latest go-acp-sdk2", then "we need to
+    ensure the sibling repo dependencies are all pinned to latest. acp-go-sdk2 just updated".*
+    Then `acp-go-sdk2` to v1.34.0 (F3g). The other two sibling libraries are current.
   * `make vulncheck` must stay "clear" apart from `GO-2026-5932`.
 * **D5 — `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1, as an amendment to 0207 (F3, F3a).**
   *Amended 2026-10-30 by the owner, before phase 3: "pin go-selfupdate-lib to current v1.23.1".*

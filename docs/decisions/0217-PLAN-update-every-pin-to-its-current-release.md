@@ -2036,3 +2036,140 @@ to see fail.
 * gobble-cli's own pins (F3f). Its records are that repository's.
 
 **Files for this commit:** `go.mod`, `go.sum`, this PLAN and the 0217 MADR.
+
+### P3f — `acp-go-sdk2` v1.34.0
+
+#### Deviation 20 (2026-11-05): `acp-go-sdk2` v1.33.1 and v1.34.0 are tagged after P3e
+
+**Found** by the owner: "pin the latest go-acp-sdk2", meaning `acp-go-sdk2`, then "we need to
+ensure the sibling repo dependencies are all pinned to latest. acp-go-sdk2 just updated". At
+`1c27206b`, `go.mod` requires `acp-go-sdk2 v1.33.0`. The first read of its tags found v1.33.1 as
+the newest. The second found v1.34.0, tagged since. What each changes, and why neither changes an
+`authenticate` outcome for Magic, is the MADR's F3g. `go-selfupdate-lib v1.24.0` and
+`go-tui-lib/v2 v2.12.0` are current, and Magic requires no other sibling module.
+
+**Proposed: pin v1.34.0,** by P3e's steps for this one module. `ci.yml` does not name the library,
+so it does not change. Adopting `AuthenticateMethodIDs` is not in this phase (F3g). Waits for the
+owner's approval.
+
+1. P0: the tree holds only this record, the 0217 MADR, and the owner's own uncommitted edits
+   (`docs/README.md`, the 0179 pair, the 0228 and 0229 drafts), none staged. Every sibling
+   library's tags are re-read with `git ls-remote`. `v1.34.0^{}` (`3013065d…`) must still be
+   `acp-go-sdk2`'s newest tag, and the other two must still be current. A newer tag is a stop, to
+   amend F3g. `go.mod` and `go.sum` are copied aside.
+2. `go get github.com/maccavelli/acp-go-sdk2@v1.34.0`, then `go mod tidy`. `go.mod` changes only
+   that line, `go 1.27.3` stays, `go.sum` changes only that module's lines with its `/go.mod` hash
+   unchanged, and `go list -m -u` shows no direct sibling module behind.
+3. The gates of P3e step 3:
+   * `make pre-add-check`;
+   * `go vet` on three GOOS and `make vet-tags`;
+   * `make staticcheck`;
+   * `make vulncheck`;
+   * `make race`, with `internal/provider/acpagent` and `internal/wirecap` among its packages;
+   * check-libs on the step's content.
+
+   Then `make check-libs` runs on the owner's commit. No live agent run: no value Magic sends
+   changes (F3g).
+4. P3e step 4's host runs: `go test -race ./...` on the Linux test host and `make ci-windows` on
+   the Windows test host.
+5. Stage `go.mod`, `go.sum`, this PLAN and the 0217 MADR.
+
+**Scope.** No file is added. No source or test changes. No check is added, so there is nothing
+to see fail.
+
+**Approved** by the owner, 2026-11-05: "I am working on gobble-cli in its own repo. Proceed to
+p3f". Steps 1 to 3 ran, and step 4 stopped on Deviation 21. The execution record follows once P3f
+resumes.
+
+#### Deviation 21 (2026-11-05): the Windows host gate fails in a test that leaks its writes
+
+**Found** at step 4 (logs `libs/`, `leftovers/pins_p3f*_windows.log`). The Linux test host passed:
+`go test -race -count=1 ./...`, 48 `ok`. On the Windows test host, `make ci-windows` exited 2 twice
+in a row, each time on one test, with the other 47 packages `ok`:
+
+```text
+--- FAIL: TestOnlyOneConcurrentClaimWins
+    testing.go:1619: TempDir RemoveAll cleanup: unlinkat C:\Users\<user>\AppData\Local\Temp\TestOnlyOneConcurrentClaimWins…\001\sessions: The directory is not empty.
+```
+
+**Is it the move?** No. The test alone on the Windows test host, `-count=N`, in scratch copies
+(`libs/p3f_win_ab.py`, `libs/p3f_win_diag.py`, `libs/p3f_win_diag2.py`):
+
+| Tree | `acp-go-sdk2` | Temp directory | Result |
+| :--- | :--- | :--- | :--- |
+| `HEAD` | v1.33.0 | default | 0 pass, 10 fail, each a cleanup error |
+| `HEAD` + `go.mod`/`go.sum` | v1.34.0 | default | 0 pass, 10 fail, each a cleanup error |
+| `e2d6493b`, where P3e's Windows gate passed | v1.31.2 | default | 0 pass, 5 fail, each a cleanup error |
+| `HEAD` + `go.mod`/`go.sum` | v1.34.0 | a scratch folder under the user's home | 10 pass; 1,800 `history.json` files left behind |
+
+* No commit since `e2d6493b` touches `internal/session`, the fake provider or `internal/fsutil`.
+* CI's Windows job passes on `master` (run `42093103103`, on `2ad168ff`).
+* **The cause is in the test** (0201-MADR's D13 amendment). The files left behind are the test's
+  own, `<testdir>/001/sessions/<id>/history.json`, written after its cleanup. The test never
+  calls `CloseAll`, which every other session test that builds a manager does, so the manager's
+  debounced history writes outlive it.
+* **The host.** Bitdefender is the active antivirus, and Defender's service is stopped. The last
+  boot and the last hotfixes are from 2026-10-14 and 2026-10-15. The default temp directory holds
+  5,426 entries, 1,525 of them `Test*` directories that earlier cleanups left. Why the test
+  passed there on 2026-11-04 and fails every time now is not established.
+
+**Decided** by the owner, out of three options each:
+1. First "Diagnose the host first", over staging the pin and fixing apart, or fixing first.
+2. Then, with the cause found, "Fix first, amend 0201 (Recommended)", over staging the pin first,
+   or a new pair for the fix.
+
+So P3f waits. The fix is 0201's P11, with its own commit. Then step 4 is re-run on `HEAD`
+(with the fix) plus `go.mod` and `go.sum`, and P3f goes on from there. `go.mod` and `go.sum` stay
+in the working tree, unstaged, until then. Steps 1 to 3 are not re-run, unless `HEAD` changes
+anything besides the test file and records.
+
+#### P3f, executed (2026-11-05; approved by the owner: "Proceed to p3f", then "Commit to master and proceed")
+
+* **Step 1.** `git status` at `1c27206b` showed only this pair's edits and the owner's own
+  uncommitted files: `docs/README.md` and the 0179 pair, modified, and the 0228 pair and 0229
+  MADR, untracked. None was staged. `git ls-remote --tags` of each sibling repository
+  (`libs/newest_tag.py`): `acp-go-sdk2` v1.34.0, peeled `3013065de257…`, `go-selfupdate-lib`
+  v1.24.0 and `go-tui-lib` v2.12.0, each still the newest tag. `go.mod` and `go.sum` were copied to
+  `libs/p3f-base/`.
+* **Step 2** (`libs/p3f-goget.log`): "upgraded github.com/maccavelli/acp-go-sdk2 v1.33.0 =>
+  v1.34.0".
+  * After `go mod tidy`, `go.mod` changes only that line and `go.sum` only its two. The `/go.mod`
+    hash is unchanged, so the library's requirements did not move.
+  * `go 1.27.3` is unchanged. `go list -m -u`, filtered to direct modules, lists none behind.
+* **Step 3, this Mac** (`libs/p3f_gates.py`, logs `libs/p3f-*.log`):
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check` | exit 0, "997 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go vet ./...` (`libs/vet_goos.py`) | darwin/arm64, windows/amd64, linux/amd64: exit 0 each |
+  | `make vet-tags` | exit 0, every tag ok |
+  | `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" for each GOOS |
+  | `make vulncheck` | exit 0, "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+  | `make race` | exit 0; 48 `ok` (`internal/provider/acpagent`, `internal/provider/acpagent/acptest` and `internal/wirecap` among them), no FAIL, panic or data race |
+  | `go list -m -u`, direct modules | none behind |
+  | check-libs on the step's content (`libs/check_libs_content.py go.mod go.sum`) | exit 0, "0 failing checks; scratch removed"; "pinned v1.34.0, checking v1.34.0" and "pinned v1.24.0, checking v1.24.0", every check ok; the clone removed and checked gone |
+
+  check-libs' `api` row reads "pinned at v1.34.0; nothing to compare", because the content clone
+  already pins the version it checks. So no tool compared the API across this move. The release's
+  0050 MADR plans `make api` against v1.33.1 as "0 incompatible, 2 compatible", and v1.33.1's own
+  notes report "0 incompatible, 0 compatible" against v1.33.0. F3g's read of the diffs agrees:
+  the exported additions are `AuthMethod.ID` and `AuthenticateMethodIDs`, and nothing is removed.
+* **Step 4.** The first runs, on `1c27206b` plus `go.mod` and `go.sum`, stopped on Deviation 21.
+  After 0201's P11 was committed as `5fe312d6`, step 4 was re-run on `5fe312d6` plus `go.mod` and
+  `go.sum` (`PINS_PHASE=p3f-r`):
+  * the Linux test host: `go1.27.3`, `go test -race -count=1 ./...` exit 0, 48 `ok` lines;
+  * the Windows test host: `go1.27.3`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED
+    CHECKS PASSED", 48 `ok` lines.
+
+  Neither log has a FAIL, panic or race line. Both scratch trees were removed and checked gone.
+  `HEAD` moved only by the test file and 0201's records, so steps 1 to 3 were not re-run.
+* **Step 5.** Committed by the agent, on the owner's "Commit to master and proceed": `go.mod`,
+  `go.sum`, this PLAN and the 0217 MADR. `make check-libs` runs on that commit.
+
+**Not done in P3f:**
+* Adopting `AuthenticateMethodIDs` in place of Magic's own list of advertised ids (F3g). It is a
+  source change, which needs its own record.
+* gobble-cli's pins (F3g). The owner is moving them in that repository.
+* The 1,525 `Test*` directories in the Windows test host's default temp directory (0201's P11).
+
+**Files for this commit:** `go.mod`, `go.sum`, this PLAN and the 0217 MADR.
