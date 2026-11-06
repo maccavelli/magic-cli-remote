@@ -2,12 +2,12 @@
 status: proposed
 date: 2026-11-03
 decision-makers: Project Owner
-consulted: "this repository at 3489184b, read from code; gobble-cli at 9b5535a and its tags v0.1.0 and v0.1.1, read from code; acp-go-sdk2 v1.31.2, read from source; 0184, 0186 and 0208 and their PLANs; issue #33"
+consulted: "this repository at 3489184b, read from code; gobble-cli at 9b5535a and its tags v0.1.0 and v0.1.1, read from code, and at 67f72fb with its proposed 0042-MADR; acp-go-sdk2 v1.31.2, read from source; 0184, 0186 and 0208 and their PLANs; issue #33"
 informed: gobble-cli, acp-go-sdk2
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD033 MD036 MD060 -->
 
-# Register gobble as a native ACP provider: a thin Spec over the shared adapter, two `_gobble/*` operations, and no client files, terminals or ACP authentication
+# Register gobble as a native ACP provider: a thin Spec over the shared adapter, two `_gobble/*` operations on gobble's `acpext` types, phone provider-auth, and no client files or terminals
 
 ## Context and Problem Statement
 
@@ -37,6 +37,14 @@ The owner's instruction for the rewrite (2026-11-03) was:
   included";
 * "write the full scope of the gobble contract as required by magic-cli-remote to adopt and register it";
 * "omit fs/terminal and auth via acp authenticate".
+
+The third bullet's authenticate omit was withdrawn the same day (see the amendment below). D2 still omits fs and
+terminal. D3 now implements 0186 Q4: the phone configures gobble's upstreams through 0074, and the session handshake
+calls `authenticate` when a credential exists.
+
+Later the same day the owner added: "in addition to acp auth and phone configuration working, i want the acpext
+module." D13 takes gobble's `acpext` module (gobble-cli `docs/decisions/0042-MADR-acpext-extension-contract-module.md`,
+proposed), and the second amendment below lists what that changed.
 
 The old body is in this file's history (last changed in `b1454ab1`), and the note at the end says what it decided.
 
@@ -220,6 +228,11 @@ code, the code is cited.
   * The first sixteen requests are frozen by gobble-cli's `0002-PLAN-cli-acp-headless-mcp-v1.md` ("Phase 7 made
     executable"). The rest come from its `0005-PLAN-v1-feature-scope.md` F5-1 and F5-2 and its
     `0022-MADR-gobble-voice-and-personalities.md`. gobble exports no Go package of these types.
+  * *Added 2026-11-03, second amendment:* gobble-cli's proposed `0042-MADR-acpext-extension-contract-module.md` publishes
+    them as the nested module `github.com/maccavelli/gobble-cli/acpext`. It holds the twenty-three method names, every
+    params and result type, `_meta.gobble`'s `CapabilitiesMeta`, `AuthProvider` and `AuthProviders()`, and
+    `ErrorData`. It requires acp-go-sdk2 alone, and gobble's `acpserver` serves from it with its wire unchanged. Its
+    first tag is to be `acpext/v0.1.0`. Neither the module nor the tag exists at gobble-cli's `67f72fb`.
 * **Embedding.** `gobble.New`'s `ServeACP` and `Connect` return `errors.ErrUnsupported`. The supported integration is
   the binary.
 * **Self-update.** `gobble update` does not exist yet (gobble-cli `0005-PLAN-v1-feature-scope.md` F10).
@@ -238,6 +251,12 @@ Set against the three lists above, this is the whole gap:
 * **G5. Nothing pins gobble's wire.** There are no fixtures, no `live-gobble`, and no gobble release that carries the
   surface above. `v0.1.1` predates `ServeAgent` and the grouped model option; it already had the two requests and
   `_gobble/retry`.
+* **G6. The phone cannot configure gobble's credentials.** gobble advertises agent auth methods and stores keys in its
+  own `auth.json`. Magic has no gobble `AuthStatus` / `SetCredential` / `StartDeviceAuth` hooks, so the 0074 screens
+  have nothing to drive. A host still needs `gobble auth login` or an environment variable.
+* **G7. This repository would hand-write gobble's JSON.** Method names, field names and the auth provider list would
+  be copied from gobble's source into the gobble package, where only a fixture capture would catch a drift. That is
+  how the old body's `instructions` came to differ from gobble's `customInstructions` (0179-REPORT M9, R3).
 
 ### What the old body or issue #33 asked for that is no longer needed
 
@@ -258,37 +277,46 @@ Set against the three lists above, this is the whole gap:
 * **stdio MCP.** gobble takes `http` servers; this daemon forwards `http` and `sse`, each only when advertised.
 * **A shared `acpext` module.** This record calls two requests and handles two notifications. A golden fixture of
   each pins the JSON instead.
-* **ACP `authenticate`, and client files and terminals.** Omitted by the owner's instruction. 0186's Q4 is replaced
-  for gobble by D3; its Q3 stands.
+  *Withdrawn 2026-11-03 by the second amendment: the owner asked for the module, and D13 takes it. The fixtures stay,
+  as D11 says.*
+* **Client files and terminals.** Omitted (D2); 0186 Q3 stands. ACP `authenticate` and the phone's provider-auth flow
+  are in D3, not omitted.
 
 ## Decision Drivers
 
-* Use what the shared adapter and the SDK already do. Build only G1 to G5.
+* Use what the shared adapter and the SDK already do. Build only G1 to G7.
+* gobble's names and shapes come from gobble, through `acpext`. This repository keeps no copy of them (G7).
 * Every command and menu the phone shows for a gobble session executes in gobble. Nothing is sent that gobble does not
   serve (0023, 0208 D7).
 * gobble's own commands pass through unchanged (0208 D9).
 * No vendor code in `acpagent` (0208 D2), and no gobble code outside `internal/provider/gobble` and the registration
   places.
-* gobble works with its own credentials, files and shell on the host. No secret crosses ACP.
+* gobble's credentials live in gobble's store. Magic writes that store through 0074, the same way it writes grok's and
+  the OpenCode/Kilo engines'. No secret is kept in mcremote config. No secret crosses ACP `authenticate` (gobble-cli
+  0016 A2).
 * The contract is pinned by fixtures from a gobble release tag, never from gobble's main branch (0186 D9).
 
 ## Considered Options
 
 * **A. A thin `internal/provider/gobble` on today's adapter.** Spec settings, two operations and two notification
-  handlers; commands passed through; no client files, terminals or ACP authentication; gated on 0208's P7 and a
-  gobble release tag.
+  handlers; commands passed through; no client files or terminals; no ACP authentication and no phone provider-auth;
+  gated on 0208's P7 and a gobble release tag.
 * **B. Issue #33's full set.** As A, plus operations for compact, usage and fork by entry, a steer and follow-up path,
   `ListModels` before the first session, and a shared `acpext` module.
-* **C. As A, with ACP authentication** (0186 Q4). gobble's `agent` methods, chosen through `SafeAuthMethodIDs`, and the
-  phone's provider-auth flow.
+* **C. As A, with ACP authentication and phone provider-auth** (0186 Q4). gobble's `agent` methods, chosen through
+  `SafeAuthMethodIDs`, and the phone's 0074 flow writing gobble's store.
 * **D. As A, after 0208's P8 to P10.** Register gobble only once one descriptor, capability-driven phone menus and the
   shared conformance suite exist.
 
 ## Decision Outcome
 
-Chosen option: **"A. A thin `internal/provider/gobble` on today's adapter"**, because it closes G1 to G5 and nothing
-else. Everything else gobble needs, the adapter and the SDK already do. It also follows the owner's instruction
-(no client files, terminals or authentication). D1 to D12 below are the contract.
+Chosen option: **"C. As A, with ACP authentication and phone provider-auth"**, because it closes G1 to G6, keeps D2's
+omit of fs and terminal, and is 0186 Q4. The rewrite-day omit of `authenticate` was withdrawn (amendment below). D1 to
+D12 below are the contract.
+
+*Second amendment, 2026-11-03:* the chosen option is C **with gobble's `acpext` module** (D13), which closes G7. Of
+option B, only its `acpext` item is taken; its operations, steer path and `ListModels` stay out. D1 to D13 are the
+contract.
 
 ### D1. Identity and launch
 
@@ -316,28 +344,56 @@ else. Everything else gobble needs, the adapter and the SDK already do. It also 
   adapter counts the refusal and ends the turn with a notice (`session.go:635-668`). A fixture test pins that gobble
   sends none (D11).
 
-### D3. No ACP authentication
+### D3. Phone provider-auth writes gobble's store; ACP `authenticate` is the handshake
 
-* The gobble Spec sets none of the auth-policy fields: `SafeAuthMethodIDs`, `AuthPreference`, `KeyAuthMethodID` and
-  `HasHeadlessCredential`. It sets none of the phone-auth hooks either: `AuthStatus`, `AuthCatalogList`,
-  `SetCredential`, `ClearCredential`, `CredentialModel`, `SetActiveUpstream` and `StartDeviceAuth`.
-  * With no pin and no safe ids, the handshake never calls `authenticate`. It logs gobble's advertised methods at
-    Debug and goes on to `session/new` (`acpagent.go:684-719`).
-* Configuration refuses a non-empty `providers.gobble.auth_method_id`. Without that, an operator's pin would make the
-  handshake authenticate.
-* gobble's credentials are gobble's, on the host. The operator stores them for the service's account with
-  `gobble auth login <provider>` (in gobble's config directory), or sets the provider's environment variable in the
-  service environment. This repository adds no credential setting for gobble.
+This is 0186 Q4. It does not add `go-llmprovider-sdk` to this module (0185). gobble already implements ACP
+authentication on that SDK's `TokenStore` (gobble-cli 0016 A2, 0019 D11). Magic drives it through
+[0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote-provider-auth-from-phone.md), as it drives grok.
+
+* **Catalog and status** (0074 D16, D3). The Spec sets `AuthCatalogList` and `AuthStatus`.
+  * The catalog is gobble's key providers, in registry order: gemini, openai, claude, grok, opencode-zen, opencode-go,
+    huggingface, kilo and together. Source is `static` (the SDK descriptor table, not a live engine). Ollama takes no
+    key and is omitted.
+  * Each upstream offers `api_key`. `oauth_device` is offered for `grok` (gobble keeps the login) and `kilo` (device
+    yields a key). `oauth_browser` is offered for `grok` and marked unavailable (`host_oauth` / W3), as grok's own
+    browser method is. Claude is key-only (0074 D12). OpenAI browser and device logins are the Codex client's; gobble
+    does not offer them (gobble-cli 0031 D7).
+  * Status is presence in gobble's store (and the provider's environment variable), never the secret. `session/new` is
+    not required: the phone's settings sheet lists and writes credentials with no gobble session open.
+  * *Second amendment, 2026-11-03:* the catalog is `acpext.AuthProviders()` (D13), not a list kept here. Its order is
+    the registry's, an entry's `ID` is the upstream id and the agent method id, and its `Name` is the label. `Login`
+    marks the providers with a sign-in, grok and kilo today, which are the ones offered `oauth_device`. A provider
+    gobble adds reaches the phone at the next `acpext` bump, with no edit here.
+* **Writes** (0074 D1, D2, D11). The Spec sets `SetCredential` and `ClearCredential`.
+  * A key is written into gobble's native store (`<config>/auth.json`, gobble-cli `internal/auth/resolve.go`), for the
+    service account. Magic keeps no copy. The phone treats the secret as write-only.
+  * `<config>` is gobble's: `GOBBLE_CONFIG_DIR`, else `GOBBLE_HOME`, else `$XDG_CONFIG_HOME/gobble`, or
+    `%APPDATA%\gobble` on Windows.
+  * Device OAuth is `StartDeviceAuth`, running gobble's device sign-in for `grok` and `kilo` (gobble-cli
+    `llm/provider.SignIn` with `MethodDevice`, and `gobble auth login … --json` as 0016 A3). The phone shows the user
+    code over the existing 0074 device-flow messages. Browser loopback stays W3.
+  * gobble is not added to the Codex/Grok transactional coordinator (`internal/daemon/credentials.go`). Those
+    coordinators exist for destructive CLI logins (0074 D8, D21). gobble's file write is the OpenCode-family shape: the
+    agent's store, then a presence check.
+* **Handshake.** The Spec sets `SafeAuthMethodIDs` to gobble's agent method ids (the provider ids). `HasHeadlessCredential`
+  is true when any catalogued upstream has a credential. `AuthPreference` is the configured upstreams, then the rest.
+  `providers.gobble.auth_method_id`, when set, must be one of those ids.
+  * When a credential exists, `acpagent` calls `authenticate` with that agent method. gobble answers `{}` or
+    `auth_required`; no secret is on that call.
+  * When none exists, `authenticate` is not called, `authRequired` is set, and `Start` fails with
+    `ErrACPAuthRequired` (`acpagent.go:982-984`). The phone already handles that: open settings, add a key or finish a
+    device flow, start again. A prompt with no model still returns gobble's -32000, classified `KindAuth`, as a second
+    line of defence (D11).
+  * Terminal methods (`<provider>-login`) are not advertised, because D2 leaves `auth.terminal` false. The phone must
+    not depend on them.
+  * *Second amendment, 2026-11-03:* `SafeAuthMethodIDs` is the `ID`s of `acpext.AuthProviders()`. The `data` of
+    `authenticate`'s `auth_required`, and of a prompt's -32000, is read as `acpext.ErrorData` (`provider`, `reason`,
+    `command`, `error`). The phone's message names `ErrorData.Command` when it is set.
 * `Spec.CredentialEnv` is not set. gobble's provider variables are `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`,
   `OPENAI_API_KEY`, `XAI_API_KEY`, `OPENCODE_API_KEY`, `HF_TOKEN`, `KILO_API_KEY` and `TOGETHER_API_KEY`
   (go-llmprovider-sdk `v1.25.0`'s `provider.go:97-107`). Each ends in `_API_KEY` or `_TOKEN`, which the stderr tail
   already scrubs by name (`internal/provider/stderrtail/stderrtail.go:49`).
-* A missing credential surfaces at the first prompt as gobble's -32000. The adapter's `agenterr` presentation reads
-  its `data` and classifies it `KindAuth`, so the phone shows gobble's own sentence: which environment variable or
-  `gobble auth login` command fixes it. A fixture test pins this (D11).
-* **This replaces 0186 Q4 for gobble**, by the owner's instruction of 2026-11-03. Q4 had gobble register only once it
-  advertised an auth method, and had Magic drive `authenticate` from the phone. The PLAN's records phase adds a dated
-  note to 0186's Q4.
+* **0186 Q4 stands.** The rewrite-day replacement of Q4 is withdrawn. The PLAN's records phase notes that on 0186.
 
 ### D4. Version
 
@@ -347,6 +403,8 @@ else. Everything else gobble needs, the adapter and the SDK already do. It also 
 * `MinVersion` is not set. A build made after a tag reports a prerelease of that tag, which SemVer orders before the
   tag itself. A floor at the tag would therefore refuse every development build of the release it names.
 * This repository never runs `gobble update` (0186 Q5). gobble does not have one yet.
+* *Second amendment, 2026-11-03:* the `acpext` version this repository requires is the one the `KnownGoodVersion`
+  release was built with. `go version -m` on that release binary names it, and the PLAN records both at capture time.
 
 ### D5. Session lifecycle
 
@@ -409,6 +467,11 @@ Only what the adapter already does with any Spec. With gobble's capabilities, th
     that refusal.
 * No other op is set. Compact, undo, usage, status, the limit confirmation, and the workspace, shell, revert, diff and
   skill operations stay nil.
+* *Second amendment, 2026-11-03:* both calls are written with `acpext`'s names and types (D13):
+  * Rename sends `acpext.MethodSetSessionName` with `acpext.SetSessionNameParams`;
+  * Fork sends `acpext.MethodClone` with `acpext.SessionParams`, and decodes `acpext.CloneResult`.
+
+  The gobble package holds no `"_gobble/…"` string literal.
 
 ### D9. Two notification handlers
 
@@ -423,6 +486,11 @@ Only what the adapter already does with any Spec. With gobble's capabilities, th
 `_gobble/personality` is not registered; the adapter declines it at Debug, as any unregistered notification. gobble's
 other requests are not called.
 
+*Second amendment, 2026-11-03:* the handlers are registered under `acpext.MethodRetry` and `acpext.MethodCompaction`.
+They decode `acpext.RetryNotice` and `acpext.CompactionNotice`, and compare phases and reasons with acpext's
+constants. The decode is `encoding/json`'s, through the `json.RawMessage` the adapter hands a handler, which is the
+same type as `jsontext.Value`.
+
 ### D10. Registration
 
 0208's P8 descriptor does not exist. gobble is registered at the places a provider is registered today, with no third
@@ -433,14 +501,15 @@ way invented. If P8 has landed by the PLAN's registration phase, it is one descr
   * a `GobbleProviderConfig` embedding `ACPProviderConfig` in `ProvidersConfig` (`internal/config/config.go:449-507`);
   * its defaults and viper defaults, with the environment prefix `MCREMOTE_PROVIDERS_GOBBLE_*`;
   * the relative-path fix-up;
-  * validation through `validateACPProvider`, plus D3's `auth_method_id` refusal;
+  * validation through `validateACPProvider`; `providers.gobble.auth_method_id`, when set, must be one of gobble's
+    agent method ids (D3);
   * `docs/guides/config.md`.
 * **The daemon:**
   * `Run`, `InspectProviders` and `prewarmPlan` (`internal/daemon/daemon.go`), through `acpAgentConfig`;
   * `KnownProviderIDs` (`internal/config/prewarm_write.go:28`).
 
-  The credential guard (`daemon/credentials.go:45-50`) does not list gobble; gobble's credentials are not the daemon's
-  (D3).
+  The credential guard (`daemon/credentials.go:45-50`) does not list gobble: gobble's writes go to gobble's store
+  (D3), not the Codex/Grok coordinators.
 * **Doctor:** `engineBins` gains `gobble` (`internal/cli/doctor.go:171-179`).
 * **Tests:**
   * the provider lists in `internal/command/conformance_test.go`, `resolve_order_test.go`,
@@ -450,6 +519,9 @@ way invented. If P8 has landed by the PLAN's registration phase, it is one descr
   that exist are 0208 P9's.
 * **Make:** `live-gobble`, its `.PHONY` entry and the build-tag vet.
 * **Default provider:** unchanged here. 0208 P9 makes gobble the built-in default.
+* *Second amendment, 2026-11-03:* **the module graph.** `go.mod` and `go.sum` gain
+  `github.com/maccavelli/gobble-cli/acpext`, in the commit that adds its first import (the gobble package). Nothing
+  else enters the graph: acpext requires only acp-go-sdk2, which this repository already pins.
 
 ### D11. What pins the contract
 
@@ -463,21 +535,34 @@ way invented. If P8 has landed by the PLAN's registration phase, it is one descr
 * **Unit tests in the gobble package,** on `acpagent/acptest` and `Provider.StartOn`, replaying those frames. Each is
   seen failing first on a planted break:
   1. the `initialize` request advertises no `fs`, no `terminal` and no `auth.terminal`;
-  2. no `authenticate` is sent, with `auth_method_id` empty;
+  2. with a credential, `authenticate` is sent with that provider's agent method id; with none, `Start` fails
+     `ErrACPAuthRequired` and no `session/new` is sent;
   3. the session declares exactly `CapRename` and `CapFork` among the Ops-backed capabilities, plus model and thinking
      from the options;
   4. Rename and Fork send exactly the D8 frames and map the answers; mid-turn they return the refusal;
   5. the two notifications produce the D9 events;
-  6. the no-credential prompt is presented as `KindAuth` with gobble's sentence;
+  6. a no-credential prompt (when `Start` is forced past the handshake, or gobble answers -32000) is presented as
+     `KindAuth` with gobble's sentence;
   7. a recorded session sends no method outside D5, D6 and D8 (no `_x.ai/*`, no other `_gobble/*`, no `fs/*` or
-     `terminal/*` answer).
+     `terminal/*` answer);
+  8. `AuthCatalogList` names the nine key providers; `SetCredential` for `openai` (or another key-only id) makes
+     `AuthStatus` configured and the next `Start` authenticate; `StartDeviceAuth` for `claude` is
+     `ErrAuthMethodUnsupported`.
+  9. *Second amendment, 2026-11-03:* every captured `_gobble/*` frame, and `initialize`'s `_meta.gobble`, decodes
+     into its `acpext` type and encodes back to the same JSON, compared as values. The test decodes with unknown
+     members rejected, so a field the capture has and acpext lacks fails it. That strictness is the test's only;
+     gobble's own decoding takes none (gobble-cli 0039-MADR D19). `AuthCatalogList` equals
+     `acpext.AuthProviders()`.
+  10. *Second amendment:* only `internal/provider/gobble` imports `acpext`, checked by a source test as
+      `TestNoProviderIsNamedInAcpagent` checks names.
 * **`live-gobble`,** against the installed tag, only on the owner's word, since it spends a provider's quota. It runs:
   * `/model` and `/thinking` producing `session/set_config_option` and the phone's state;
   * the grouped model catalog;
   * a phone rename and fork;
   * `/compact` passed through with its argument;
   * a turn with a tool call;
-  * a recorded connection with no `fs/*`, `terminal/*` or `authenticate`.
+  * a recorded connection with no `fs/*` or `terminal/*`;
+  * `authenticate` after a stored key, and a catalog write that does not open a session.
 
 ### D12. Gates
 
@@ -490,6 +575,37 @@ gobble is registered only when all of these hold:
 3. **Both repositories pin the same acp-go-sdk2 tag** at capture time (0184 D12). They do today: `v1.31.2`.
 4. **D11's unit tests pass,** each seen failing first, and `live-gobble` passes on the owner's word.
 5. **grok's, opencode's, kilo's and codex's suites pass unchanged.**
+6. *Second amendment, 2026-11-03:* **an `acpext` tag exists and is served by the module proxy.** It is the one the
+   gate-2 release was built with (D4), and its acp-go-sdk2 requirement is at or below this repository's pin. A higher
+   one would raise this repository's SDK through MVS, which is 0184 D12's lockstep bump, not part of this record.
+
+### D13. gobble's `acpext` module
+
+*Added 2026-11-03 by the second amendment.*
+
+* **What it is.** gobble-cli's nested module `github.com/maccavelli/gobble-cli/acpext`, tagged `acpext/vX.Y.Z`
+  (gobble-cli `0042-MADR-acpext-extension-contract-module.md`).
+  * It holds gobble's `_gobble/*` method names, their params and results, `_meta.gobble`'s `CapabilitiesMeta`,
+    `AuthProvider` and `AuthProviders()`, and `ErrorData`.
+  * It holds no behaviour. It requires acp-go-sdk2 alone.
+  * gobble serves from it, so its types are the wire of every gobble built with that version.
+* **What this repository uses.**
+  * D3: `AuthProviders()` and `ErrorData`;
+  * D8: `MethodSetSessionName`, `SetSessionNameParams`, `MethodClone`, `SessionParams` and `CloneResult`;
+  * D9: `MethodRetry`, `RetryNotice`, `MethodCompaction`, `CompactionNotice` and their constants;
+  * D11: `CapabilitiesMeta` and `MetaKey`, read in the fixture test.
+
+  Nothing else is called, so nothing else in acpext changes what this repository sends.
+* **Where it may be imported.** Only `internal/provider/gobble` (D11 item 10). `acpagent` stays agent-neutral
+  (0208 D2).
+* **What it does not replace.**
+  * The D11 fixtures stay. acpext says what gobble means to send; a capture shows what a release sends. Item 9 ties
+    the two.
+  * The `KindAuth` presentation stays `agenterr`'s.
+* **Bumps.** An `acpext` bump is a dependency change under a PLAN, with the fixtures re-captured from the gobble
+  release that carries it. A field acpext renames is a compile error in the gobble package at that bump.
+* **What gobble owns.** acpext's content, versions and tags are gobble-cli's, decided there. This repository requests
+  changes through gobble-cli's issues and records, and never through a `replace` or a fork.
 
 ### Consequences
 
@@ -497,36 +613,47 @@ gobble is registered only when all of these hold:
   `acpagent`, the resolver, the session manager or the phone changes for gobble.
 * Good, because every gobble command reaches gobble as typed, arguments included, and none is rewritten into another
   mechanism.
-* Good, because no credential, file or shell crosses ACP. gobble's tools run on the host as the daemon's account, with
+* Good, because no file or shell crosses ACP, and `authenticate` carries no secret. Keys and device codes travel on the
+  existing 0074 messages, then sit in gobble's store. gobble's tools run on the host as the daemon's account, with
   gobble's own permission rules.
+* Good, because the phone can add an API key or finish a grok/kilo device flow before any gobble session exists.
 * Good, because what gobble must keep is pinned by fixtures from a tag. A change of gobble's wire shows up as a fixture
   failure at the next capture.
 * Neutral, because input typed during a turn waits in the daemon's queue and reaches gobble after the turn, as for
   grok. gobble's steer is not used.
 * Neutral, because before a gobble session exists the picker lists no gobble models.
-* Bad, because a missing credential is found at the first prompt, not at session start. The phone says what to run on
-  the host, but cannot fix it.
+* Neutral, because a missing credential fails `Start` (`ErrACPAuthRequired`) instead of opening a session that can
+  still run `/compact`. The operator adds a key from settings and starts again.
 * Bad, because the phone's Fork copies the whole session; a fork before an earlier message is `/fork [entry]` typed.
 * Bad, because gobble's wire is owned by another repository. A rename there breaks this provider until the next
   capture, which the fixtures catch but do not prevent.
+  *Second amendment, 2026-11-03:* with `acpext` (D13), a rename gobble makes is a compile error here at the next
+  `acpext` bump. Before the bump, an older gobble's wire and this repository's types still agree.
+* Good, because the names, shapes and auth provider list come from gobble, and the gobble package keeps no copy (D13,
+  G7).
+* Bad, because a gobble change this repository needs waits for an `acpext` tag and a gobble release, both
+  gobble-cli's. This repository's `go.mod` gains a requirement it does not control.
 
 ### Confirmation
 
 1. `provider.IDGobble == "gobble"`, and the daemon starts `gobble acp` for it.
-2. D11's seven unit tests pass, each seen failing first on a planted break, run on a scratch copy.
+2. D11's eight unit tests pass, each seen failing first on a planted break, run on a scratch copy.
 3. `TestNoProviderIsNamedInAcpagent` passes unchanged, and no file outside `internal/provider/gobble` and D10's
    registration places names gobble.
 4. A gobble session's `bypass` is confirmed on the phone (D7, through 0208 P7).
 5. `live-gobble` passes against the tag, on the owner's word.
 6. The other providers' unit, conformance and wire suites pass unchanged.
+7. *Second amendment, 2026-11-03:* `go.mod` requires `github.com/maccavelli/gobble-cli/acpext` at a tag, with no
+   `replace`, and `go list -m all` names no go-llmprovider-sdk (0185). D11 items 9 and 10 pass, each seen failing
+   first.
 
 ## Pros and Cons of the Options
 
 ### A. A thin gobble package on today's adapter
 
-* Good, because it builds only G1 to G5.
+* Good, because it builds only the Spec, two operations and two handlers.
 * Good, because it keeps gobble's commands gobble's, and the adapter agent-neutral.
-* Bad, because a missing credential is found late, and the fork is whole-session only.
+* Bad, because the phone cannot configure gobble, which is the 0074 hole for this agent.
 
 ### B. Issue #33's full set
 
@@ -535,12 +662,18 @@ gobble is registered only when all of these hold:
 * Bad, because steer changes what typed-ahead input means for the user. That is a product decision this registration
   should not make.
 * Bad, because an `acpext` module adds a cross-repository dependency for two requests.
+  *Second amendment, 2026-11-03:* the owner took that cost. The module is also D3's provider catalog and error data,
+  and gobble serves from it (D13).
 
-### C. As A, with ACP authentication
+### C. As A, with ACP authentication and phone provider-auth
 
-* Good, because the phone could tell whether gobble has a credential before the first prompt.
-* Bad, because the owner ruled it out. It also adds a phone flow for what `gobble auth login` already does on the host,
-  and gobble's `authenticate` only checks for a credential; it cannot store one.
+* Good, because the phone can list gobble's upstreams, paste a key, and run grok/kilo device OAuth, with no gobble
+  session and no SDK in Magic's `go.mod`.
+* Good, because `authenticate` then selects the stored provider; it still carries no secret.
+* Neutral, because gobble's `authenticate` is still a presence check. The store write is 0074, not that RPC.
+* Bad, because browser OAuth and OpenAI's Codex-client logins stay out (W3, gobble-cli 0031 D7, 0074 D12).
+* Good, *second amendment*, because with `acpext` the catalog and the auth error data are gobble's own list and type,
+  not this repository's copy.
 
 ### D. As A, after 0208's P8 to P10
 
@@ -574,6 +707,8 @@ These are gobble-cli's to keep, under gobble-cli's records. This repository does
   * its local fallback when no `fs` or `terminal` is advertised;
   * its -32000 data for a missing credential.
 * **A release tag** after `v0.1.1`, on a pushed commit.
+* *Second amendment, 2026-11-03:* **`acpext`** at a pushed tag, with the types D13 uses, served from by that release.
+  Its plan is gobble-cli `0042-PLAN-acpext-extension-contract-module.md`.
 * **Its own records' corrections.** gobble-cli's audit of its records against its code (2026-11-03) found records that
   say:
   * the `model` option is ungrouped;
@@ -591,7 +726,7 @@ These are gobble-cli's to keep, under gobble-cli's records. This repository does
 * [0186-MADR-integrate-current-library-releases-and-prepare-gobble.md](0186-MADR-integrate-current-library-releases-and-prepare-gobble.md):
   * D9 and Q2 asked for this rewrite;
   * Q3 is kept (D2);
-  * Q4 is replaced for gobble (D3);
+  * Q4 is implemented by D3 (phone 0074 plus `authenticate`); the rewrite-day replacement of Q4 is withdrawn;
   * Q5 is kept (D4).
 * [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md):
   D6's standard model and thinking path, and D12's pin lockstep.
@@ -603,6 +738,9 @@ These are gobble-cli's to keep, under gobble-cli's records. This repository does
   first), R4 (per-Spec client capabilities), R5 (one SDK tag on both sides), R7 (warn-only version) and R8 (never a
   second `session/prompt`) are carried here. R6 (credentials) is decided by D3. R3 (`acpext`) is not taken. R1 (one
   SDK can hide a shared misreading) is why D11 checks the frames against gobble's code, not only the SDK's types.
+  *Second amendment, 2026-11-03:* R3 is taken, by D13.
+* gobble-cli `docs/decisions/0042-MADR-acpext-extension-contract-module.md` and its PLAN, proposed 2026-11-03: the
+  module D13 requires.
 * Issue [#33](https://github.com/maccavelli/magic-cli-remote/issues/33): its item 4 is this rewrite. This record takes
   less than the issue's item 5 proposed (option B).
 * In gobble-cli, its records `0002-MADR-cli-acp-headless-mcp-v1.md` (fourth and fifth amendments),
@@ -624,4 +762,65 @@ These are gobble-cli's to keep, under gobble-cli's records. This repository does
 * **2026-10-13.** Renamed for gobble with `git mv`, by 0186's Q2. The body was left unchanged, pending this rewrite.
 * **2026-10-14.** Notes on `usage_update`'s cost, by 0189.
 * **2026-11-03.** Rewritten as gobble's contract on schema 1.25, from code read at the baselines above, by the
-  owner's instruction. The earlier body is in this file's history at `b1454ab1`.
+  owner's instruction. The earlier body is in this file's history at `b1454ab1`. That rewrite's D3 omitted ACP
+  `authenticate` and every phone-auth hook, and said it replaced 0186 Q4.
+* **2026-11-03, later.** The owner reversed that omit. D3 is phone provider-auth plus handshake `authenticate`; Q4
+  stands. See the amendment below.
+* **2026-11-03, second amendment.** The owner asked for gobble's `acpext` module. D13, G7 and gate 6 are added, and
+  D3, D4, D8 to D11 annotated. See the second amendment below.
+
+## Amendment — 2026-11-03: phone provider-auth, and ACP authenticate
+
+The owner asked that this record reflect the change: the phone must be able to add API keys and OAuth for gobble, as
+it does for grok, Codex, OpenCode and Kilo. The rewrite-day third instruction ("omit … auth via acp authenticate") is
+withdrawn. "omit fs/terminal" stands (D2, 0186 Q3).
+
+The record stays `proposed`. Where this amendment and the rewrite-day D3 disagree, this amendment governs. The D3
+section in the body is the current contract.
+
+Withdrawn rewrite-day D3, in summary:
+
+* no `SafeAuthMethodIDs` and no phone hooks;
+* `providers.gobble.auth_method_id` refused;
+* credentials only via `gobble auth login` or the service environment;
+* missing credential found at the first prompt as `KindAuth`;
+* 0186 Q4 replaced for gobble.
+
+What changes:
+
+* Chosen option is C, not A.
+* G6 is in the gap list; D3 closes it.
+* D11 gains the catalog/write/device assertions (item 8) and handshake authenticate (item 2).
+* 0186 Q4 stands; PLAN P0 notes the withdrawal instead of recording a replacement.
+
+## Second amendment — 2026-11-03: gobble's `acpext` module
+
+The owner's words: "in addition to acp auth and phone configuration working, i want the acpext module."
+
+The first amendment's D3 (phone provider-auth and ACP `authenticate`) stands. This amendment adds the module beneath
+it and beneath D8 and D9. The record stays `proposed`. Where an annotation marked *second amendment* and the text above
+it disagree, the annotation governs.
+
+The module is gobble-cli's: `docs/decisions/0042-MADR-acpext-extension-contract-module.md`, proposed the same day.
+gobble-cli `67f72fb` was read for it. At that commit there is neither an `acpext/` directory nor an `acpext/` tag.
+
+What changes:
+
+* **The option.** The chosen option is C with `acpext`. Of option B only its `acpext` item is taken.
+* **G7** joins the gap list. **D13** closes it, and gate 6 joins D12.
+* **D3:** the catalog and `SafeAuthMethodIDs` come from `acpext.AuthProviders()`, and auth error data is read as
+  `acpext.ErrorData`.
+* **D4:** the required `acpext` version is the `KnownGoodVersion` release's.
+* **D8 and D9:** the two calls and the two handlers use acpext's names and types.
+* **D10:** `go.mod` and `go.sum` gain one requirement.
+* **D11:** item 9 (frames against acpext's types) and item 10 (only the gobble package imports acpext) are added.
+* **"No longer needed":** the `acpext` bullet is withdrawn. R3 is taken.
+* **Confirmation** gains item 7.
+
+What does not change:
+
+* the fixtures;
+* D2's omit of fs and terminal;
+* the two operations and the two handlers;
+* D12's gates 1 to 5;
+* the phases' order. P1 now also waits for the `acpext` tag.
