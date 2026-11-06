@@ -1,6 +1,6 @@
 ---
 status: complete
-date: 2026-10-19
+date: 2026-11-05
 associated-madr: "0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -1566,3 +1566,81 @@ After the owner committed P9 as `91960170`:
   - **§6.1's row** records the check P9 added.
 - **This PLAN is `complete`.** Every row of the triage report it covers is marked FIXED, and P9
   and P10 are done, which is the completion condition under Verification.
+
+### Deviation 9, 2026-11-05 (P11): D13's test leaks the manager's history writes
+
+**Found** at 0217's P3f, whose Windows host gate failed in `TestOnlyOneConcurrentClaimWins`
+(`internal/session`) with "TempDir RemoveAll cleanup: … The directory is not empty", twice. The
+diagnosis is the 0217 PLAN's Deviation 21, and the cause is the MADR's D13 amendment: the test
+never closes its manager, so its debounced history writes land in, or after, the deletion of its
+temp directory.
+
+**Decided** by the owner, out of three options (fix first, amending this pair; stage the pin first;
+fix first in a new pair): "Fix first, amend 0201 (Recommended)". This PLAN went back to
+`in-progress` for P11, and is `complete` again now that P11 is done.
+
+### P11 — D13's test closes its manager (proposed 2026-11-05)
+
+Scope: `internal/session/claim_race_test.go` and this pair. No product code changes. The fix is
+committed on its own, before 0217's P3f pin, so its gates run on `HEAD` with `go.mod` as
+committed.
+
+1. **Seen failing first,** on scratch copies of `HEAD` and never in the tree. The test runs with
+   `TMP` and `TEMP` pointed at a scratch directory, and the files left there afterwards are
+   counted:
+   * on this Mac, `go test -count=3 -run '^TestOnlyOneConcurrentClaimWins$'` on `HEAD`: some
+     `history.json` must be left. If none is, this Mac cannot show the leak, and the Windows run
+     below is the only proof;
+   * on the Windows test host, the same with `-count=10`: `HEAD` leaves `history.json` files, as
+     Deviation 21 found.
+2. **The edit:** after `session.NewManager`, add
+   `t.Cleanup(func() { mgr.CloseAll(context.Background()) })`.
+3. **The same runs on the fixed copy** leave no file, on both machines. Then on the Windows test
+   host, in its default temp directory, the test passes 10 times in 10 with no cleanup error.
+4. **Gates,** on a scratch copy of `HEAD` plus the edit:
+   * `make pre-add-check FILES=internal/session/claim_race_test.go`;
+   * `go test -race -count=1 ./internal/session/` on this Mac and on the Linux test host;
+   * `make ci-windows` on the Windows test host.
+5. Stage the test file and this pair. The owner commits. Then 0217's P3f resumes.
+
+**Not in P11:** the 1,525 `Test*` directories that earlier cleanups left in the Windows test host's
+default temp directory. Removing them is a change to the host, which needs the owner's word.
+
+### P11, 2026-11-05: D13's test closes its manager — complete
+
+Approved by the owner: "Commit to master and proceed". Script `libs/p11.py` in the session
+scratchpad; every tree was a scratch copy of `HEAD` (`1c27206b`), removed afterwards and checked
+gone. `go.mod` was `HEAD`'s, with `acp-go-sdk2` at v1.33.0.
+
+* **Steps 1 and 3, before and after,** with `TMP` and `TEMP` in a scratch directory, counting the
+  `history.json` files left there:
+
+  | Machine | Tree | Runs | Result | `history.json` left |
+  | :--- | :--- | ---: | :--- | ---: |
+  | this Mac | `HEAD` | 3 | 3 pass | 400 |
+  | this Mac | fixed | 3 | 3 pass | 0 |
+  | Windows test host | `HEAD` | 10 | 10 pass | 1,800 |
+  | Windows test host | fixed | 10 | 10 pass | 0 |
+  | Windows test host, default temp directory | fixed | 10 | 10 pass, no cleanup error | — |
+
+  Deviation 21 of the 0217 PLAN has the unfixed test in the default temp directory: 10 fail of 10,
+  each a cleanup error. The first Windows run of the script exited 127 in its scratch-temp runs: it
+  read the home path from the last line of ssh's output, which was ssh's "Pseudo-terminal" notice.
+  It was fixed to drop that line and assert one path, and re-run. The table is the re-run.
+* **Step 2.** After `session.NewManager` in `TestOnlyOneConcurrentClaimWins`:
+  `t.Cleanup(func() { mgr.CloseAll(context.Background()) })`. `git diff` shows that one line.
+* **Step 4, gates:**
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check FILES=internal/session/claim_race_test.go` | exit 0, "1 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go test -race -count=1 ./internal/session/`, this Mac, `HEAD` plus the edit | exit 0, `ok` |
+  | `go test -race -count=1 ./...`, the Linux test host, `HEAD` plus the edit | exit 0, 48 `ok`, no FAIL, panic or race |
+  | `make ci-windows`, the Windows test host, `HEAD` plus the edit | exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED", 48 `ok` |
+
+* **Step 5.** Committed by the agent, on the owner's "Commit to master and proceed": the test file
+  and this pair. 0217's P3f resumes at its step 4.
+
+This PLAN is `complete` again.
+
+**Files for this commit:** `internal/session/claim_race_test.go` and this pair.

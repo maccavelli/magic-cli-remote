@@ -262,6 +262,20 @@ that proves it. Severity is 0073's own ranking.
     non-owner does. Disk and memory agree.
   - **Test.** Two concurrent claimers: exactly one succeeds, and the persisted owner equals the
     in-memory one. The test runs 200 rounds under `-race`.
+  - *Amended 2026-11-05 (PLAN Deviation 9, phase P11).* **The test also closes its manager.**
+    `TestOnlyOneConcurrentClaimWins` opens its store in `t.TempDir()` and never calls
+    `CloseAll`. So the manager's debounced history writes (`manager.go:3980-4007`) fire after the
+    test returns, and recreate `sessions/<id>/history.json` inside the directory that cleanup is
+    deleting, or has deleted.
+    * On the Windows test host, in its default temp directory, that fails cleanup with "The
+      directory is not empty", 10 times in 10. With the temp directory in a scratch folder, the
+      test passes 10 times in 10, and 1,800 `history.json` files are left behind.
+    * It is the same at `e2d6493b` and at `HEAD`, and with `acp-go-sdk2` at v1.31.2, v1.33.0 and
+      v1.34.0 (0217 PLAN, Deviation 21). It is the flake `ci-flakes.tsv` records for `a5737c44`.
+    * The fix is the idiom every other session test that builds a manager already uses:
+      `t.Cleanup(func() { mgr.CloseAll(context.Background()) })`, registered after `t.TempDir`,
+      so it runs first. `CloseAll` flushes the pending writes before tear-down
+      (`manager.go:3687-3689`). The product is unchanged.
 - **D14 — F-S4, Med-High: seq never goes backwards after a failed save.**
   - **The defect.** When the close-time `SaveHistory` fails, it is only logged. The next `Create`
     seeds seq from the shorter history on disk, so seqs that were already sent are issued again,

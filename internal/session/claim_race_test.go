@@ -68,6 +68,7 @@ func TestOnlyOneConcurrentClaimWins(t *testing.T) {
 	reg := provider.NewRegistry()
 	reg.Register(fake.New())
 	mgr := session.NewManager(reg, store, nil, nil)
+	t.Cleanup(func() { mgr.CloseAll(context.Background()) })
 	ctx := context.Background()
 
 	t.Run("live", func(t *testing.T) {
