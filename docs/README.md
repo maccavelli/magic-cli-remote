@@ -346,8 +346,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0176 | MADR | MADR 0004: Phase 2 — Grok ACP provider | [0176-MADR-phase-2-grok-acp-provider.md](decisions/0176-MADR-phase-2-grok-acp-provider.md) |
 | 0177 | REPORT | Phase 3 Plan: Flutter Android Client Assessment & Scaffolding | [0177-REPORT-flutter-android-client-assessment.md](../apps/mobile/docs/reports/0177-REPORT-flutter-android-client-assessment.md) |
 | 0178 | REPORT | Magic CLI Remote — Mobile UX/UI Assessment & Research | [0178-REPORT-mobile-ux-assessment.md](../apps/mobile/docs/reports/0178-REPORT-mobile-ux-assessment.md) |
-| 0179 | MADR | MADR 0179: Drive pigo as a first-class ACP provider — Spec-declared session operations, strict command fallback, and complete ACP event mapping | [0179-MADR-gobble-native-acp-provider.md](decisions/0179-MADR-gobble-native-acp-provider.md) |
-| 0179 | PLAN | Implement driving the native ACP agent as a first-class provider | [0179-PLAN-gobble-native-acp-provider.md](decisions/0179-PLAN-gobble-native-acp-provider.md) |
+| 0179 | MADR | Register gobble as a native ACP provider: a thin Spec over the shared adapter, two `_gobble/*` operations on gobble's `acpext` types, phone provider-auth, and no client files or terminals | [0179-MADR-gobble-native-acp-provider.md](decisions/0179-MADR-gobble-native-acp-provider.md) |
+| 0179 | PLAN | Implement registering gobble as a native ACP provider | [0179-PLAN-gobble-native-acp-provider.md](decisions/0179-PLAN-gobble-native-acp-provider.md) |
 | 0179 | REPORT | gobble native ACP integration assessment | [0179-REPORT-gobble-native-acp-integration-assessment.md](../docs/reports/0179-REPORT-gobble-native-acp-integration-assessment.md) |
 | 0180 | MADR | Close 0175 leftovers and make docs gates fail the merge | [0180-MADR-check-records-is-a-preflight-and-ci-gate.md](decisions/0180-MADR-check-records-is-a-preflight-and-ci-gate.md) |
 | 0180 | PLAN | Implement closing 0175 leftovers and making docs gates fail the merge | [0180-PLAN-check-records-is-a-preflight-and-ci-gate.md](decisions/0180-PLAN-check-records-is-a-preflight-and-ci-gate.md) |
@@ -455,6 +455,9 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0231 | PLAN | Implement waiting for Route 53 INSYNC before DNS-01 validation, and pacing failed orders | [0231-PLAN-wait-for-route-53-insync-before-dns-01-and-pace-failed-orders.md](decisions/0231-PLAN-wait-for-route-53-insync-before-dns-01-and-pace-failed-orders.md) |
 | 0232 | MADR | Redact the real zones, hostnames and IPs from the tree, then deny them at push time | [0232-MADR-redact-real-zones-hostnames-and-ips-and-deny-them.md](decisions/0232-MADR-redact-real-zones-hostnames-and-ips-and-deny-them.md) |
 | 0232 | PLAN | Implement redacting the real zones, hostnames and IPs, then denying them | [0232-PLAN-redact-real-zones-hostnames-and-ips-and-deny-them.md](decisions/0232-PLAN-redact-real-zones-hostnames-and-ips-and-deny-them.md) |
+| 0233 | MADR | Give each service test its own unit and backend records, and fail a test that reaches the shared ones | [0233-MADR-give-each-service-test-its-own-unit-and-backend-records.md](decisions/0233-MADR-give-each-service-test-its-own-unit-and-backend-records.md) |
+| 0234 | MADR | Authenticate only an id the agent advertised, using the SDK's list | [0234-MADR-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md](decisions/0234-MADR-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md) |
+| 0234 | PLAN | Implement authenticating only an id the agent advertised, using the SDK's list | [0234-PLAN-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md](decisions/0234-PLAN-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
