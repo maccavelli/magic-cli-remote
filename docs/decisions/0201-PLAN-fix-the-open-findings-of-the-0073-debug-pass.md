@@ -1667,3 +1667,91 @@ printed.
   `TestSessionCostIsTheLatestReportedTotal` and `TestSessionTotalsSurviveRelaunchAndRestart`. Each
   left directory is a cleanup that failed on that host. Whether these tests leak writes as D13's
   did is not established here. It is a finding for a record of its own.
+
+### Deviation 10, 2026-11-05 (P12): seven more session tests leak their managers' writes
+
+**Found** by the owner's ask, "Find the leaky tests", read-only (scripts `libs/leak_scan.py`,
+`libs/leak_snap.py` and `libs/leak_read.py` in the session scratchpad):
+
+* `go test -count=2 ./...` with `TMPDIR`, `TMP` and `TEMP` in a scratch directory left files under
+  the `t.TempDir` directories of eight tests, all in `internal/session`. Go removes a `t.TempDir`
+  when its test ends, so a file left there was written after that cleanup:
+
+  | Test | Files left (two runs) |
+  | :--- | ---: |
+  | `TestLoadedThreadAdoptionSuppressesDuplicateManagedRecordsAndReconnectKeepsAlias` | 4: `history.json`, `meta.json` |
+  | `TestResumeKeepsTheStoredNameSource` | 4: `history.json` |
+  | `TestSessionTotalsSurviveRelaunchAndRestart` | 4: `history.json`, `meta.json` |
+  | `TestDurableHistorySurvivesManagerRestart` | 2: `history.json` |
+  | `TestFlushPersistConcurrentMetaUpdate` | 2: `history.json` |
+  | `TestFlushPersistReReadsCurrentMeta` | 2: `history.json` |
+  | `TestManagerWritesTheNameSource` | 2: `history.json` |
+  | `TestSessionCostIsTheLatestReportedTotal` | 2: `history.json` |
+
+  `TestOnlyOneConcurrentClaimWins`, fixed by P11, left none. No other package left a file, and the
+  scratch directory held nothing else.
+* Six packages' Unix-socket tests cannot bind with the temp directory in the scratchpad (macOS's
+  104-byte socket path limit: "bind: invalid argument"): `internal/admin`, `internal/cli`,
+  `internal/cli/service`, `internal/daemon`, `internal/relay` and `internal/sdnotify`. They were run
+  again in the normal temp directory, comparing its `Test*` directories before and after: none new
+  was left, so there was nothing of that run's to remove.
+* The cause, read from each test, is the MADR's second D13 amendment: four places build a
+  store-backed manager that is never closed.
+* Two names from the Windows test host, `TestLineSessionTurn` and `TestLiveTaskUpdate`, are not in
+  this repository's history.
+* **Not in P12.** `TestIsInstalledDarwinPlistPresent` (`internal/cli/service/installed_test.go:92`)
+  fails as "plist present must be true" when its package runs with `-count=2`. Alone, with
+  `-count=1` or `-count=2`, it passes. So another test in that package leaves state for it to read.
+  It writes nothing late, and it is a finding for a record of its own.
+
+**Decided** by the owner: "Add them and proceed to fix them". This PLAN went back to
+`in-progress` for P12, and is `complete` again now that P12 is done.
+
+### P12 — the other seven leaking tests close their managers (2026-11-05)
+
+Scope: `internal/session/sessionname_test.go`, `manager_persist_race_test.go`,
+`aliases_p6_test.go`, `manager_durable_test.go`, and this pair. No product code changes.
+
+1. **Seen failing first:** Deviation 10's scan, on `HEAD` (`e020cd54`), with the working tree clean.
+2. **The edits,** each `t.Cleanup(func() { <mgr>.CloseAll(context.Background()) })`:
+   * `newNameManager`: built into a variable and registered before it is returned;
+   * `persistFixture`: registered after its `NewManager`;
+   * `TestLoadedThreadAdoption…`: after `manager := NewManager(…)`;
+   * `TestDurableHistorySurvivesManagerRestart`: after `mgr2 := NewManager(…)`.
+3. **The same scan after the edits:** no file left under any test's `t.TempDir`, over
+   `./internal/session/` with `-count=2`.
+4. **Gates:**
+   * `make pre-add-check FILES=` the four files;
+   * `go test -race -count=1 ./internal/session/` and `make race` on this Mac;
+   * `go test -race -count=1 ./...` on the Linux test host, and `make ci-windows` on the Windows
+     test host, each on `HEAD` plus the four files.
+5. Stage the four files and this pair. The owner commits.
+
+### P12, 2026-11-05: the other seven leaking tests close their managers — complete
+
+* **Step 1, seen failing:** Deviation 10's scan, `go test -count=2 ./...` on `e020cd54` with a
+  clean tree, left 22 files under eight tests' `t.TempDir` directories.
+* **Step 2.** The four `t.Cleanup` lines. `git diff -- internal/session` shows those and nothing
+  else: one line each in `aliases_p6_test.go`, `manager_durable_test.go` and
+  `manager_persist_race_test.go`, and in `sessionname_test.go` the manager built into `mgr`, then
+  registered, then returned.
+* **Step 3.** `libs/leak_scan.py 2 ./internal/session/`: "go test -count=2 ./internal/session/:
+  exit 0", "tests with files left: 0", "other entries left in TMP: 0".
+* **Step 4, gates:**
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check FILES=` the four files | exit 0, "4 file(s) clean (gofmt, golint, govulncheck)" |
+  | `make race`, this Mac | exit 0; 48 `ok` (`internal/session` among them), no FAIL, panic or data race |
+  | `go test -race -count=1 ./...`, the Linux test host, `HEAD` plus the four files | exit 0, 48 `ok` |
+  | `make ci-windows`, the Windows test host, `HEAD` plus the four files | exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED", 48 `ok` |
+
+  `persistFixture`'s event sink sends into a channel of 256, so a `CloseAll` that emitted more
+  than that, unread, would have blocked the cleanup. No run blocked.
+* **Step 5.** Staged: the four test files and this pair. The owner commits.
+
+This PLAN is `complete` again.
+
+**Files for this commit:** `internal/session/sessionname_test.go`,
+`internal/session/manager_persist_race_test.go`, `internal/session/aliases_p6_test.go`,
+`internal/session/manager_durable_test.go` and this pair.

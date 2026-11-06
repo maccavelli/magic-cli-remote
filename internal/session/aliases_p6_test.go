@@ -89,6 +89,7 @@ func TestLoadedThreadAdoptionSuppressesDuplicateManagedRecordsAndReconnectKeepsA
 	registry := provider.NewRegistry()
 	registry.Register(p)
 	manager := NewManager(registry, store, nil, nil)
+	t.Cleanup(func() { manager.CloseAll(context.Background()) })
 
 	first, err := manager.Create(context.Background(), provider.IDCodex, provider.StartOptions{AgentSessionID: "native-1", Name: "adopted"}, "device-1")
 	if err != nil {

@@ -19,7 +19,9 @@ func newNameManager(t *testing.T, store *Store) (*Manager, *metadataProvider) {
 	p := &metadataProvider{}
 	reg := provider.NewRegistry()
 	reg.Register(p)
-	return NewManager(reg, store, nil, nil), p
+	mgr := NewManager(reg, store, nil, nil)
+	t.Cleanup(func() { mgr.CloseAll(context.Background()) })
+	return mgr, p
 }
 
 // sendTitle delivers a session_title to the live session and returns once the

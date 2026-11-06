@@ -105,6 +105,7 @@ func persistFixture(t *testing.T) (*Store, *Manager, *feedProvider, chan event.E
 	reg.Register(prov)
 	recv := make(chan event.Event, 256)
 	mgr := NewManager(reg, store, nil, func(ev event.Event) { recv <- ev })
+	t.Cleanup(func() { mgr.CloseAll(context.Background()) })
 	return store, mgr, prov, recv
 }
 

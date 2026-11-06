@@ -276,6 +276,24 @@ that proves it. Severity is 0073's own ranking.
       `t.Cleanup(func() { mgr.CloseAll(context.Background()) })`, registered after `t.TempDir`,
       so it runs first. `CloseAll` flushes the pending writes before tear-down
       (`manager.go:3687-3689`). The product is unchanged.
+  - *Amended again 2026-11-05 (PLAN Deviation 10, phase P12).* **Seven more session tests leak
+    the same way, and close their managers the same way.** A run of the whole suite with the temp
+    directory in a scratch folder left `history.json` and `meta.json` files under eight tests'
+    `t.TempDir` directories, which are the names left on the Windows test host. The eighth is this
+    test, fixed by P11. The managers are built in four places:
+    * the helper `newNameManager` (`sessionname_test.go:17`), for
+      `TestResumeKeepsTheStoredNameSource`, `TestManagerWritesTheNameSource`,
+      `TestSessionTotalsSurviveRelaunchAndRestart` and `TestSessionCostIsTheLatestReportedTotal`;
+    * the helper `persistFixture` (`manager_persist_race_test.go:97`), for
+      `TestFlushPersistConcurrentMetaUpdate` and `TestFlushPersistReReadsCurrentMeta`;
+    * `TestLoadedThreadAdoptionSuppressesDuplicateManagedRecordsAndReconnectKeepsAlias`
+      (`aliases_p6_test.go:91`), directly;
+    * `TestDurableHistorySurvivesManagerRestart`'s second manager (`manager_durable_test.go:84`).
+      It closes its first one.
+
+    Each gets the same `t.Cleanup` that calls `CloseAll`. In a helper, every caller gets it. None
+    of these tests calls `CloseAll` on the manager concerned, so none is closed twice. The product
+    is unchanged.
 - **D14 — F-S4, Med-High: seq never goes backwards after a failed save.**
   - **The defect.** When the close-time `SaveHistory` fails, it is only logged. The next `Create`
     seeds seq from the shorter history on disk, so seqs that were already sent are issued again,

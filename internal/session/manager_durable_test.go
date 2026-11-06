@@ -82,6 +82,7 @@ func TestDurableHistorySurvivesManagerRestart(t *testing.T) {
 
 	// New manager, same store: session is non-live but history must load.
 	mgr2 := NewManager(reg, store, nil, nil)
+	t.Cleanup(func() { mgr2.CloseAll(context.Background()) })
 	hist := transcript(mgr2.History(meta.ID))
 	if len(hist) != 3 {
 		t.Fatalf("history after restart len=%d want 3; events=%+v", len(hist), hist)
