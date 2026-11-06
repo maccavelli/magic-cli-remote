@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-06
 associated-madr: "0234-MADR-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md"
 ---
@@ -328,3 +328,50 @@ The script also fails if the placeholder appears in any test output. It did not.
 
 **Not done in P2:** the live tests were run on this host only, as step 3 says. The other hosts
 were not asked for. No deviation.
+
+**Committed** by the agent on the owner's "Commit to main" as `92ffc2ad`, on 2026-11-06.
+
+### P3 — executed 2026-11-06, staged for the owner's commit
+
+**What changed:**
+
+* **0217's F3f.** The S8 bullet keeps its text. A dated correction is nested under it, which says:
+  * that both "Magic's auth selection picks from the advertised list" and "Only the configured
+    `auth_method_id` branch" were wrong for 0085 D2 step 4's branch;
+  * that S8 refuses that branch's id, so from `a115e40e` a cold env-key grok host could not
+    start;
+  * that the MADR's D2 removed the branch in `a499b13f`, and that F3g stands.
+* **0085.** It stays `accepted`, and its text is unchanged. Two annotations are added:
+  * Under D2 step 4: superseded 2026-11-06 by the 0234 MADR's D2. It gives the schema's rule and
+    the SDK's refusal, notes that step 3 already covers an advertised key, and names the D7
+    failure that takes the step's place.
+  * After D1's table and the paragraph that explains it: the 1.0.70 re-probe. The first three
+    rows hold, the `auth.json` rows were not re-probed, and the `env_key` states are new. It names
+    the three live tests that pin them.
+* **This pair.** The MADR is `accepted`. The owner accepted it by approving this PLAN. The hold
+  is recorded as ended at `a499b13f`. This PLAN is `complete`.
+* **Index.** `check_records.py --write-index` was re-run. It left `docs/README.md` unchanged,
+  since no title changed.
+
+**Checks:**
+
+* `check_records.py --check-all` gave no output.
+* markdownlint on `docs/README.md` found 0 issues. The repository's config excludes MADR and PLAN
+  files from markdownlint.
+* The identifier scan and the guard's `redact` preview were clean on the changed records.
+
+**Acceptance:** every row of the Verification table was met:
+
+* P1's rows, in P1's record;
+* P2's rows, in P2's record;
+* the records checks, in each phase.
+
+**Not done:**
+
+* Option F, Magic writing the `env_key` line itself, stays out of scope (Scope, Out). It needs its
+  own record if the owner wants it.
+* ~~Whether one model table is enough for grok's `env_key` (MADR F5) is still unprobed.~~ Probed
+  2026-11-06, after this PLAN closed (MADR F5, "Single model tables"): one table is enough.
+  * The hint's wording and the live tests' two tables were not changed under this PLAN.
+  * A change to either, and the current-model shift the probe found, wait for the owner's
+    decision.

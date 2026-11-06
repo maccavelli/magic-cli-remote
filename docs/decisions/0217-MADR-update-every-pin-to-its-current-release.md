@@ -263,6 +263,17 @@ repository; each library's release notes and `git diff` at its tags; `go list -m
     the configured `auth_method_id` branch (`acpagent.go:737`) sends an id it did not check. An id
     the agent never advertised failed there before, with the agent's error, and now fails with the
     SDK's. Either way, the session start fails and names the id.
+    * *Corrected 2026-11-06.* "Magic's auth selection picks from the advertised list" was wrong
+      for one branch, and so was "Only the configured `auth_method_id` branch".
+    * By 0085's D2 step 4, when a key was present and neither preferred method was advertised,
+      the selection sent the key method `xai.api_key` "even when that id was not advertised". S8
+      refuses that before sending.
+    * So from `a115e40e`, a cold grok host whose only credential is `XAI_API_KEY` could not start
+      a session. Proven in
+      [0234-MADR-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md](0234-MADR-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md)
+      F4 and F5.
+    * That MADR's D2 removed the branch, in `a499b13f`. F3g's statement is unaffected: v1.33.0
+      already refused.
   * **S6, closed enumerations,** are checked on send. Magic's production code sends none of them.
     Its test agents return an empty `PromptResponse` only together with an error, which is
     answered as that error (`lifecycle_test.go:170`, `prewarm_rearm_test.go:97,136`,

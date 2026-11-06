@@ -123,6 +123,19 @@ That is why the daemon logs `count=2` and an interactive shell with
 `grokInitializeMeta` (`acpagent.go:893-900`) currently discards
 everything except `modelState`.
 
+*Re-probed 2026-11-06, on grok 1.0.70* (0234 F5; `initialize` only,
+placeholder key):
+
+* The table's first three rows hold.
+* The `auth.json` rows were not re-probed.
+* A new state: `env_key = "XAI_API_KEY"` in a quoted model table,
+  with the variable set, advertises `[xai.api_key, grok.com]`, with
+  default `xai.api_key`. Without the variable it advertises
+  `[grok.com]`.
+* Live tests pin these: `TestLiveColdEnvKeyIsNotAdvertised`,
+  `TestLiveEnvKeyTableAdvertisesAPIKey` and
+  `TestLiveEnvKeyTableWithoutTheVariable`.
+
 **D2 — Call `authenticate` only with a method that is headless-safe.
 Never send `grok.com` from the daemon.**
 
@@ -144,6 +157,16 @@ Selection, in order. "Advertised" means present in this process's
    that id was not advertised. Isolated-home probe: cold + env key
    advertised only `grok.com`, but `authenticate xai.api_key`
    succeeded and `session/new` returned a `sessionId`.
+
+   *Superseded 2026-11-06 by
+   [0234-MADR-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md](0234-MADR-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md)
+   D2.*
+   * ACP's schema requires `methodId` to be "one of the methods advertised in the initialize
+     response". `acp-go-sdk2` v1.32.0 and later refuse any other id before sending it.
+   * The key method is now sent only when advertised. Step 3 already covers that case, so step 4
+     adds nothing.
+   * A key that is present but not advertised fails as D7 does. The failure names the key method
+     and grok's remedies (0234 D3).
 5. Else do **not** call `authenticate`. Apply D7.
 
 `AuthenticateRequest` is `{methodId}` only (ACP v1 schema;

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-06
 decision-makers: Project Owner
 consulted: "this repository at 06322d51; acp-go-sdk2 v1.31.2, v1.33.0 and v1.34.0 from the module cache (helpers.go, types_gen.go, errors.go, schema/schema.json, docs/reports/0049-REPORT-release-notes-v1-32-0.md, docs/decisions/0050-MADR-auth-method-ids-and-the-prompt-result-for-issue-14.md); the grok wire captures under internal/provider/grok/testdata/wire; 0085-MADR-grok-acp-auth-method-wiring.md; three scratch probes, including an owner-approved initialize-only probe of grok 1.0.70 on 2026-11-06, listed under More Information"
@@ -146,14 +146,65 @@ What the probe does not establish:
 
 * **Whether `authenticate` with a real key succeeds.** No `authenticate` was sent, so nothing
   reached xAI. This shows what grok advertises.
-* **Whether one model table is enough.** The config states wrote tables for both `grok-4.5` and
-  `grok-4.6`, as the committed `TestLiveQuotedModelKeyAdvertisesAPIKey` does, because the current
-  model id is not known before `initialize`. Whether a table for one model suffices was not
-  probed.
+* ~~**Whether one model table is enough.** The config states wrote tables for both `grok-4.5`
+  and `grok-4.6`, as the committed `TestLiveQuotedModelKeyAdvertisesAPIKey` does, because the
+  current model id is not known before `initialize`. Whether a table for one model suffices was
+  not probed.~~ Probed on 2026-11-06, at the owner's request; see "Single model tables" below.
 * **The `env_key` table shape.** It is read from grok's own description and error text (0085,
   lines 182 and 381), not from grok's documentation.
 * **Other hosts and states.** The probe ran on macOS only. The `auth.json` rows of F2 were not
   re-probed, since they need a grok sign-in.
+
+#### Single model tables (amended 2026-11-06)
+
+The owner asked for this probe: "Probe the model table a single table is ideal".
+
+Probe 4 (`libs/grokprobe2.py`) ran on a scratch copy of `92ffc2ad`, against the same grok
+`1.0.70 (f50904eaee6c)`. It sends `initialize` only, with the placeholder key.
+
+* It first runs a cold `initialize` with no credential, to read grok's own `modelState`. That
+  gives `availableModels` `[grok-4.6, grok-4.5]` and `currentModelId` `grok-4.6`.
+* Each state then writes **one** table, or none. It logs the advertised ids, the default id, the
+  current model, and the model list.
+* Two runs gave identical answers.
+
+| Single table in `config.toml` | `XAI_API_KEY` set | Advertised ids | `currentModelId` | `availableModels` |
+| :--- | :--- | :--- | :--- | :--- |
+| none (cold) | no | `grok.com` | `grok-4.6` | `4.6, 4.5` |
+| `env_key`, `grok-4.5` | yes | `xai.api_key`, `grok.com` | `grok-4.6` | `4.6, 4.5` |
+| `env_key`, `grok-4.6` (the cold current model) | yes | `xai.api_key`, `grok.com` | **`grok-4.5`** | **`4.5, 4.6`** |
+| `env_key`, an id grok does not have | yes | `xai.api_key`, `grok.com` | `grok-4.6` | `4.6, 4.5,` **the invented id** |
+| `env_key` at the top level, no table | yes | `grok.com` | `grok-4.6` | `4.6, 4.5` |
+| `env_key`, `grok-4.6` | no | `grok.com` | **`grok-4.5`** | `4.5, 4.6` |
+| `env_key`, `grok-4.5` | no | `grok.com` | `grok-4.6` | `4.6, 4.5` |
+| `api_key`, `grok-4.6` | not used | `xai.api_key`, `grok.com` | **`grok-4.5`** | `4.5, 4.6` |
+| `api_key`, `grok-4.5` | not used | `xai.api_key`, `grok.com` | `grok-4.6` | `4.6, 4.5` |
+| `api_key`, an id grok does not have | not used | `xai.api_key`, `grok.com` | `grok-4.6` | `4.6, 4.5,` the invented id |
+
+What the table establishes:
+
+* **One table is enough** to make grok advertise `xai.api_key`, for either key shape. The model
+  it names does not matter. The `env_key` shape still counts only while the variable is set.
+* **The table is what counts.** A top-level `env_key` makes grok advertise nothing new.
+* **A table for an id grok does not have adds that id to `availableModels`.** A remedy must name
+  a real model, never an invented one.
+* **A table for the cold current model, `grok-4.6`, changes what `initialize` reports.**
+  `currentModelId` becomes `grok-4.5`, and `grok-4.6` moves to the end of `availableModels`.
+  This happens for both shapes, with or without a usable key. A table for `grok-4.5` leaves both
+  as they were. The pattern fits a configured model being listed after the built-in ones, so that
+  the first built-in becomes current. That is an inference: grok's documentation was not read.
+* **It already applies to Magic.** The phone's key write (0085 D4) writes one `api_key` table,
+  for the model `resolveCredentialModel` picks (`grok/auth.go:98-100`): the operator's pin, else
+  the live `DefaultIDs[0]`. On 1.0.70 that is `grok-4.6`, the row in which grok then reports
+  `grok-4.5` as current.
+
+What this does not establish:
+
+* **Whether a session on the default path then runs `grok-4.5`.** No `session/new` was sent.
+  Magic may also send a model in `session/new` `_meta` (0106), which would override it.
+* **Whether a table for a non-current model reaches that model only.** That would mean the key
+  serves only `grok-4.5` when the session runs `grok-4.6`. Showing it needs an `authenticate` and
+  a prompt with a real key, which spends quota.
 
 ### F6. Nothing that is released has it
 
@@ -215,12 +266,12 @@ Probe 2 (`idsprobe/`, a scratch module on v1.34.0) copies F1's loop verbatim and
 
 ## Decision Outcome
 
-Chosen option: **"A"**, proposed. It brings Magic's selection inside the protocol's rule, with the
+Chosen option: **"A"**. It brings Magic's selection inside the protocol's rule, with the
 SDK's own list as the single statement of that rule, and turns F4's opaque start failure into
 D7's failure with its cause named. F5's live probe settled that the cold env-key case still exists
 on grok 1.0.70, and it found a remedy that keeps the key in the environment.
 
-The owner decided D5 (run the probe) and D7 (hold releases) on 2026-11-06. The rest is proposed.
+The owner decided D5 (run the probe) and D7 (hold releases) on 2026-11-06, and accepted the record by approving its PLAN the same day ("plan 0234 is approved to proceed").
 
 ### The decisions
 
@@ -285,7 +336,7 @@ The owner decided D5 (run the probe) and D7 (hold releases) on 2026-11-06. The r
   * 0085's D2 step 4 is marked superseded by D2.
 * **D7 — No release from `master` until D2 and D3 land.** The owner decided this on 2026-11-06:
   "Hold the release". F6: the next release carries `a115e40e`, and F5 shows the failure reaches a
-  grok 1.0.70 user. The hold ends with the commit that lands D1 to D4 (the PLAN's P1).
+  grok 1.0.70 user. The hold ends with the commit that lands D1 to D4 (the PLAN's P1). It ended with `a499b13f` on 2026-11-06.
 
 ### Consequences
 
@@ -392,6 +443,10 @@ session scratchpad, under `libs/`.
   * `go test -tags live_grok -run '^TestZProbe0234$'` on a scratch copy of `06322d51`, against the
     installed grok 1.0.70. Every run exited 0, and the copy was removed afterwards.
   * The script fails if the placeholder appears in any logged probe line. None did.
+* **Probe 4** (`libs/grokprobe2.py`, logs `libs/grokprobe2-<n>.log`): F5's "Single model tables".
+  * `go test -tags live_grok -run '^TestZProbe0234Table$'` on a scratch copy of `92ffc2ad`. Two
+    runs, both exit 0, and the copy was removed afterwards.
+  * The script fails if the placeholder appears in the test output. It did not.
 * **Release check:** `git show v0.24.0:go.mod` (v1.26.0); `git merge-base --is-ancestor a115e40e
   v0.24.0`, exit 1; `git log -G 'acp-go-sdk2 v' -- go.mod` for the pin's history.
 * **Captures:** `internal/provider/grok/testdata/wire/1.0.70/frames.jsonl` (two methods, default
