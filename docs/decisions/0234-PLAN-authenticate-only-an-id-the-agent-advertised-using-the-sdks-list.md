@@ -291,3 +291,40 @@ tree's changed Go files, removed afterwards):
 
 **Not done in P1:** the commit, which is the owner's. The release hold (MADR D7) ends with that
 commit.
+
+**Committed** by the owner as `a499b13f` on 2026-11-06. The release hold ended there.
+
+### P2 — executed 2026-11-06, staged for the owner's commit
+
+**What changed:** `internal/provider/grok/live_auth_test.go` gains:
+
+* a `probeKey` constant, the placeholder `xai-probe-not-real`;
+* a `writeEnvKeyTables` helper, which writes `[model."grok-4.5"]` and `[model."grok-4.6"]`, each
+  with `env_key = "XAI_API_KEY"`;
+* `TestLiveColdEnvKeyIsNotAdvertised`, `TestLiveEnvKeyTableAdvertisesAPIKey` and
+  `TestLiveEnvKeyTableWithoutTheVariable`, as step 1 describes.
+
+Each sends `initialize` only.
+
+**Seen failing first** (`libs/p2_fail.py`, grok `1.0.70 (f50904eaee6c) [stable]`; each on a
+scratch copy of `HEAD` plus the working file, removed afterwards):
+
+| Swap | Test | Failure seen |
+| :--- | :--- | :--- |
+| `env_key` tables added | `TestLiveColdEnvKeyIsNotAdvertised` | `cold env-key methods = [xai.api_key grok.com], want [grok.com]` |
+| tables removed | `TestLiveEnvKeyTableAdvertisesAPIKey` | `env_key methods = [grok.com], want xai.api_key` |
+| variable set | `TestLiveEnvKeyTableWithoutTheVariable` | `env_key without XAI_API_KEY methods = [xai.api_key grok.com], want [grok.com]` |
+
+The script also fails if the placeholder appears in any test output. It did not.
+
+**On the tree:**
+
+* Step 3's command passed all three: `--- PASS` each, `ok … internal/provider/grok 6.895s`.
+* `go vet -tags live_grok ./internal/provider/grok/` gave no output.
+* `make pre-add-check FILES="internal/provider/grok/live_auth_test.go"` reported
+  `1 file(s) clean (gofmt, golint, govulncheck)`.
+* None of the three names matches `LIVE_GROK_DISCRIMINATION` (`^TestLiveGrok\w*Discrimination\w*$`,
+  `Makefile:379`), so `make live-grok-rest` runs them with no Makefile change.
+
+**Not done in P2:** the live tests were run on this host only, as step 3 says. The other hosts
+were not asked for. No deviation.

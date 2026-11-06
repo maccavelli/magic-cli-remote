@@ -112,6 +112,67 @@ func TestLiveColdInitializeOnlyGrokCom(t *testing.T) {
 	}
 }
 
+// probeKey is a placeholder, never a real key: these tests send initialize
+// only, so nothing is authenticated (MADR 0234 D5).
+const probeKey = "xai-probe-not-real"
+
+// writeEnvKeyTables names XAI_API_KEY as the key of both static model ids, as
+// TestLiveQuotedModelKeyAdvertisesAPIKey writes both, since the current model
+// is not known before initialize.
+func writeEnvKeyTables(t *testing.T, home string) {
+	t.Helper()
+	body := "[model.\"grok-4.5\"]\nenv_key = \"XAI_API_KEY\"\n\n[model.\"grok-4.6\"]\nenv_key = \"XAI_API_KEY\"\n"
+	if err := os.WriteFile(filepath.Join(home, ".grok", "config.toml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLiveColdEnvKeyIsNotAdvertised: on a cold host, XAI_API_KEY alone does
+// not make grok advertise xai.api_key. That is the state in which Magic does
+// not send the key and names the remedy instead (MADR 0234 F5, D2, D3).
+func TestLiveColdEnvKeyIsNotAdvertised(t *testing.T) {
+	isolateGrokHome(t)
+	t.Setenv("XAI_API_KEY", probeKey)
+	p := startACPInit(t)
+	ids, def := initAuthMethods(t, p)
+	if len(ids) != 1 || ids[0] != "grok.com" {
+		t.Fatalf("cold env-key methods = %v, want [grok.com]", ids)
+	}
+	if def != "" {
+		t.Fatalf("cold env-key defaultAuthMethodId = %q, want empty", def)
+	}
+}
+
+// TestLiveEnvKeyTableAdvertisesAPIKey: env_key = "XAI_API_KEY" in a model
+// table, with the variable set, makes grok advertise xai.api_key: the first
+// remedy keyNotAdvertisedHint names (MADR 0234 F5, D3).
+func TestLiveEnvKeyTableAdvertisesAPIKey(t *testing.T) {
+	home := isolateGrokHome(t)
+	t.Setenv("XAI_API_KEY", probeKey)
+	writeEnvKeyTables(t, home)
+	p := startACPInit(t)
+	ids, def := initAuthMethods(t, p)
+	if !containsID(ids, "xai.api_key") {
+		t.Fatalf("env_key methods = %v, want xai.api_key", ids)
+	}
+	if def != "xai.api_key" {
+		t.Fatalf("env_key defaultAuthMethodId = %q, want xai.api_key", def)
+	}
+}
+
+// TestLiveEnvKeyTableWithoutTheVariable: the same tables with XAI_API_KEY
+// unset advertise grok.com only: the table counts only while the variable is
+// set (MADR 0234 F5).
+func TestLiveEnvKeyTableWithoutTheVariable(t *testing.T) {
+	home := isolateGrokHome(t)
+	writeEnvKeyTables(t, home)
+	p := startACPInit(t)
+	ids, _ := initAuthMethods(t, p)
+	if len(ids) != 1 || ids[0] != "grok.com" {
+		t.Fatalf("env_key without XAI_API_KEY methods = %v, want [grok.com]", ids)
+	}
+}
+
 func TestLiveQuotedModelKeyAdvertisesAPIKey(t *testing.T) {
 	home := isolateGrokHome(t)
 	// Fixture writes both static ids so we do not have to guess
