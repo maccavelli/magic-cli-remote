@@ -73,9 +73,10 @@ func clearCredential(ctx context.Context, upstreamID, modelID string) error {
 	return credstore.ClearGrokModelAPIKey(path, modelID)
 }
 
-// grokHasAPIKey is D2 step 4: a usable API key exists even if
-// initialize did not advertise xai.api_key. auth.json is cached_token
-// and is not counted here.
+// grokHasAPIKey reports a usable API key: XAI_API_KEY, or a quoted model
+// api_key in config.toml. auth.json is cached_token and is not counted here.
+// A key grok did not advertise is not sent (MADR 0234 D2); it only shapes
+// the failure's text.
 func grokHasAPIKey() bool {
 	if strings.TrimSpace(os.Getenv("XAI_API_KEY")) != "" {
 		return true
@@ -86,6 +87,13 @@ func grokHasAPIKey() bool {
 	}
 	return credstore.HasGrokConfigAPIKey(path)
 }
+
+// keyNotAdvertisedHint is the remedy when a key is present but grok did not
+// advertise xai.api_key. grok 1.0.70 advertises it for a quoted model api_key,
+// or for env_key = "XAI_API_KEY" while that variable is set, but not for
+// XAI_API_KEY alone on a cold host (MADR 0234 F5).
+const keyNotAdvertisedHint = `add env_key = "XAI_API_KEY" to a [model."<id>"] table in grok's config.toml, ` +
+	"set the key from the phone, or run `grok login`"
 
 // resolveCredentialModel picks the single model table a phone key write
 // targets (MADR 0085 D4): operator pin, else live DefaultIDs[0], else

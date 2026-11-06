@@ -92,6 +92,11 @@ type session struct {
 	authRequired bool
 	// advertisedAuth is the initialize method ids, for the D7 error text.
 	advertisedAuth []string
+	// keyNotAdvertised is the Spec's key method when a key was present but
+	// the agent did not advertise that method, and keyNotAdvertisedHint the
+	// Spec's remedy; both for the D7 error text (MADR 0234 D3).
+	keyNotAdvertised     string
+	keyNotAdvertisedHint string
 	// staticModes/defaultModeID come from the Spec and are read-only after
 	// spawnAgent: the fallback mode vocabulary for an agent that accepts
 	// session/set_mode without advertising modes (see Spec.StaticModes).

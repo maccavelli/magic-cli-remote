@@ -115,12 +115,16 @@ type Spec struct {
 	// AuthPreference is the order in which advertised, safe methods are
 	// tried when no method is pinned (MADR 0085 D2; MADR 0208 D2).
 	AuthPreference []string
-	// KeyAuthMethodID is the safe method used, advertised or not, when
-	// HasHeadlessCredential reports a key.
+	// KeyAuthMethodID is the safe method used when HasHeadlessCredential
+	// reports a key and the agent advertised the method (MADR 0234 D2).
 	KeyAuthMethodID string
-	// HasHeadlessCredential, when set, is D2 step 4: a usable API key
-	// exists on disk or in env even if KeyAuthMethodID was not advertised.
+	// HasHeadlessCredential, when set, reports a usable API key on disk or
+	// in env. A key whose method was not advertised is not sent; the start
+	// fails with ErrACPAuthRequired, saying so (MADR 0234 D2, D3).
 	HasHeadlessCredential func() bool
+	// KeyNotAdvertisedHint is the remedy appended to that failure: how to
+	// make the agent advertise KeyAuthMethodID (MADR 0234 D3).
+	KeyNotAdvertisedHint string
 	// CredentialModel resolves the single model id a store-keyed write should
 	// target (MADR 0085 D4). Called by Provider.SetCredential and
 	// ClearCredential. list is Provider.ListModels; cfgModel is Config.Model.
@@ -732,6 +736,10 @@ func (p *Provider) handshake(ctx context.Context, s *session, conn *acp.ClientSi
 			s.log.Info("acp authenticated", slog.String("method_id", id))
 		} else {
 			s.authRequired = true
+			if hasKey && p.spec.KeyAuthMethodID != "" && !slices.Contains(advertised, p.spec.KeyAuthMethodID) {
+				s.keyNotAdvertised = p.spec.KeyAuthMethodID
+				s.keyNotAdvertisedHint = p.spec.KeyNotAdvertisedHint
+			}
 		}
 	} else if len(advertised) > 0 && p.cfg.AuthMethodID != "" {
 		if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{
@@ -1477,11 +1485,12 @@ func (p *Provider) applyInitializeResponse(s *session, initResp acp.InitializeRe
 		slog.Int("auth_methods", len(initResp.AuthMethods)),
 	)
 
-	advertised := make([]string, 0, len(initResp.AuthMethods))
-	for _, m := range initResp.AuthMethods {
-		if m.Agent != nil && m.Agent.Id != "" {
-			advertised = append(advertised, string(m.Agent.Id))
-		}
+	// The ids the SDK's Authenticate accepts, from the same rule its gate
+	// applies, in the agent's order (MADR 0234 D1).
+	accepted := acp.AuthenticateMethodIDs(initResp.AuthMethods)
+	advertised := make([]string, 0, len(accepted))
+	for _, id := range accepted {
+		advertised = append(advertised, string(id))
 	}
 	s.advertisedAuth = advertised
 }

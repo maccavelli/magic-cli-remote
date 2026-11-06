@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-11-06
 associated-madr: "0234-MADR-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md"
 ---
@@ -64,6 +64,7 @@ Files:
 * `internal/provider/acpagent/acptest/acptest_test.go`, or a new `_test.go` file beside it
 * `internal/provider/grok/grok.go`
 * a grok unit test for the hint
+* `internal/provider/grok/auth.go` (added by Deviation 1)
 
 Steps:
 
@@ -200,5 +201,93 @@ Files:
 
 ## Execution record
 
-Nothing has been executed under this PLAN. The probe behind the MADR's F5 ran before it, with the
-owner's approval of 2026-11-06, and is recorded in the MADR.
+The owner approved this PLAN on 2026-11-06 ("plan 0234 is approved to proceed"). P1's host runs
+were approved separately the same day, for both hosts (C3). The probe behind the MADR's F5 ran
+before this PLAN, with the owner's approval of 2026-11-06, and is recorded in the MADR.
+
+### P1 — executed 2026-11-06, staged for the owner's commit
+
+**What changed:**
+
+* **D1.** `applyInitializeResponse` (`acpagent.go`) builds `s.advertisedAuth` from
+  `acp.AuthenticateMethodIDs(initResp.AuthMethods)`, in the SDK's order.
+* **D2.** `selectACPAuthMethod`'s key branch also requires the key method to be advertised
+  (`authselect.go`). Its doc comment, and those of `KeyAuthMethodID` and `HasHeadlessCredential`,
+  say so and cite MADR D2.
+* **D3.**
+  * New `Spec.KeyNotAdvertisedHint`.
+  * New session fields `keyNotAdvertised` and `keyNotAdvertisedHint` (`session.go`), set at start
+    when a key is present and its method was not advertised.
+  * `rejectUnauthenticated` then returns
+    `acp: authentication required (advertised [...]; a key is present, but the agent did not advertise "<method>"[: <hint>]): acp: authentication required`.
+  * Without a key, the text is as before.
+* **grok.** Its Spec sets `KeyNotAdvertisedHint: keyNotAdvertisedHint`. The constant is in
+  `auth.go`, and reads:
+  ``add env_key = "XAI_API_KEY" to a [model."<id>"] table in grok's config.toml, set the key from the phone, or run `grok login` ``.
+* **D4.**
+  * New `acptest/auth_test.go` (package `acptest`, so it can start the fixture without `Start`'s
+    fatal). It holds `TestAnUnadvertisedKeyIsNotSent` and `TestAnAdvertisedKeyIsAuthenticated`.
+  * The `TestSelectACPAuthMethod` case "cold+file key" is now "cold+unadvertised key",
+    expecting `""`.
+  * New grok test `TestSpecNamesTheKeyRemedies` (`grok/auth_test.go`).
+
+**Seen failing first** (`libs/p1_fail.py`; each on a scratch copy of `HEAD` plus the working
+tree's changed Go files, removed afterwards):
+
+| Experiment | Test | Failure seen |
+| :--- | :--- | :--- |
+| key branch without the advertised check (the code before D2) | `TestSelectACPAuthMethod` | `authselect_test.go:56: got "vendor.key", want ""` |
+| the same copy | `TestAnUnadvertisedKeyIsNotSent` | `StartOn err = acp authenticate (vendor.key): authenticate: methodId "vendor.key": acp: methodId names no auth method the agent advertised; authenticate accepts "vendor.browser", want ErrACPAuthRequired` |
+| selection always returns `""` | `TestAnAdvertisedKeyIsAuthenticated` | `acptest: StartOn: acp: authentication required (advertised [vendor.key vendor.browser]): acp: authentication required` |
+| hint not appended | `TestAnUnadvertisedKeyIsNotSent` | `error "…did not advertise \"vendor.key\"): acp: authentication required" does not contain "put the key where the agent advertises it"` |
+| grok hint without `env_key` | `TestSpecNamesTheKeyRemedies` | `KeyNotAdvertisedHint "add the key to a [model.\"<id>\"] table …" does not name "env_key = \"XAI_API_KEY\""` |
+
+**Probes re-run on the changed tree** (same script, unmodified copy):
+
+* **Probe 1** (grok's auth wiring, agent advertising only `grok.com`): `StartOn` returned
+  `acp: authentication required (advertised [grok.com]; a key is present, but the agent did not advertise "xai.api_key"): acp: authentication required`.
+  The agent received `initialize` only. This matches the MADR's Confirmation.
+* **Probe 2,** re-pointed to call `applyInitializeResponse` on each of F7's seven answers:
+  `advertisedAuth` equals `acp.AuthenticateMethodIDs` in every row. The rows differ from F7's
+  "Magic's list" column exactly where F7 said they would:
+  * the terminal case gives `["a"]`;
+  * the unknown type gives `["u"]`;
+  * the duplicate gives `["a"]`;
+  * the empty id gives `[""]`.
+
+**Gates:**
+
+* `make pre-add-check` on P1's eight Go files:
+  `go-precheck: 8 file(s) clean (gofmt, golint, govulncheck).`
+* On the tree, `go test -count=1 ./internal/provider/acpagent/... ./internal/provider/grok/` gave
+  exit 0. Named `-v` runs of the new and changed tests, and of `TestNoProviderIsNamedInAcpagent`,
+  all passed.
+* `make race` on this host: exit 0, 48 `ok` lines, no `FAIL`.
+* **Linux test host** (`leftovers/pins_hosts.py`, go1.27.3 linux/amd64):
+  `go test -race -count=1 ./...` gave exit 0 and 48 `ok` lines. `acpagent`, `acpagent/acptest`
+  and `grok` are among them.
+* **Windows test host** (go1.27.3 windows/amd64): `make ci-windows` reported
+  `ci-windows-local: ALL SELECTED CHECKS PASSED`, with 48 `ok` lines, the same three packages
+  among them.
+* On both hosts the scratch tree was removed, and its absence checked.
+* An extra named `-v` run on the hosts never reached `go`. The `-run` pattern's `(` was not quoted
+  for the remote shell (`bash: -c: line 1: syntax error near unexpected token '('`), so the step
+  exited 2 and the script reported exit 1. It was not re-run, because the full gates above ran
+  the same tests in their packages. This is recorded so that the script's exit 1 is not read as
+  a test failure.
+
+**Deviation 1 (2026-11-06): `internal/provider/grok/auth.go` joins P1's files.**
+
+* **Found:** `grokHasAPIKey`'s doc comment there described 0085 D2 step 4: "a usable API key
+  exists even if initialize did not advertise xai.api_key". After D2 that comment is false.
+* **Done:**
+  * The comment now says the key is not sent unless advertised, and only shapes the failure's
+    text.
+  * The hint constant was put beside the function, since both describe grok's key states.
+  * No behaviour in the file changed.
+* **Decision:** the agent recorded this rather than stopping, because it is a comment and a
+  constant inside step 5's own subject. The owner sees it in the handoff and can ask for the
+  constant to move into `grok.go` instead.
+
+**Not done in P1:** the commit, which is the owner's. The release hold (MADR D7) ends with that
+commit.

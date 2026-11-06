@@ -63,6 +63,7 @@ var spec = acpagent.Spec{
 	AuthPreference:        []string{"cached_token", "xai.api_key"},
 	KeyAuthMethodID:       "xai.api_key",
 	HasHeadlessCredential: grokHasAPIKey,
+	KeyNotAdvertisedHint:  keyNotAdvertisedHint,
 	StartDeviceAuth:       startDeviceAuth,
 	// Per-session model override rebuilds argv. Start no longer calls this
 	// (MADR 0106: model/effort ride session/new `_meta`); kept for tests

@@ -233,3 +233,17 @@ func TestAuthStatusSeesEnv(t *testing.T) {
 		t.Fatalf("status = %q, want configured", st.Status)
 	}
 }
+
+// TestSpecNamesTheKeyRemedies: when a key is present but grok did not
+// advertise xai.api_key, the failure names the remedies grok 1.0.70 honours
+// (MADR 0234 D3, F5).
+func TestSpecNamesTheKeyRemedies(t *testing.T) {
+	if spec.KeyAuthMethodID != "xai.api_key" {
+		t.Fatalf("KeyAuthMethodID = %q, want xai.api_key", spec.KeyAuthMethodID)
+	}
+	for _, want := range []string{`env_key = "XAI_API_KEY"`, "config.toml", "phone", "grok login"} {
+		if !strings.Contains(spec.KeyNotAdvertisedHint, want) {
+			t.Errorf("KeyNotAdvertisedHint %q does not name %q", spec.KeyNotAdvertisedHint, want)
+		}
+	}
+}

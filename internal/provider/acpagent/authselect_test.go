@@ -31,7 +31,8 @@ func TestSelectACPAuthMethod(t *testing.T) {
 	}{
 		{name: "launchagent", advertised: host, want: token},
 		{name: "cold", advertised: cold},
-		{name: "cold+file key", advertised: cold, hasKey: true, want: key},
+		// A key whose method was not advertised is never selected (MADR 0234 D2).
+		{name: "cold+unadvertised key", advertised: cold, hasKey: true},
 		{name: "cold+advertised key", advertised: coldKey, want: key},
 		{name: "pin token", advertised: host, pin: token, want: token},
 		{name: "pin browser", advertised: cold, pin: browser, wantErr: true},
