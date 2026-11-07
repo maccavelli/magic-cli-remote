@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -214,6 +215,35 @@ func sourceResponseTypes(t *testing.T, sourceTree string) map[string]string {
 			t.Fatalf("no entries in %s in %s: the macro changed shape and this parser needs updating", marker, path)
 		}
 	}
+	return out
+}
+
+var stringConstRe = regexp.MustCompile(`(?m)^pub const [A-Z0-9_]+: &str = "([^"]+)";`)
+
+// mcpApprovalMetaKeys reads the string constants of codex's
+// codex-rs/protocol/src/mcp_approval_meta.rs: the `_meta` keys and values of an
+// MCP tool-approval elicitation (MADR 0236 D4). An empty result fails, because
+// empty is what a moved or reshaped file looks like.
+func mcpApprovalMetaKeys(t *testing.T, sourceTree string) []string {
+	t.Helper()
+	path := filepath.Join(sourceTree, "codex-rs", "protocol", "src", "mcp_approval_meta.rs")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v (CODEX_SOURCE_TREE must be a codex checkout at CODEX_SOURCE_COMMIT)", path, err)
+	}
+	set := map[string]struct{}{}
+	for _, m := range stringConstRe.FindAllStringSubmatch(string(raw), -1) {
+		set[m[1]] = struct{}{}
+	}
+	if len(set) == 0 {
+		t.Fatalf("no string constants in %s: the file changed shape and this reader needs updating", path)
+	}
+	out := make([]string, 0, len(set))
+	for key := range set {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	t.Logf("source scan: %d MCP approval meta constants", len(out))
 	return out
 }
 

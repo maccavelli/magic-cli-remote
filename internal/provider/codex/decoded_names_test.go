@@ -25,6 +25,15 @@ func TestDecodedNamesHaveASchemaSource(t *testing.T) {
 	for _, name := range m.SchemaProperties {
 		known[name] = struct{}{}
 	}
+	// An MCP approval's `_meta` keys are codex constants, not schema properties
+	// (MADR 0236 D4); they count only for the type that reads `_meta`.
+	metaKeys := map[string]struct{}{}
+	for _, key := range mustLoadSourceWatchManifest(t).MCPApprovalMetaKeys {
+		metaKeys[key] = struct{}{}
+	}
+	if len(metaKeys) == 0 {
+		t.Fatal("the source-watch manifest records no MCP approval meta keys")
+	}
 	var missing []string
 	for _, field := range decodedJSONNames(t, ".") {
 		if _, excluded := notAppServerTypes[field.owner]; excluded {
@@ -34,6 +43,9 @@ func TestDecodedNamesHaveASchemaSource(t *testing.T) {
 			continue
 		}
 		if _, ok := known[field.name]; ok {
+			continue
+		}
+		if _, ok := metaKeys[field.name]; ok && field.owner == mcpApprovalMetaOwner {
 			continue
 		}
 		if _, ok := knownOutsideSchema[field.name]; ok {
@@ -79,7 +91,16 @@ var knownOutsideSchema = map[string]string{
 	// it: the real 0.166.0 and 0.167.0 gate errors carry data: null, and only
 	// hand-written fixtures hold it. Removing the read is 0109's proposed D39.
 	"capability": "JSON-RPC error data; never observed on the wire (MADR 0109 amendment E3 and E6, D39)",
+	// mcpApprovalMeta reads _meta.tool_annotations.destructiveHint. The name is
+	// the MCP specification's ToolAnnotations field, serialized by the rmcp crate
+	// codex pins (codex-rs/Cargo.toml, rmcp =3.5.1); codex's own test asserts it
+	// (core/src/mcp_tool_call_tests.rs, "tool_annotations": {"destructiveHint": …}).
+	"destructiveHint": "MCP specification ToolAnnotations, inside an MCP approval's _meta (MADR 0236 D4)",
 }
+
+// mcpApprovalMetaOwner is the type whose names may come from the source-watch
+// manifest's MCP approval meta keys rather than from the schema.
+const mcpApprovalMetaOwner = "callbacks.go:mcpApprovalMeta"
 
 type decodedName struct {
 	file, owner, name string

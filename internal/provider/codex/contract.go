@@ -134,12 +134,18 @@ type ContractManifest struct {
 }
 
 // SourceWatchManifest is deliberately separate from executable evidence.
+//
+// MCPApprovalMetaKeys are the string constants of codex's
+// codex-rs/protocol/src/mcp_approval_meta.rs at the commit: the `_meta` keys of
+// an MCP tool-approval elicitation, which no schema export declares because the
+// schema types `_meta` as any JSON (MADR 0236 F8, D4).
 type SourceWatchManifest struct {
-	SchemaVersion  int             `json:"schema_version"`
-	Commit         string          `json:"commit"`
-	Stable         ContractSurface `json:"stable"`
-	Experimental   ContractSurface `json:"experimental"`
-	InstalledDelta []string        `json:"installed_delta"`
+	SchemaVersion       int             `json:"schema_version"`
+	Commit              string          `json:"commit"`
+	Stable              ContractSurface `json:"stable"`
+	Experimental        ContractSurface `json:"experimental"`
+	InstalledDelta      []string        `json:"installed_delta"`
+	MCPApprovalMetaKeys []string        `json:"mcp_approval_meta_keys,omitempty"`
 }
 
 //go:embed testdata/0.167.0/manifest.json

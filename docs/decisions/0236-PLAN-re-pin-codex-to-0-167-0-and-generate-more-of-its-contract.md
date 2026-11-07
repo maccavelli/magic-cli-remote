@@ -388,3 +388,59 @@ On macOS, then, the digest cannot tell releases apart: version equality is the o
    * `CODEX_CONTRACT_EXACT=1 make live-codex-contract`: exit 0. The pin, the binary and the
      schema agree.
    * **`make live-codex`: not run.** It spends quota and waits for the owner's word (C2).
+
+### P3 — 2026-11-07: MCP approvals name the tool (D4, Q2 A)
+
+1. **Where the keys come from.** The `_meta` codex builds
+   (`core/src/mcp_tool_call.rs`, `build_mcp_tool_approval_elicitation_meta`, at the tag):
+   * `tool_name` is always present;
+   * `tool_title` and `tool_annotations` appear when the server declared them;
+   * `connector_name` appears only for codex's own Apps server.
+
+   The hint inside `tool_annotations` is spelled `destructiveHint` (codex's own test,
+   `core/src/mcp_tool_call_tests.rs:803`).
+   Codex also puts `Allow <actor> to run tool "<name>"?` into the elicitation's `message`, which
+   Magic does not show. Showing it is not in this plan.
+2. **The sheet.** `parseCallback` now reads `_meta` as raw JSON and decodes `mcpApprovalMeta` from
+   it separately. A `_meta` it cannot read leaves today's text, instead of failing the approval,
+   which is what decoding `_meta` inline would have done.
+   * `mcpApprovalDetail` builds "<connector or server>: <title> (<name>)".
+   * It adds ". This tool can change or delete data." when `destructiveHint` is true.
+   * With no keys, the text stays the server name.
+3. **Seen by the decoded-name check first.** With the struct added, `TestDecodedNamesHaveASchemaSource`
+   failed on all five names (`tool_name`, `tool_title`, `connector_name`, `tool_annotations` and
+   `destructiveHint`), because the schema types `_meta` as any JSON. D3.4 working as intended.
+4. **The keys' source (D4).**
+   * `mcpApprovalMetaKeys` (`contract_inputs_test.go`) reads the 25 string constants of
+     `codex-rs/protocol/src/mcp_approval_meta.rs` at the tag into the source-watch manifest's new
+     `mcp_approval_meta_keys`. The four codex keys are among them.
+   * The decoded-name test accepts those keys only for `callbacks.go:mcpApprovalMeta`.
+   * `destructiveHint` is in neither codex's schema nor its source: it is the MCP specification's
+     `ToolAnnotations` field, serialized by the rmcp crate codex pins (`=3.5.1`). It is listed in
+     `knownOutsideSchema` with that evidence.
+   * The 0.167.0 contract was regenerated. `scratch compare_p3.py` against P2's staged files:
+     "identical apart from mcp_approval_meta_keys" for all three.
+5. **Tests.** `TestMCPApprovalNamesTheTool` (`mcp_approval_test.go`) covers six `_meta` shapes:
+   * title, name and a destructive hint;
+   * a connector;
+   * a name alone, with a hint that is not destructive;
+   * empty;
+   * null;
+   * a string.
+
+   It also checks that the permission event the phone receives carries the text.
+6. **Seen failing** (`scratch p3_plants.py`, 2 of 2):
+   * against the pre-P3 sheet, the three keyed cases fail (`detail = "docs", want "docs: Search
+     pages (search_pages). This tool can change or delete data."`), as does the phone-event check.
+     The three no-key cases pass, so the fallback is today's behaviour;
+   * with codex's `tool_name` constant renamed in the source-watch manifest: "JSON name with no
+     source in the 0.167.0 schema: callbacks.go:186 callbacks.go:mcpApprovalMeta
+     json:\"tool_name\"".
+7. **Managed checkpoints (Q3 A):** nothing.
+8. **Checks:**
+   * `go test -race ./internal/provider/codex/`: ok.
+   * `make pre-add-check` on the six changed Go files: clean. `make vet-tags`: ok.
+     `go build ./...`: ok.
+   * `CODEX_CONTRACT_EXACT=1 make live-codex-contract`: exit 0.
+   * `make live-codex` was not run. P3 changed the MCP callback path, so the one run asked for at
+     P2 covers both phases.

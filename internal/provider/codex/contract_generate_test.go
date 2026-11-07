@@ -66,6 +66,8 @@ func TestGenerateContractManifest(t *testing.T) {
 		Stable:         sourceStableSurface,
 		Experimental:   sourceExperimentalSurface,
 		InstalledDelta: sourceOnlyDelta(stable, experimental, sourceStableSurface, sourceExperimentalSurface),
+
+		MCPApprovalMetaKeys: mcpApprovalMetaKeys(t, in.sourceTree),
 	}
 
 	fixtures := manifest.Fixtures

@@ -6952,5 +6952,32 @@
       ]
     }
   },
-  "installed_delta": null
+  "installed_delta": null,
+  "mcp_approval_meta_keys": [
+    "always",
+    "approval_request",
+    "approvals_reviewer",
+    "browser_auth",
+    "codex_approval_cancellation_reason",
+    "codex_approval_kind",
+    "codex_request_type",
+    "codex_requires_user_input",
+    "codex_sensitive_action",
+    "codex_strict_auto_review",
+    "connector",
+    "connector_description",
+    "connector_id",
+    "connector_name",
+    "mcp_tool_call",
+    "persist",
+    "session",
+    "source",
+    "tool_annotations",
+    "tool_description",
+    "tool_name",
+    "tool_params",
+    "tool_params_display",
+    "tool_suggestion",
+    "tool_title"
+  ]
 }

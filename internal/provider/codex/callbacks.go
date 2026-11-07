@@ -98,6 +98,7 @@ func parseCallback(method string, id, params json.RawMessage, generation int) (p
 		Path               string            `json:"path"`
 		GrantRoot          string            `json:"grantRoot"`
 		ServerName         string            `json:"serverName"`
+		Meta               json.RawMessage   `json:"_meta"`
 		AvailableDecisions []json.RawMessage `json:"availableDecisions"`
 		Permissions        map[string]any    `json:"permissions"`
 		Kind               string            `json:"kind"`
@@ -154,7 +155,11 @@ func parseCallback(method string, id, params json.RawMessage, generation int) (p
 		cb.allowedDecisions = []string{"accept", "acceptForSession", "acceptStrict", "acceptStrictForSession", "decline", "cancel"}
 	case "mcpServer/elicitation/request":
 		cb.kind, cb.tool = callbackMCP, "mcp"
-		cb.detail = firstNonEmpty(common.ServerName, "MCP server requests input")
+		// `_meta` is any JSON in the schema, so a shape this build cannot read
+		// leaves the sheet as it was rather than failing the approval.
+		var meta mcpApprovalMeta
+		_ = json.Unmarshal(common.Meta, &meta)
+		cb.detail = mcpApprovalDetail(common.ServerName, meta)
 		cb.allowedDecisions = []string{"accept", "decline", "cancel"}
 	case "applyPatchApproval":
 		cb.kind, cb.tool = callbackLegacyFile, "file"
@@ -168,6 +173,44 @@ func parseCallback(method string, id, params json.RawMessage, generation int) (p
 		return pendingCallback{}, fmt.Errorf("unsupported callback method %q", method)
 	}
 	return cb, nil
+}
+
+// mcpApprovalMeta is the part of an MCP tool-approval elicitation's `_meta` the
+// sheet shows. The schema types `_meta` as any JSON, so these keys are published
+// only as constants in codex's codex-rs/protocol/src/mcp_approval_meta.rs; the
+// contract's source-watch manifest records them, and a test holds these names to
+// it (MADR 0236 F8, D4). tool_name arrives on every MCP tool approval from
+// 0.167.0; tool_title and tool_annotations when the server declared them;
+// connector_name only for codex's own Apps server.
+type mcpApprovalMeta struct {
+	ToolName        string `json:"tool_name"`
+	ToolTitle       string `json:"tool_title"`
+	ConnectorName   string `json:"connector_name"`
+	ToolAnnotations struct {
+		DestructiveHint *bool `json:"destructiveHint"`
+	} `json:"tool_annotations"`
+}
+
+// mcpApprovalDetail says which tool an MCP approval is for:
+// "<connector or server>: <tool title> (<tool name>)". Without the keys it is
+// the server name alone, as before 0236.
+func mcpApprovalDetail(server string, meta mcpApprovalMeta) string {
+	source := firstNonEmpty(strings.TrimSpace(meta.ConnectorName), server)
+	name, title := strings.TrimSpace(meta.ToolName), strings.TrimSpace(meta.ToolTitle)
+	tool := name
+	if title != "" && name != "" && title != name {
+		tool = title + " (" + name + ")"
+	} else if title != "" {
+		tool = title
+	}
+	detail := firstNonEmpty(source, "MCP server requests input")
+	if tool != "" {
+		detail = firstNonEmpty(source, "MCP server") + ": " + tool
+	}
+	if hint := meta.ToolAnnotations.DestructiveHint; hint != nil && *hint {
+		detail += ". This tool can change or delete data."
+	}
+	return detail
 }
 
 func simpleDecisionIDs(raw []json.RawMessage) []string {
