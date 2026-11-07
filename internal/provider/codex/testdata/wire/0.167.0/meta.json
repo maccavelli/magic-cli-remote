@@ -1,0 +1,10 @@
+{
+  "provider": "codex",
+  "version": "0.167.0",
+  "kind": "in-daemon",
+  "source": "MCREMOTE_WIRE_CAPTURE_DIR (internal/wirecap)",
+  "captured_at": "2026-11-07",
+  "frames": 29,
+  "redacted": "wirecap: the operator's home -> /home/user, the host name -> <host>; then installationId -> <installation-id>",
+  "note": "frames.jsonl: the frames of one live turn (0236-PLAN P2), TestLiveThreadLifecycle's \"Reply with exactly 'hello' and nothing else.\", end_turn, with the initialize answer (userAgent mcremote/0.167.0), thread/started (cliVersion 0.167.0), the turn's items, thread/tokenUsage/updated and account/rateLimits/updated. Left out: the config/read answer (frame 4 of 30), which carries the operator's codex config (trusted-project paths, per-user temp roots, MCP server settings). thread-section-changed.jsonl: the two thread/section/changed shapes (into a section, and out with sectionId null) from a probe under a scratch CODEX_HOME with no login and no turn (0236 MADR F5)."
+}

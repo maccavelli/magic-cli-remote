@@ -1,0 +1,2 @@
+{"method":"thread/section/changed","params":{"threadId":"01a1b756-92f6-7831-b46e-3ee86d61c6d5","sectionId":"01a1b756-92d8-7a71-a5fa-e681a4606554"},"emittedAtMs":1794077269473}
+{"method":"thread/section/changed","params":{"threadId":"01a1b756-92f6-7831-b46e-3ee86d61c6d5","sectionId":null},"emittedAtMs":1794077270518}

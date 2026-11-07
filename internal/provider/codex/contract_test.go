@@ -12,28 +12,35 @@ func TestContractManifestExactVersion(t *testing.T) {
 	if m.SchemaVersion != 2 {
 		t.Fatalf("schema version = %d, want 2", m.SchemaVersion)
 	}
-	if m.CodexVersion != "0.166.0" {
-		t.Fatalf("codex version = %q, want 0.166.0", m.CodexVersion)
+	if m.CodexVersion != "0.167.0" {
+		t.Fatalf("codex version = %q, want 0.167.0", m.CodexVersion)
 	}
-	// The npm launcher's digest, not the engine's: the 0.166.0 capture ran on
-	// macOS, where PATH resolves codex to the package's bin/codex.js (on Windows
-	// it is a ~341-byte .cmd shim). Version equality is the real evidence and this
-	// is a tripwire against an accidental re-capture (MADR 0163 D18; MADR 0226,
-	// R3 Deviation 1).
+	// The npm launcher's digest, not the engine's: the capture ran on macOS, where
+	// PATH resolves codex to the package's bin/codex.js (on Windows it is a
+	// ~341-byte .cmd shim). The launcher's bytes did not change between 0.166.0 and
+	// 0.167.0, so the digest did not either. Version equality is the real evidence
+	// and this is a tripwire against an accidental re-capture (MADR 0163 D18; MADR
+	// 0226, R3 Deviation 1; MADR 0236 PLAN P1).
 	if m.BinarySHA256 != "e14fc83739c13c1074b12bd1acce4010c893c7f6fbfc1593b4a31d74cabb57af" {
 		t.Fatalf("binary digest = %q", m.BinarySHA256)
 	}
 
-	// 85 notifications on BOTH surfaces, which is what Codex's exporter emits: it
+	// 86 notifications on BOTH surfaces, which is what Codex's exporter emits: it
 	// never prunes experimental notifications, so the bundles are identical there
-	// even though the runtime suppresses 24 of them (0.155.1: 82 and 22). The capture mirrors the
-	// exporter rather than correcting it, because a manifest that disagrees with
-	// its source breaks the drift gate's exact mode. The real split is kept beside
-	// the surfaces instead (0163 D4/F4; MADR 0236 D3.3, PLAN P1 Deviation 2).
-	assertSurfaceCounts(t, "stable", m.Stable, 106, 85, 10)
-	assertSurfaceCounts(t, "experimental", m.Experimental, 179, 85, 11)
+	// even though the runtime suppresses 24 of them (0.166.0: 85 and 24; 0.155.1:
+	// 82 and 22). The capture mirrors the exporter rather than correcting it,
+	// because a manifest that disagrees with its source breaks the drift gate's
+	// exact mode. The real split is kept beside the surfaces instead (0163 D4/F4;
+	// MADR 0236 D3.3, PLAN P1 Deviation 2).
+	assertSurfaceCounts(t, "stable", m.Stable, 106, 86, 10)
+	assertSurfaceCounts(t, "experimental", m.Experimental, 180, 86, 11)
 	if got := len(m.ExperimentalNotifications); got != 24 {
 		t.Errorf("experimental notifications = %d, want 24", got)
+	}
+	// 0.167.0's one new notification is stable (MADR 0236 F5), so it must not be
+	// in the experimental split.
+	if slices.Contains(m.ExperimentalNotifications, "thread/section/changed") {
+		t.Error("thread/section/changed is recorded as experimental; the source marks it stable")
 	}
 	if err := m.Validate(); err != nil {
 		t.Fatalf("validate: %v", err)
@@ -46,8 +53,8 @@ func TestContractManifestRecordsEnumValues(t *testing.T) {
 	m := mustLoadContractManifest(t)
 	for name, surface := range map[string]ContractSurface{"stable": m.Stable, "experimental": m.Experimental} {
 		got := surface.Enums["CommandExecutionApprovalKind"]
-		if !slices.Equal(got, []string{"command", "writeStdin"}) {
-			t.Errorf("%s CommandExecutionApprovalKind = %q, want [command writeStdin] at 0.166.0", name, got)
+		if !slices.Equal(got, []string{"command", "humanCommand", "writeStdin"}) {
+			t.Errorf("%s CommandExecutionApprovalKind = %q, want [command humanCommand writeStdin] at 0.167.0", name, got)
 		}
 	}
 }
@@ -107,16 +114,16 @@ func TestContractManifestPlanFixturesAreClassified(t *testing.T) {
 
 func TestContractSourceWatchDelta(t *testing.T) {
 	watch := mustLoadSourceWatchManifest(t)
-	if watch.Commit != "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856" { // rust-v0.166.0
+	if watch.Commit != "086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a" { // rust-v0.167.0
 		t.Fatalf("source commit = %q", watch.Commit)
 	}
 	// The source surface is now decompressed from the committed .zst blobs at the
 	// same tag as the installed binary, so the two agree exactly and the delta
 	// below is empty by OBSERVATION rather than by construction (0163 P4).
-	assertSurfaceCounts(t, "source stable", watch.Stable, 106, 85, 10)
-	assertSurfaceCounts(t, "source experimental", watch.Experimental, 179, 85, 11)
+	assertSurfaceCounts(t, "source stable", watch.Stable, 106, 86, 10)
+	assertSurfaceCounts(t, "source experimental", watch.Experimental, 180, 86, 11)
 	// Empty, and that is the correct answer at this pin: the source tree and the
-	// installed binary are both rust-v0.166.0, so nothing is source-only.
+	// installed binary are both rust-v0.167.0, so nothing is source-only.
 	//
 	// It previously held three mcpServer/event/stream/* entries because the pin's
 	// source-watch commit (rust-v0.150.0) was AHEAD of its manifest (0.149.1) —

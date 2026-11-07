@@ -8,16 +8,16 @@ import (
 )
 
 // KnownGoodVersion is the codex CLI release this provider's wire shapes were
-// checked against: internal/provider/codex/testdata/wire/0.166.0/, one live
-// `hi` turn over the app-server transport (MADR 0226 D3). The embedded contract
-// manifest (contract.go, testdata/0.166.0/) names the same release, so the two
-// pins no longer disagree (MADR 0226 F6). The 0.152.1 capture (MADR 0137 Phase
-// 1) remains as history.
+// checked against: internal/provider/codex/testdata/wire/0.167.0/, one live
+// turn over the app-server transport (MADR 0236 D1). The embedded contract
+// manifest (contract.go, testdata/0.167.0/) names the same release, so the two
+// pins agree (MADR 0226 F6). The 0.152.1 and 0.166.0 captures remain as
+// history.
 //
 // A drifting version WARNS AND NEVER REFUSES. Codex ships often, and a version
 // mismatch is a prompt to re-check the fixtures, not a reason to refuse to
 // start. Do not harden this into a gate without a decision record saying why.
-const KnownGoodVersion = "0.166.0"
+const KnownGoodVersion = "0.167.0"
 
 // versionFromUserAgent extracts codex's own version from the `userAgent` string
 // in its `initialize` result.

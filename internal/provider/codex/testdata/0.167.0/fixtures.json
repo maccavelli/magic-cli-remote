@@ -1460,6 +1460,19 @@
   {
     "kind": "client_request",
     "stability": "experimental",
+    "method": "thread/guardianReview",
+    "params_schema": "ThreadGuardianReviewParams",
+    "response_schema": "ThreadGuardianReviewResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "callId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
     "method": "thread/increment_elicitation",
     "params_schema": "ThreadIncrementElicitationParams",
     "response_schema": "ThreadIncrementElicitationResponse",
@@ -2954,6 +2967,17 @@
     "params_schema": "ThreadRevertedNotification",
     "response_schema": "none",
     "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/section/changed",
+    "params_schema": "ThreadSectionChangedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "sectionId",
       "threadId"
     ]
   },

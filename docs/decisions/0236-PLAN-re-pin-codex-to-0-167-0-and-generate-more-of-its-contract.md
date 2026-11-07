@@ -325,3 +325,66 @@ On macOS, then, the digest cannot tell releases apart: version equality is the o
      * on the scratch 0.166.0: exit 0, so exact mode passes against the regenerated manifest.
 
 **Not done in P1:** the guide's text (P4), and the re-pin (P2).
+
+### P2 — 2026-11-07: codex to 0.167.0
+
+1. `codex --version`: `codex-cli 0.167.0`. The scratch clone (C7) is at `086ccc833bc9…`.
+2. **The contract.**
+   * `codex-contract.ps1 -DryRun`: exit 0. It resolved `/opt/homebrew/bin/codex`, which reports
+     0.167.0.
+   * The capture ran after step 4's route, so the classification includes it. Exit 0,
+     "notifications: 86 declared; 62 stable, 24 experimental-only".
+   * It wrote `testdata/0.167.0/`, and `scratch check_0167_manifest.py` read it back:
+     * Stable 106/86/10 and experimental 180/86/11, as MADR F3 expects.
+     * 522 and 614 enums, and `CommandExecutionApprovalKind` = `command`, `humanCommand`,
+       `writeStdin`.
+     * `thread/section/changed` is not in `experimental_notifications`, and is classified
+       `implemented`. `thread/guardianReview` is `typed_deferred`, with response
+       `ThreadGuardianReviewResponse` read from the source.
+     * No fixture has a generic response, `installed_delta` is empty, and no local path appears in
+       the three files.
+3. **The pin.**
+   * The embeds name `testdata/0.167.0/`, and `KnownGoodVersion = "0.167.0"`, its comment naming
+     the new capture.
+   * `contract_test.go` asserts 0.167.0, the unchanged launcher digest, 106/86/10 and 180/86/11,
+     24 experimental notifications with `thread/section/changed` not among them, the new
+     `humanCommand` value, and the `rust-v0.167.0` source commit.
+   * `testdata/0.167.0/README.md` carries the 0.166.0 notes with 0.167.0's numbers.
+   * *Step 3 said `git rm -r`. `testdata/0.166.0/` was instead removed from the working tree only,
+     because `git rm` stages the removal, and P1's commit, which regenerates that directory, was
+     still staged. The removal is staged with P2. The resulting commits are the same.*
+4. **The route (Q1 A).** `thread/section/changed` joins `notificationRoutes` as a provider route,
+   and joins the declared-drop case with a comment naming D2.
+   * The F5 shapes are committed as `testdata/wire/0.167.0/thread-section-changed.jsonl`. Their
+     ids are from a scratch `CODEX_HOME`. Wire captures are kept from one pin to the next, and
+     contract directories are deleted.
+   * `TestThreadSectionChangedIsADeclaredDrop` drives both shapes. It requires two declared-drop
+     log lines, no id in the log, and no session event.
+5. **The capture (live, approved).**
+   * `MCREMOTE_WIRE_CAPTURE_DIR=<scratch> go test -tags live_codex_turn -run
+     '^TestLiveThreadLifecycle$'`: one turn, "assistant chunk: hello", "turn completed:
+     status=end_turn", 30 frames.
+   * Read under C4 (`scratch p2_scan_capture.py`). Wirecap had already replaced the home
+     directory with `/home/user` and the host name with `<host>`.
+     * Frame 4, the `config/read` answer, carried trusted-project paths, per-user temp roots and
+       MCP settings. It is left out.
+     * Frame 1's `installationId` became `<installation-id>`.
+     * `planType` stays, as in the 0.166.0 capture.
+   * `scratch p2_redact_capture.py` wrote the 29 frames only after checking that no frame holds
+     the home directory, the host or account name, an email address, a temp root, `/private/tmp`
+     or a real installation id. `meta.json` says what was replaced and what was left out.
+   * The 0.166.0 capture stays as history, and `capture0166` still reads it by name.
+6. **Seen failing** (`scratch p2_plants.py`, scratch copies; 2 of 2 failed as intended):
+   * the route removed: "declared-drop log lines = 0, want 2", and "1 of 86 declared
+     notification(s) have no route";
+   * `thread/section/changed` marked experimental in the manifest: "experimental notifications =
+     25, want 24", and "thread/section/changed is recorded as experimental; the source marks it
+     stable".
+7. **Checks:**
+   * `go test -race ./...`: ok. The wirecap identifier test, which globs every
+     `testdata/wire/*/frames.jsonl`, passes on the new capture.
+   * `make pre-add-check` on the five changed Go files: clean. `make vet-tags`: ok.
+   * `make live-codex-contract`: exit 0, with no drift.
+   * `CODEX_CONTRACT_EXACT=1 make live-codex-contract`: exit 0. The pin, the binary and the
+     schema agree.
+   * **`make live-codex`: not run.** It spends quota and waits for the owner's word (C2).

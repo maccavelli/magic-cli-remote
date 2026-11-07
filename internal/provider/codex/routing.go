@@ -87,6 +87,7 @@ var notificationRoutes = map[string]notificationRoute{
 	"thread/realtime/transcript/delta":          notificationRouteSession,
 	"thread/realtime/transcript/done":           notificationRouteSession,
 	"thread/reverted":                           notificationRouteSession,
+	"thread/section/changed":                    notificationRouteProvider,
 	"thread/settings/updated":                   notificationRouteSession,
 	"thread/attachment/updated":                 notificationRouteProvider,
 	"thread/realtime/item/completed":            notificationRouteProvider,
@@ -190,13 +191,19 @@ func (p *Provider) handleProviderNotification(method string, params json.RawMess
 		"thread/realtime/item/completed",
 		"account/gatewayOAuth/changed",
 		"thread/prediction/updated",
-		"thread/readState/changed":
+		"thread/readState/changed",
+		"thread/section/changed":
 		// Declared and deliberately not consumed yet: thread attachments, MCP
 		// event streams and realtime voice items are Deferred in PLAN 0163, and
 		// gateway OAuth, predictions and read state are new in codex 0.166.0
 		// (MADR 0226, R3 Deviation 2). A declared drop is not the same as an
 		// unrouted one — it is greppable, tested, and cannot be mistaken for a
 		// notification nobody knew about.
+		//
+		// thread/section/changed is new and stable in 0.167.0. In stdio mode
+		// Magic is the only client that can move a thread, and the phone re-reads
+		// sections after its own moves, so there is nothing to push yet (MADR 0236
+		// D2, Q1 A; revisit with any thread-list push).
 		p.log.Debug("codex: declared notification not consumed", slog.String("method", method))
 	default:
 		p.log.Debug("codex: provider notification observed", slog.String("method", method))
