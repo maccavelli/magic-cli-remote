@@ -71,8 +71,10 @@ Files: `0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md`, `docs/guides/
    date, and Q-A and Q-B carry the owner's answers.
 2. 0163 D9 gains one dated line: superseded in part by the 0109 amendment of 2026-11-07 (D39), which also answers its
    open question 2.
-3. `ops-codex-contract.md`'s drift-gate table stops saying the default mode runs in CI (E10). It names the weekly
-   canary (P4) as the place it runs, once P4 lands.
+3. ~~`ops-codex-contract.md`'s drift-gate table stops saying the default mode runs in CI (E10).~~ *Done by
+   [0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md](0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md)
+   P4 (2026-11-07), which now says "any host, run by hand; no CI workflow runs it".* What remains here: it names the
+   weekly canary (P4) as the place it runs, once P4 lands.
 4. `python3 scripts/check_records.py --write-index`; `make check-records markdownlint-docs`.
 
 ### P1 — fixtures say where they came from (D40)

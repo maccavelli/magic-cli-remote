@@ -444,3 +444,30 @@ On macOS, then, the digest cannot tell releases apart: version equality is the o
    * `CODEX_CONTRACT_EXACT=1 make live-codex-contract`: exit 0.
    * `make live-codex` was not run. P3 changed the MCP callback path, so the one run asked for at
      P2 covers both phases.
+
+### P4 — 2026-11-07: docs
+
+1. **`docs/guides/ops-codex-contract.md`:**
+   * The example command now shows 0.167.0 and its commit, and the guide names this record.
+   * New guidance on getting a tree at the tag when a `main`-only pull lacks the release tag, and
+     on capturing a release other than the installed one (P1 Deviation 1).
+   * The figures give 0.167.0's split (62/24 of 86) beside 0.166.0's and 0.155.1's. The
+     "treat 'stable notification' as 'declared'" caveat is withdrawn in favour of
+     `experimental_notifications`.
+   * The macOS digest note says the launcher's bytes did not change in 0.167.0.
+   * "What the generator derives" gains four entries: response types from the source, every
+     string enum, the property names and the decoded-name test, and the MCP approval `_meta` keys.
+   * The drift-gate table adds "a removed enum value", and its "CI" use now reads "any host, run
+     by hand; no CI workflow runs it" (0109 amendment E10). The table is followed by the removed-enum
+     rule, and by 0.167.0's 3-then-9 additive count.
+2. **0109's second PLAN, P0 step 3:** struck through and annotated, because this phase made the
+   guide's CI correction. What is left for 0109 is naming the canary once it exists.
+3. `version.go` and `testdata/0.167.0/README.md` already name this record (P2). The index has no
+   new rows.
+4. **Checks:**
+   * `make check-records markdownlint-docs`: exit 0.
+   * Guide links are not covered by `check_records.py`, so `scratch check_guide_links.py` resolved
+     them. It was seen failing on a scratch copy with one link planted dead ("broken link
+     ../decisions/0236-PLAN-planted-dead-…", exit 1), then passed on the guide and the 0.167.0
+     README.
+   * The guard's redact preview: 0 files to edit.

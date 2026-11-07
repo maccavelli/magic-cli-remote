@@ -9,21 +9,33 @@ engine start**, so it is load-bearing rather than advisory.
 This page is how to move that pin to a new Codex release.
 
 Decisions behind it: [0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md](../decisions/0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md),
-and the earlier [0109](../decisions/0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md) that
-introduced the manifest.
+the earlier [0109](../decisions/0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md) that
+introduced the manifest, and
+[0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md](../decisions/0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md),
+which moved it to `schema_version` 2.
 
 ## The command
 
 ```powershell
-./scripts/codex-contract.ps1 -Version 0.166.0 `
-    -SourceCommit 6ff1e1ca3b30fc8b914720681fcf5fe62e95f856 `
+./scripts/codex-contract.ps1 -Version 0.167.0 `
+    -SourceCommit 086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a `
     -SourceTree /path/to/codex-at-the-tag
 ```
 
-It runs under `pwsh` on Windows, macOS and Linux; 0.166.0 was captured on macOS. The
+It runs under `pwsh` on Windows, macOS and Linux; 0.166.0 and 0.167.0 were captured on macOS. The
 source tree must be checked out at the release tag: a scratch `git clone --no-checkout`
 of an existing checkout, then `git checkout` of the tag's commit, leaves that checkout
 alone ([0226-PLAN](../decisions/0226-PLAN-re-pin-the-agent-clis-to-the-installed-releases.md) R3).
+An existing checkout may not hold the tag at all: release tags point at release-branch
+commits that a `main`-only pull never fetches. Fetch the one tag into the scratch clone
+(`git fetch https://github.com/openai/codex.git refs/tags/rust-v<version>:refs/tags/rust-v<version>`)
+([0236-MADR](../decisions/0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md) F1).
+
+The generator refuses a capture unless the codex on `PATH` reports `-Version`. To capture
+a release other than the installed one, install it into a scratch npm prefix
+(`npm install --prefix <scratch> --cache <scratch>/npmcache @openai/codex@<version>`) and
+put that prefix's `node_modules/.bin` first on `PATH` for the one command
+([0236-PLAN](../decisions/0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md) P1 Deviation 1).
 
 Add `-DryRun` to print every resolved input and write nothing. Then:
 
@@ -65,18 +77,17 @@ and fields — never notifications — so *both* bundles list all of them, while
 runtime does suppress the experimental ones. Notification stability therefore
 comes from a scan of `#[experimental]` in
 `codex-rs/app-server-protocol/src/protocol/common.rs`, which is why
-`-SourceTree` is required and not optional. At 0.166.0 the capture reports
-**61 stable / 24 experimental of the 85 in the bundle**; at 0.155.1 it was 60/22 of
-82 — 62/22 of 84 on the wire,
+`-SourceTree` is required and not optional. At 0.167.0 the capture reports
+**62 stable / 24 experimental of the 86 in the bundle**; at 0.166.0 it was 61/24 of 85;
+at 0.155.1 it was 60/22 of 82 — 62/22 of 84 on the wire,
 because `export.rs` also excludes `rawResponseItem/completed` and
 `rawResponse/completed` from the JSON entirely.
 
-The captured files still record all 82 on both surfaces, because they mirror the
-exporter: a manifest that disagrees with its own source cannot pass the gate's
-exact mode. So the split is reported at capture time and written up in the
-version's README, and persisting it as a manifest field waits for
-`schema_version` 2. Until then, treat "stable notification" in the manifest as
-"declared", not as "arrives without the opt-in".
+The captured surfaces still record every notification on both sides, because they
+mirror the exporter: a surface that disagrees with its own source cannot pass the
+gate's exact mode. Since `schema_version` 2 the split is kept beside them, as the
+manifest's `experimental_notifications`. That list, not the surfaces, says which
+notifications need the opt-in (0236 D3.3).
 
 **Three methods exist on the wire and in no schema.**
 `export.rs` strips `getConversationSummary`, `gitDiffToRemote` and
@@ -94,13 +105,36 @@ expected and **not** a bug to fix by deleting the call.
   shim identically across releases. The capture logs a NOTE when it sees this;
   version equality is the real evidence on such a host. On macOS with a Homebrew
   npm install, the generator follows `PATH` to the package's `bin/codex.js`
-  launcher, and that is what gets hashed (0.166.0).
+  launcher, and that is what gets hashed (0.166.0). That launcher's bytes were the
+  same in 0.167.0, so the macOS digest cannot tell those releases apart either.
 - **The `implemented` classification**, from this package's own code: the
   notification route table for notifications, a string literal passed to a call
   for client requests, and a `case` label for server requests. The hand-maintained
   switch it replaced named 32 client requests and no server request at all, so all
   21 server requests were recorded as deferred while nine were answered
   deliberately.
+- **Each request's response type**, from the `response:` declarations in
+  `client_request_definitions!` and `server_request_definitions!` in `common.rs`.
+  The capture fails on a request in the export with no declaration, or one naming a
+  type the export does not define. This replaced a guess from the params name and a
+  hand-written override map, which needed five new entries at the 0.166.0 re-pin.
+  A `params:` line can carry `#[ts]` and `#[serde]` attributes before its type,
+  which is why the parser reads `response:` (0236 D3.1).
+- **Every string enum**, per surface: named definitions, `oneOf`/`anyOf` unions of
+  string enums (0.167.0's `CommandExecutionApprovalKind` is one), and titled enums
+  nested anywhere, which includes each method's own discriminator. The gate treats
+  a removed value as breaking and a new one as additive, the rule methods follow
+  (0236 D3.2).
+- **The export's property names**, which `decoded_names_test.go` holds this
+  package's JSON tags to. A name Magic reads that no export declares is a guess
+  about codex's wire. The test fails on it until it is removed, or listed in
+  `knownOutsideSchema` with its evidence. Types that are not app-server messages
+  (Magic's own outputs, `doctor --json`, the daemon's JSON, `auth.json`) are
+  excluded by name, each with a reason (0236 D3.4).
+- **The MCP approval `_meta` keys**, from the string constants of
+  `codex-rs/protocol/src/mcp_approval_meta.rs`, into the source-watch manifest. The
+  schema types `_meta` as any JSON, so these constants are the only published
+  source for the keys the approval sheet reads (0236 D4).
 
 ## Where the source-side surfaces come from
 
@@ -122,7 +156,7 @@ a byte comparison would report drift on every capture.
 notifications identically on the installed and the source side, so filtering only
 the installed surface reports all 22 experimental notifications as "in source,
 missing from installed" — a phantom delta that never clears. A correct capture at
-0.155.1 and at 0.166.0 reports `installed_delta: 0`.
+0.155.1, 0.166.0 and 0.167.0 reports an empty `installed_delta`.
 
 ## Two installs, one PATH
 
@@ -140,7 +174,7 @@ check looks under `%LOCALAPPDATA%`, so it runs only on Windows.
 
 | Mode | Fails on | Use |
 | --- | --- | --- |
-| default | **breaking** drift only — a removed or renamed method, a newly required param or result field, or a stable→experimental demotion. Additions are listed and pass. | CI, and any host |
+| default | **breaking** drift only — a removed or renamed method, a removed enum value, a newly required param or result field, or a stable→experimental demotion. Additions are listed and pass. | any host, run by hand; no CI workflow runs it |
 | `CODEX_CONTRACT_EXACT=1` | any difference at all, plus a binary identity mismatch | release pinning, on the capture host |
 
 The distinction is the point. The previous gate compared the whole surface with
@@ -163,9 +197,16 @@ Why each breaking class is breaking, and a relaxation is not:
 - **A field that stops being required is additive.** We keep sending it. Codex
   0.155.1 did exactly this to `FunctionCallOutputResponseItem.call_id`.
 
+- **A removed enum value** is breaking for the same reason as a removed method: a
+  switch over it may be handling it. An enum whose name is gone is breaking unless
+  the capture declares the same values under another name, because definition
+  names never reach the wire.
+
 Expect the default mode to report additive drift whenever the installed Codex is
 ahead of the pin. Against a 0.149.1 pin on a 0.155.1 host it reports **35**
-additions and passes.
+additions and passes. Against the 0.166.0 pin on a 0.167.0 host it reported 3
+before enums were compared, and **9** after, the new six being enum values and
+discriminators such as `CommandExecutionApprovalKind.humanCommand`.
 
 ## Four managed-policy fields are sent but described by no generated type
 
