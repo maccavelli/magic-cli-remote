@@ -308,7 +308,7 @@ What the owner weighed is the dependency's cost, and F5 measures it.
   * At v1.27.0 that gives `grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.3`, `grok-build-0.1`. The
     first is the floor's default unless a model is configured. `Static(grok)`'s own first id,
     `grok-4.6`, is not used as the default (F3).
-  * **The label is the id,** not `catalog.LabelName`, and no `LabelNote` goes in `Description`.
+  * **The label is the id,** not `catalog.LabelName`, and no `LabelNote` goes in `Description`. *(Amended 2026-11-06: see "Amendment 2026-11-06: the floor takes the SDK's names".)*
     grok's live list names each model by its id and carries no note (F3). With the SDK's names,
     the floor's `Grok 4.7` would become `grok-4.7` at grok's first answer.
   * **`SortByRank` orders the SDK's list only.** It never reorders a live or saved catalog. Those
@@ -316,7 +316,7 @@ What the owner weighed is the dependency's cost, and F5 measures it.
     (`internal/picker/order.go:43-58`), which keeps an engine's order when it reports no dates
     ([0043-MADR-model-selection.md](0043-MADR-model-selection.md) D3). Changing that is a change
     for every provider, and `SortByRank`'s scores rank by speed and cost outside grok (F3).
-  * **Only `Static` and `SortByRank` are called.** Never `List`, `ListRaw`, `LookupMetadata` or
+  * **Only `Static` and `SortByRank` are called.** *(Amended 2026-11-06: see "Amendment 2026-11-06: the floor takes the SDK's names".)* Never `List`, `ListRaw`, `LookupMetadata` or
     any other function that fetches, lists or caches.
   * **The import lives only in `internal/provider/grok`.** `acpagent` stays vendor-neutral, and no
     other package imports the SDK. A source test enforces both, in the same way as
@@ -329,7 +329,7 @@ What the owner weighed is the dependency's cost, and F5 measures it.
     every module (`scripts/go-precheck.sh`).
 * **D5 — 0185 is superseded in part.**
   * Its "No dependency" bullet, and the part of its Confirmation that rejects any
-    `go-llmprovider-sdk` module, give way to D4: one module, two functions (`Static`,
+    `go-llmprovider-sdk` module, give way to D4: *(Amended 2026-11-06: see "Amendment 2026-11-06: the floor takes the SDK's names".)* one module, two functions (`Static`,
     `SortByRank`), one package.
   * Everything else in 0185 stands: catalogs stay engine-backed, and no catalog moves to the SDK's
     listing.
@@ -385,7 +385,7 @@ What the owner weighed is the dependency's cost, and F5 measures it.
 * **D4:**
   * the floor equals `SortByRank(grok, Static(grok), nil)`, and its default is `grok-4.7` at
     v1.27.0;
-  * no label or description comes from `catalog.Label`, `LabelName` or `LabelNote`;
+  * no label or description comes from `catalog.Label`, `LabelName` or `LabelNote`; *(Amended 2026-11-06: see "Amendment 2026-11-06: the floor takes the SDK's names".)*
   * a live catalog with the 4.20 ids first keeps that order (`SortByRank` is not applied to it);
   * every floor id is in the newest committed capture;
   * the source test finds the SDK imported only by `internal/provider/grok`.
@@ -393,7 +393,7 @@ What the owner weighed is the dependency's cost, and F5 measures it.
   Each is seen failing first.
 * **The dependency:** `go list -m all` gains exactly the SDK, and `make pre-add-check`'s
   `govulncheck` is clean.
-* **Live:** a scratch daemon instance, with its own data directory, first lists grok's models
+* **Live:** *(Amended 2026-11-06: see "Amendment 2026-11-06: the floor takes the SDK's names".)* a scratch daemon instance, with its own data directory, first lists grok's models
   through the real grok, so that it saves them. It is then restarted with its grok `bin` pointing
   at a path that does not exist.
   * Its picker shows the saved grok list, labelled "Saved catalog".
@@ -475,6 +475,50 @@ needs one field it did not name. The text above is left as written.
   (`acpNoHarvest`, `internal/provider/opencode/acp_catalog.go:38-43`). Before a session it shows its
   static list. With D1 it shows the list its last session reported instead.
 
+## Amendment 2026-11-06: the floor takes the SDK's names, and the phone check uses a failing grok
+
+Found at P5 of [0235-PLAN-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md](0235-PLAN-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md)
+(its deviations 1 and 2), and decided by the owner the same day, each as recommended. The text
+above is left as written and annotated where it changes.
+
+### A fact was wrong: a signed-in grok names its models
+
+F3, D4 and Q1 say grok's live list names each model by its id. That holds for a host with an xAI
+API key: in the keyed 1.0.70 capture, `name` equals `modelId` for all 14 models. It does not hold
+for a signed-in account. The owner's account, read at `initialize` by a scratch instance on
+2026-11-06, named its four models "Grok 4.7", "Grok 4.7 Fast", "Grok 4.6" and "Grok 4.5". With ids
+on the floor, a signed-in user would see `grok-4.7` become "Grok 4.7" at grok's first answer, which
+is the change Q1's answer meant to avoid.
+
+### The decisions change
+
+* **D4's label.** Each floor option's `Label` is `catalog.LabelName(grok, id)`: "Grok 4.7",
+  "Grok 4.6", "Grok 4.5", "Grok 4.3", "Grok Build 0.1". For the three models the account offers,
+  those are grok's own names. `Description` stays empty: no `LabelNote` and no padded `Label`. An API-key host, whose live names
+  are ids, sees the names change once the other way. That is accepted, because a signed-in account
+  is the common case.
+* **D4's functions.** Three SDK functions are called: `Static`, `SortByRank` and `LabelName`. Still
+  nothing that fetches, lists or caches. The boundary test allows exactly these three.
+* **D5.** 0185 gives way to one module, three functions and one package. Its note says so.
+* **Q1** is answered again, on the corrected fact: the SDK's names.
+* **The Confirmation's "Live" item.** The phone cannot show a missing grok's catalog: the app
+  lists a provider whose binary is missing as "(not installed on host)" and does not let it be
+  chosen (`apps/mobile/lib/features/sessions/sessions_screen.dart:812-819`). The live phone check
+  therefore points grok's `bin` at a scratch stub that exists and exits before `initialize`. grok
+  is then ready, but cannot answer. That is the case the saved layer exists for. The
+  missing-binary case is confirmed at the provider by the live-tagged test
+  `TestLiveSavedCatalogStandsInForAMissingGrok`.
+* **The Confirmation's D4 items.** The floor's labels equal `LabelName`, and no description comes
+  from `LabelNote`.
+
+### Observed, not decided
+
+The owner's account offered four models: `grok-4.7`, `grok-4.7-build-fast`, `grok-4.6` and
+`grok-4.5`. The floor also offers `grok-4.3` and `grok-build-0.1`. Both are in the keyed capture,
+so the floor test passes, but this account would refuse them. Once grok has answered on a host,
+the saved list replaces the floor, so a signed-in user meets the two ids only before that first
+answer. Nothing here changes for it.
+
 ## More Information
 
 ### Owner questions
@@ -482,7 +526,7 @@ needs one field it did not name. The text above is left as written.
 Answered by the owner on 2026-11-06, each as recommended. The record already said each; the
 answers confirm it.
 
-* **Q1. The floor's labels (D4).** Options: the id; `LabelName`; `LabelName` with `LabelNote` in
+* **Q1. The floor's labels (D4).** *(Amended 2026-11-06: see "Amendment 2026-11-06: the floor takes the SDK's names".)* Options: the id; `LabelName`; `LabelName` with `LabelNote` in
   `Description`. Answer: the id, so nothing changes name when grok first answers.
 * **Q2. The saved catalog's age limit (D1).** Options: none; 30 days; 24 hours, as the SDK's
   `WithLastGood`. Answer: none.

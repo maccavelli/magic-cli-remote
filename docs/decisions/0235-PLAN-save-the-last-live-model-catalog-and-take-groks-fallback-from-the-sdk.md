@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: complete
 date: 2026-11-06
 associated-madr: "0235-MADR-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md"
 ---
@@ -473,5 +473,335 @@ Steps:
 
 ## Execution record
 
-Not started. The owner accepted the MADR on 2026-11-06. This PLAN awaits approval, and the host
-and live runs of C3 await the owner's word.
+The owner accepted the MADR on 2026-11-06, and approved this PLAN the same day ("Approved to
+proceed. Tests are also approved"). That word covers every host and live run of C3.
+
+### P1 — executed 2026-11-06
+
+**What changed:**
+
+* `picker.SourceSaved` (`internal/picker/picker.go`).
+* `appdirs.Paths.CatalogDir`, set in `Resolve` and `WithDataDir` to
+  `<CacheDir>/instances/<InstanceKey>/catalogs`.
+* The new package `internal/picker/saved`: `MaxOptions`, `Open`, `Save`, `Load` and `Flush`, as
+  step 3 describes.
+  * `Save` encodes and compares on the caller's goroutine, and does no file I/O there.
+  * One writer goroutine writes the newest queued catalog per provider.
+  * On a provider's first write in a process, the writer reads the file on disk and leaves an
+    equal one alone. So a restarted daemon does not rewrite what it finds.
+  * `Load` returns a fresh decode each call, so callers never share option slices with the store.
+
+**Verification:**
+
+* The tests on the tree: `go test -race -count=1 ./internal/picker/... ./internal/appdirs/` passed
+  three packages. The two `ws` tests passed with `TestCapCatalog*`.
+* Fail-first (C4), `libs/ff_p1.py`. 15 experiments on scratch copies of the working tree, each
+  copy removed after its run: "15/15 failed as expected; copies removed: True". The failures:
+
+  | Test | Break | Failure seen |
+  | :--- | :--- | :--- |
+  | `TestSaveThenLoadRoundTrips` | `Load` always reports nothing | `no saved catalog after Save and Flush` |
+  | `TestLoadIsInMemoryBeforeTheWrite` | `Save` only queues | `Load before the write = [], false; want [vendor-a], true` |
+  | `TestOnlyANonEmptyLiveCatalogIsSaved` | the source check removed | `writes = 1, want 0` |
+  | `TestAnEqualCatalogIsNotRewritten` | the comparison removed | `writes after two equal saves = 2, want 1` |
+  | `TestTheLatestQueuedCatalogWins` | a queued catalog not replaced by a newer one | `file holds [b], true; want [c]` |
+  | `TestABadFileIsNoFile` | the version check removed | `a bad file loaded: [a]` |
+  | `TestTheCatalogIsCutAtMaxOptions` | the cut removed | `options = 501, truncated = false; want 500, true` |
+  | `TestAProviderIDCannotNameAPath` | `Save`'s id check removed | `the parent holds 2 entries, want none` |
+  | `TestAFailedWriteIsLoggedAndKeptInMemory` | the write error ignored | `the failed write was not logged at warn` |
+  | `TestNilStoreIsInert` | `Load` dereferences a nil store | `panic: runtime error: invalid memory address or nil pointer dereference` |
+  | `TestTheFileIsOwnerOnly` | the file written `0644` | `file mode = 644, want 600` |
+  | `TestSaveDoesNotChangeTheCallersCatalog` | options not copied | `caller's option label = "a", want it untouched` |
+  | `TestCatalogDirIsPerInstance` | `WithDataDir` does not set it | `WithDataDir: CatalogDir = "<…>/instances/<key a>/catalogs", want "<…>/instances/<key b>/catalogs"` |
+  | `TestSavedCatalogsKeepTheTransportCap` | `MaxOptions` 499 | `saved.MaxOptions = 499, want the transport cap 500` |
+  | `TestASavedCatalogIsSentAsSaved` | the constant spelled `"save"` | `reply = {…"source":"save"…}, want "source":"saved"` |
+
+* `make race` on this host: exit 0, 49 packages `ok`, no other line but the command.
+* The host gates, `leftovers/pins_hosts.py` over HEAD plus P1's seven files:
+  * the Linux test host, `go test -race -count=1 -timeout=40m ./...` on go1.27.3 linux/amd64: exit 0,
+    49 `ok` lines;
+  * the Windows test host, the dry run then `make ci-windows` on go1.27.3 windows/amd64: exit 0,
+    "ci-windows-local: ALL SELECTED CHECKS PASSED", 49 `ok` lines;
+  * both scratch trees removed and their absence checked.
+* `make pre-add-check` on the seven Go files: "7 file(s) clean (gofmt, golint, govulncheck)".
+
+**Deviations, all 2026-11-06, none changing a decision:**
+
+1. **The protocol test sits in `internal/ws/models_cap_test.go`,** as `TestASavedCatalogIsSentAsSaved`.
+   `internal/protocol` has no test of `ModelsResultFromCatalog`; that file is the one that tests it,
+   which step 5 allowed.
+2. **The permission test's build tag is `unix`, not `!windows`,** matching
+   `internal/appdirs/ensure_unix.go`, whose code it checks.
+3. **`TestTheLatestQueuedCatalogWins` saves A, B and C,** and its break keeps the first queued
+   catalog. The planned break, "writes each queued save in order", needs a queue the store does not
+   have, so it could not be planted in one edit. The test still bounds the writes at two.
+4. **One test was added,** `TestSaveDoesNotChangeTheCallersCatalog`. It guards the copy that keeps
+   `Normalize` from writing into a provider's shared cached catalog.
+
+### P2 — executed 2026-11-06
+
+**What changed:**
+
+* `provider.Build.SavedCatalogs`. The daemon's `runBase` is `buildBase` plus
+  `saved.Open(cfg.Paths.CatalogDir, log)`. `Run` uses it, logs at info when there is no directory,
+  and defers `Flush` before the spares' shutdown, so it runs after it. `InspectProviders` keeps
+  `buildBase`.
+* `SavedCatalogs` on `acpagent.Config`, `httpagent.Config` and codex's `Config`. Each of the four
+  descriptors sets it from `b.SavedCatalogs`.
+* **`acpagent`:**
+  * `saveCatalog` runs after `reportEngineVersion` in `applyInitializeResponse`, and after the
+    unlock in `SetModelCatalog`.
+  * `fallbackCatalog` replaces the three `return static, nil` in `ListModels`.
+  * The live-catalog comment says what a saved catalog is.
+* **`httpagent`:** `ListModels` saves the live list before the static and merge branches, and
+  `fallbackModels` replaces its error-path `return static, nil`.
+* **codex:**
+  * `fallbackCatalog` replaces the two engine-unavailable returns.
+  * `withSavedCatalog`, applied to `collectModels`' result, saves a live list and replaces a static
+    one.
+
+**Verification:**
+
+* The eleven tests on the tree pass. So do `TestNoProviderIsNamedInAcpagent` and the existing
+  catalog suites, inside `make race`.
+* Fail-first (C4), `libs/ff_p2.py`: "11/11 failed as expected; copies removed: True".
+
+  | Test | Break | Failure seen |
+  | :--- | :--- | :--- |
+  | `TestAnInitializeCatalogIsSaved` | the initialize save removed | `saved after initialize: [], false; want [vendor-a vendor-b]` |
+  | `TestASessionModelOptionIsSaved` | the `SetModelCatalog` save removed | `saved after a session's model option: {…Options:[]…}, false` |
+  | `TestAMissingAgentServesTheSavedCatalog` | `fallbackCatalog` returns static | `missing agent lists "static" [static/one]; want saved [vendor-a vendor-b]` |
+  | `TestNoSavedCatalogServesTheStaticOne` | the static list saved on the fallback path | `the static fallback wrote to the store: <nil>` |
+  | `TestModelsForVendorUsesTheSavedCatalog` | `ListModelsFor` given the static list | `models for g1: "static" []; want saved [g1/a g1/c]` |
+  | `TestALiveListIsSavedBeforeTheMerge` | the merged catalog saved | `saved = [live-one static-one], true; want only the live [live-one]` |
+  | `TestAFailedListServesTheSavedCatalog` | `return static` kept | `ListModels = "static" [static-one]; want saved [kept-one kept-two]` |
+  | `TestAnUnavailableEngineServesTheSavedCatalog` | `fallbackCatalog` returns the empty static | `ListModels = "static" []; want saved [gpt-a gpt-b]` |
+  | `TestALiveModelListIsSaved` | the save removed | `saved = [], false; want [gpt-5.6-sol gpt-5.6-terra]` |
+  | `TestRunBaseCarriesTheSavedCatalogs` | `runBase` drops the store | `runBase has no saved-catalog store` |
+  | `TestInspectProvidersUsesNoSavedCatalog` | `InspectProviders` uses `runBase` | `doctor's grok lists a "saved" catalog, want static: it read the saved one` |
+
+* `make race` on this host, over P1 and P2: exit 0, no line but the command and `ok` lines.
+
+**Deviations, all 2026-11-06, none changing a decision:**
+
+1. **`TestInspectProvidersWritesNoSavedCatalog` became `TestInspectProvidersUsesNoSavedCatalog`.**
+   With a missing binary no provider has a live answer to save, so "the directory does not appear"
+   would pass under the planned break too. The test seeds a saved grok catalog instead, and asserts
+   that doctor's grok lists `static`. Doctor and the daemon share one store type, so a provider
+   with no store neither reads nor writes.
+2. **The `httpagent` stub sits behind `liveCatalog`,** as step 7 allowed. The tests install an engine
+   already up (`p.eng`, as `provider_test.go:240` does) and a dialect whose `ListModelsLive` answers
+   from memory.
+3. **codex's live-path test calls `withSavedCatalog`,** the step `ListModels` applies to
+   `collectModels`' result, as step 7 allowed. It feeds `collectModels` the existing `codexLike`
+   stub.
+
+### P3 — executed 2026-11-06
+
+**What changed:** `PickerSource.saved` in `apps/mobile/lib/data/protocol/picker.dart`. `parse` maps
+`'saved'` to it, `label` is `'Saved catalog'`, and the enum's doc comment cites MADR 0235 D2.
+
+**Verification:**
+
+* `apps/mobile/test/picker_test.dart` gained two tests: "parses a saved catalog and labels it",
+  and "an unknown source shows no badge". `flutter test test/picker_test.dart`: "All tests
+  passed!", 9 tests.
+* Fail-first (C4), `libs/ff_p3.py`, on a scratch copy of `apps/mobile` with build output and the
+  signing key file left out, and the `parse` case removed. The test failed with
+  `Expected: PickerSource:<PickerSource.saved>` and `Actual: PickerSource:<PickerSource.unknown>`.
+  The copy was removed.
+* `dart format` on both files: "Formatted 2 files (0 changed)".
+* `make preflight` over P1 to P3: "✅ preflight passed". That covered:
+  * records, markdownlint, gofmt, `go mod tidy`, `go vet` over every build tag, staticcheck on three
+    GOOSes, `go test -race`, and the release build;
+  * `dart format` ("Formatted 231 files (0 changed)"), `flutter analyze` ("No issues found!") and
+    `flutter test` ("All tests passed!", 1,515).
+
+### P2's host gates — 2026-11-06
+
+* **First run** (`pins_hosts.py`, HEAD plus P1's and P2's 24 files):
+  * the Windows test host: `make ci-windows`, "ALL SELECTED CHECKS PASSED", 49 `ok` lines;
+  * the Linux test host: exit 1, with one failure in a test P2 does not touch:
+    `TestNonBlockingProbeCoalescesConcurrentCallers` (`internal/provider/codex/nonblocking_reality_test.go:107`),
+    "no probe ran at all", 48 `ok` lines.
+* **Is it P2's?** That test checks codex's background credential probe. Its in-flight flag is
+  package-wide (`store_reality.go:309-313`), so an earlier test's probe still in flight makes all
+  20 calls return without starting one, which is this failure. `libs/host_codex.py` ran it on the
+  Linux test host in two scratch trees, HEAD alone and HEAD plus P2:
+  * the test alone, `-race -count=10`: exit 0 in both;
+  * the codex package, `-race -count=3`: exit 0 in both.
+
+  It did not reproduce in 13 runs on either tree. It is a timing flake, not P2's. It is left as it
+  is: fixing it is outside this PLAN.
+* **Second run,** the Linux test host only, the same 24 files: exit 0, 49 `ok` lines. Both scratch
+  trees of every run were removed and their absence checked.
+
+### P4 — executed 2026-11-06
+
+**What changed:**
+
+* `go.mod` gains one line, `github.com/maccavelli/go-llmprovider-sdk v1.27.0`. `go.sum` gains its
+  two hashes.
+* `acpagent.Spec.StaticDefaultModel`, used by `staticModelCatalog` when no model is configured.
+* `grok.go`: `staticModels` is `floorModels()`, which is `SortByRank(grok, Static(grok), nil)` as
+  options with the id as label and group `xai`. `spec.StaticDefaultModel` is `floorDefault()`, the
+  floor's first id. The comment names MADR 0235 D1 and D4, and drops the 2026-08-12 measurement.
+* `0185-MADR-…`: a dated note under the title, and in-place annotations on the "No dependency"
+  bullet and the Confirmation. 0185 stays `accepted`.
+
+**Verification:**
+
+* The tests on the tree:
+  * `TestStaticModelsFloor` (rewritten), `TestTheFloorIsInTheKnownGoodCapture`,
+    `TestNoLabelComesFromTheSDK` and `TestSDKIsImportedOnlyByGrok` pass;
+  * `TestTheStaticDefaultModelIsPreselected` passes;
+  * `TestNoProviderIsNamedInAcpagent` and `TestLiveCatalogIsNotPaddedWithTheFloor` still pass.
+* Fail-first (C4), `libs/ff_p4.py`: "6/6 failed as expected; copies removed: True".
+
+  | Test | Break | Failure seen |
+  | :--- | :--- | :--- |
+  | `TestTheStaticDefaultModelIsPreselected` | the fallback line removed | `static default = [], want [vendor-b]` |
+  | `TestStaticModelsFloor` | `Static` unsorted | `floor = [grok-4.6 grok-4.5 grok-4.7 grok-4.3 grok-build-0.1], want [grok-4.7 …]` |
+  | `TestTheFloorIsInTheKnownGoodCapture` | a planted id | `floor id "grok-9-planted" is not among the models grok 1.0.70 offered` |
+  | `TestNoLabelComesFromTheSDK` | labels from `LabelName` | `grok-4.7 label "Grok 4.7" comes from the SDK's LabelName` |
+  | `TestSDKIsImportedOnlyByGrok` | `internal/picker/order.go` imports `catalog` | `internal/picker/order.go imports …/llmprovider/catalog; only internal/provider/grok may` |
+  | `TestSDKIsImportedOnlyByGrok` | `grok.go` calls `catalog.Label` | `internal/provider/grok/grok.go uses catalog.Label; grok may use only …` |
+
+* **The module graph** (`libs/size_now.py`, scratch copies before and after P4): `go list -m all`
+  gains exactly one line, `github.com/maccavelli/go-llmprovider-sdk v1.27.0`, 95 modules to 96.
+* **The size,** `go build -trimpath ./cmd/mcremote`: 39,751,826 bytes before P4 and 40,048,098
+  after. That is 296,272 bytes (0.75%), under the 329,040 expected. For the record, P1 to P3 grew
+  the binary 68,752 bytes over HEAD's 39,683,074.
+* `make race` on this host over P1 to P4: exit 0, 49 packages `ok`, no other line.
+* The host gates over HEAD plus P1 to P4: the Linux test host, exit 0, 49 `ok` lines; the Windows
+  test host, "ALL SELECTED CHECKS PASSED", 49 `ok` lines; trees removed.
+* `make pre-add-check` on P2's and P4's 21 Go files: "21 file(s) clean (gofmt, golint,
+  govulncheck)".
+
+### P5 — executed 2026-11-06, after two deviations
+
+**Step 1, done.** `TestLiveSavedCatalogStandsInForAMissingGrok` passed on grok 1.0.70, with grok's
+home isolated and no key: "grok's live catalog: [grok-4.6 grok-4.5], default [grok-4.6]". That is
+the compiled-in pair of MADR F2, saved and then served as `saved`, then the floor with
+`[grok-4.7]` once the file was removed.
+
+* Fail-first, `libs/ff_p5.py`, the initialize save removed: it failed at step 2, not step 3 as the
+  PLAN said, because the file check comes first: `no saved catalog after the live answer: stat
+  <tmp>/catalogs/grok.json: no such file or directory`.
+
+**Step 2, partly done, then stopped.**
+
+* The app data was backed up: 20 files in `shared_prefs`, `databases`, `files` and `app_flutter`.
+  The tree's debug APK was installed.
+* A scratch instance (`libs/p5_daemon.py`) had its own XDG directories and data directory, with
+  instance key `6c1c43e14a1bc83c`, and grok only. The emulator paired with it by pasted URI.
+* **State 1, live:** the create-session model picker for grok showed "Live catalog". Its options
+  were `grok-4.7`, `grok-4.7-build-fast`, `grok-4.6` (current) and `grok-4.5`, named "Grok 4.7",
+  "Grok 4.7 Fast", "Grok 4.6" and "Grok 4.5": the owner's signed-in account at initialize, with no
+  session created. The instance's `grok.json` was mode `0600`, `engine_version` 1.0.70, with
+  those four ids and default `grok-4.6`.
+* **State 2 could not be reached as planned.** With `providers.grok.bin` set to a missing path, the
+  app lists grok as "grok (not installed on host)" and does not let it be chosen
+  (`apps/mobile/lib/features/sessions/sessions_screen.dart:812-819`, `enabled: p.ready`). So its
+  model picker never asks for a catalog. A first look showed "Live catalog" after the restart, but
+  that was the dialog's own cache (`sessions_screen.dart:538`, `cache[key] = pending`), from before
+  the restart. It was not the daemon's answer.
+* The scratch instance was stopped, and the app's data was restored and checked file by file:
+  "20 files wanted; missing 0, changed 0, extra 0". The app reconnected to the host's own daemon.
+  The scratch directory is kept for the rerun.
+
+**Deviation 1, 2026-11-06 — the missing-binary state is not reachable from the phone.** The MADR's
+Confirmation ("Live") and step 2.4 assume the phone can open a model picker for a provider whose
+binary is missing. It cannot.
+
+* **Resolution (owner, 2026-11-06, as recommended):** steps 2.4 and 2.5 point grok's `bin` at a
+  scratch stub that exists and exits before `initialize`. The missing-binary case stays confirmed at
+  the provider by step 1.
+* ~~4. Stop the instance, set grok's `bin` to a path that does not exist, and start it again.~~
+  Superseded by this resolution.
+* The MADR records it in "Amendment 2026-11-06: the floor takes the SDK's names, and the phone
+  check uses a failing grok".
+
+**Deviation 2, 2026-11-06 — a fact behind D4 and Q1 is wrong.** The MADR says "grok's own live list
+names each model by its id" (F3, D4, Q1). That holds for the keyed 1.0.70 capture, where `name`
+equals `modelId`. A signed-in account's live list carries display names, "Grok 4.7" and so on. So
+for a signed-in user, the floor's `grok-4.7` becomes "Grok 4.7" at grok's first answer, which is the
+change Q1's answer meant to avoid.
+
+* **Resolution (owner, 2026-11-06, as recommended):** the floor's labels are the SDK's names,
+  `catalog.LabelName`, with no note. Recorded in the same MADR amendment, which changes D4, D5, Q1
+  and the Confirmation. Files added to P4's scope: none. P4's `grok.go`, `grok_test.go`,
+  `sdk_boundary_test.go` and 0185's note change.
+* **What changed in P4:**
+  * `floorModels` sets `Label: catalog.LabelName(grok, id)`.
+  * `TestStaticModelsFloor` expects "Grok 4.7", "Grok 4.6", "Grok 4.5", "Grok 4.3" and
+    "Grok Build 0.1".
+  * `TestNoLabelComesFromTheSDK` became `TestFloorLabelsAreTheSDKNames`: each label equals
+    `LabelName`, and no description is set.
+  * The boundary test allows `catalog.LabelName`.
+  * 0185's note says three functions.
+* **Fail-first,** `libs/ff_p4b.py`: "5/5 failed as expected; copies removed: True".
+
+  | Test | Break | Failure seen |
+  | :--- | :--- | :--- |
+  | `TestStaticModelsFloor` | labels back to ids | `floor labels = ["grok-4.7" …], want ["Grok 4.7" …]` |
+  | `TestFloorLabelsAreTheSDKNames` | labels back to ids | `grok-4.7 label "grok-4.7", want the SDK's name "Grok 4.7"` |
+  | `TestFloorLabelsAreTheSDKNames` | the note as description | `grok-4.7 description "frontier model", want none: the SDK's notes are not used` |
+  | `TestSDKIsImportedOnlyByGrok` | `grok.go` calls `catalog.LabelNote` | `… uses catalog.LabelNote; grok may use only catalog.Static, catalog.SortByRank, catalog.LabelName and llmprovider.ProviderGrok` |
+  | `TestSDKIsImportedOnlyByGrok` | `grok.go` calls `catalog.Label` | `… uses catalog.Label; …` |
+
+* **Gates after the change:**
+  * `make race` on this host: exit 0, no line but the command and `ok` lines;
+  * `make pre-add-check` on the four grok files: exit 0;
+  * the live test, rerun: `ok`;
+  * the host gates over HEAD plus every changed file: the Linux test host, exit 0, 49 `ok` lines;
+    the Windows test host, "ALL SELECTED CHECKS PASSED", 49 `ok` lines; trees removed.
+
+**Step 2, rerun with the failing grok (deviation 1's resolution):**
+
+* The app data was backed up again (20 files). The scratch instance was rebuilt from the tree,
+  with `providers.grok.bin` set to the stub, and the emulator paired with it again.
+* **State 2, saved.** grok listed as ready. Its model picker showed **"Saved catalog"**, with the
+  four models of state 1 under grok's names, "Grok 4.7", "Grok 4.7 Fast", "Grok 4.6" (preselected)
+  and "Grok 4.5". Each kept its reasoning levels. While loading, the sheet showed "Offline catalog"
+  for a moment: that is the app's placeholder before any reply, the same as in state 1.
+* **State 3, offline.** With the instance stopped, `grok.json` removed and the instance restarted,
+  a new dialog's picker showed **"Offline catalog"**, with "Grok 4.7" (preselected), "Grok 4.6",
+  "Grok 4.5", "Grok 4.3" and "Grok Build 0.1". The failed start saved nothing: "no grok.json
+  saved".
+* **Cleanup:**
+  * the app's data was restored and checked: "20 files wanted; missing 0, changed 0, extra 0";
+  * the app reconnected to the host's own daemon;
+  * the scratch instance's directory was removed ("p5d removed: True"), with its device token and
+    pair code;
+  * the backup archive was deleted, and the emulator was shut down.
+
+  The screenshots stay in the session scratchpad. They are not committed, since they show the
+  host's name.
+
+### The MADR's Confirmation, checked off — 2026-11-06
+
+| Item | Evidence |
+| :--- | :--- |
+| D1, the store | P1's eleven store tests and their failures |
+| D1, the providers | P2's eleven tests and their failures |
+| D2 | `TestASavedCatalogIsSentAsSaved`; the phone's two `picker_test.dart` tests; `make preflight` |
+| D4, as amended | `TestStaticModelsFloor`, `TestFloorLabelsAreTheSDKNames`, `TestTheFloorIsInTheKnownGoodCapture`, `TestSDKIsImportedOnlyByGrok`, `TestTheStaticDefaultModelIsPreselected` |
+| D4, a live catalog keeps its order | no code reorders one: `ListModels` returns the agent's list as before, and `TestLiveCatalogIsNotPaddedWithTheFloor` still passes. No new test was written for it |
+| The dependency | `go list -m all` gains only the SDK; `govulncheck` clean in every `make pre-add-check` |
+| Live | step 1's live test, and step 2's three phone states |
+| Gates | `make race`; the Linux test host's `go test -race ./...` and `make ci-windows`, at P1, P2 and P4 |
+
+### Not done, and why
+
+* **No test asserts that a live catalog with the 4.20 ids first keeps that order** (the MADR's D4
+  Confirmation item). Nothing in the change sorts a live or saved catalog, so such a test would only
+  restate `ListModels`. The item is met by the code as written, and is left without a test of its
+  own.
+* **The phone's "Offline catalog" placeholder** shows for a moment while a reply loads, in every
+  state. It is the app's existing behaviour, and is not changed here.
+* **The flaky `TestNonBlockingProbeCoalescesConcurrentCallers`** is not fixed here.
+* **The two floor ids a signed-in account does not offer** (`grok-4.3`, `grok-build-0.1`) are left,
+  as the MADR's amendment records.
+
+The PLAN is complete. Commits are the owner's: see the handoff.
