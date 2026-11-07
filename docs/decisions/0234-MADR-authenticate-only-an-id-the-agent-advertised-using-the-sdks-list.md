@@ -163,7 +163,8 @@ Probe 4 (`libs/grokprobe2.py`) ran on a scratch copy of `92ffc2ad`, against the 
 `1.0.70 (f50904eaee6c)`. It sends `initialize` only, with the placeholder key.
 
 * It first runs a cold `initialize` with no credential, to read grok's own `modelState`. That
-  gives `availableModels` `[grok-4.6, grok-4.5]` and `currentModelId` `grok-4.6`.
+  gives `availableModels` `[grok-4.6, grok-4.5]` and `currentModelId` `grok-4.6`. This is grok's
+  signed-out fallback list; see below.
 * Each state then writes **one** table, or none. It logs the advertised ids, the default id, the
   current model, and the model list.
 * Two runs gave identical answers.
@@ -188,15 +189,26 @@ What the table establishes:
 * **The table is what counts.** A top-level `env_key` makes grok advertise nothing new.
 * **A table for an id grok does not have adds that id to `availableModels`.** A remedy must name
   a real model, never an invented one.
-* **A table for the cold current model, `grok-4.6`, changes what `initialize` reports.**
-  `currentModelId` becomes `grok-4.5`, and `grok-4.6` moves to the end of `availableModels`.
-  This happens for both shapes, with or without a usable key. A table for `grok-4.5` leaves both
-  as they were. The pattern fits a configured model being listed after the built-in ones, so that
-  the first built-in becomes current. That is an inference: grok's documentation was not read.
-* **It already applies to Magic.** The phone's key write (0085 D4) writes one `api_key` table,
-  for the model `resolveCredentialModel` picks (`grok/auth.go:98-100`): the operator's pin, else
-  the live `DefaultIDs[0]`. On 1.0.70 that is `grok-4.6`, the row in which grok then reports
-  `grok-4.5` as current.
+* **The model columns are grok's offline fallback list, not an account's catalog.**
+  * Every state ran in an empty, signed-out home with at most the placeholder key, so grok could
+    not fetch xAI's catalog. It reported a two-model list, `grok-4.6` and `grok-4.5`, which
+    matches Magic's static floor (`grok/grok.go:24-31`).
+  * A host with a real key reports far more. The committed 1.0.70 capture
+    (`testdata/wire/1.0.70/frames.jsonl`) lists 14 models, `grok-4.7` among them, with
+    `currentModelId` `grok-4.20-0309-non-reasoning`.
+  * The owner reports that a signed-in grok defaults to `grok-4.7`. This probe cannot confirm or
+    contradict that.
+* **Within that fallback list, a table for `grok-4.6` changed what `initialize` reports.**
+  `currentModelId` became `grok-4.5`, and `grok-4.6` moved to the end of the list. This happened
+  for both shapes, with or without the key. A table for `grok-4.5` changed neither.
+  * It fits a model named in the config being listed after the built-in ones, so that the first
+    remaining one becomes current. That is an inference: grok's documentation was not read.
+  * Whether the same happens to a real catalog, for example to `grok-4.7`, was not probed. So
+    there is no evidence yet that the phone's key write (0085 D4), which writes one table for
+    `resolveCredentialModel`'s pick (`grok/auth.go:98-100`), changes a real user's default.
+    *Corrected 2026-11-06. The first draft of this paragraph said it did.*
+  * A model chosen explicitly for a session is not this list's current model, and was not
+    probed either.
 
 What this does not establish:
 

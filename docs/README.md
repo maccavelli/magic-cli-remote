@@ -458,6 +458,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0233 | MADR | Give each service test its own unit and backend records, and fail a test that reaches the shared ones | [0233-MADR-give-each-service-test-its-own-unit-and-backend-records.md](decisions/0233-MADR-give-each-service-test-its-own-unit-and-backend-records.md) |
 | 0234 | MADR | Authenticate only an id the agent advertised, using the SDK's list | [0234-MADR-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md](decisions/0234-MADR-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md) |
 | 0234 | PLAN | Implement authenticating only an id the agent advertised, using the SDK's list | [0234-PLAN-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md](decisions/0234-PLAN-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md) |
+| 0235 | MADR | Save the last live model catalog, and take grok's fallback from the SDK | [0235-MADR-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md](decisions/0235-MADR-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md) |
+| 0235 | PLAN | Implement saving the last live model catalog, and taking grok's fallback from the SDK | [0235-PLAN-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md](decisions/0235-PLAN-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
