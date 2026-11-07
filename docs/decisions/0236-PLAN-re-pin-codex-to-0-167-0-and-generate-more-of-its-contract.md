@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-07
 associated-madr: "0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md"
 ---
@@ -471,3 +471,33 @@ On macOS, then, the digest cannot tell releases apart: version equality is the o
      ../decisions/0236-PLAN-planted-dead-…", exit 1), then passed on the guide and the 0.167.0
      README.
    * The guard's redact preview: 0 files to edit.
+
+### P5 — 2026-11-07: acceptance
+
+1. **`make live-codex`**, on the owner's word ("run the live suite when needed"), against
+   `codex-cli 0.167.0` with P3's callback change committed: exit 0, with 408 `--- PASS` lines
+   (tests and subtests) and none failing.
+   * The top-level live tests that passed include `TestLiveInitializeConnect`,
+     `TestLiveStartSession`, `TestLiveResumeEarnsNoDeprecationNotice`, `TestLive0080SchemaSurface`,
+     `TestLive0080NoTurnSurface`, `TestLiveHostReality` and
+     `TestLiveIsolatedDeviceAuthNeverTouchesTheHostCredential`.
+   * Two skips, both expected: `TestLiveRawOutputSamples` ("MCREMOTE_RAW_OUTPUT_DIR not set", an
+     opt-in sampler) and `TestGenerateContractManifest` (runs only under the capture script).
+2. **The pre-push guard** (`scratch guard_prepush.py`), over the five commits ahead of
+   `origin/master` (the 0179 records through P3): exit 0. P4's commit and this one come after it,
+   so the guard runs again over the whole range before the owner pushes.
+3. **Verification table:**
+   * V1 to V4: P1.
+   * V5 to V7: P2.
+   * V8: P3.
+   * V6's live suite: here.
+   * V9: every phase.
+   * All met.
+4. **Left out, as the MADR says:**
+   * a thread-list push (Q1 B);
+   * `requiredHumanApproval` and every other experimental surface (Q3 A);
+   * Go type generation (option C);
+   * `sandbox.filesystem_paths`;
+   * showing the MCP elicitation's `message` (P3 step 1).
+
+   Each is named in the MADR or in this record, and none blocks the pin.
