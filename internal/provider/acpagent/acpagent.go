@@ -94,6 +94,10 @@ type Spec struct {
 	// nil or fails. Empty + AllowCustom on ListModels default still lets the
 	// user type a free-text model id.
 	StaticModels []picker.Option
+	// StaticDefaultModel is the static catalog's default when no model is
+	// configured, so the picker preselects it. Empty leaves the static
+	// catalog with no default (MADR 0235 D4 and its correction).
+	StaticDefaultModel string
 	// AuthStatus, when non-nil, reports the agent's upstream credential state
 	// (MADR 0074 D3). Nil means the agent contributes no auth block, and the
 	// daemon renders it exactly as it did before the feature existed.
@@ -531,6 +535,9 @@ func (p *Provider) harvestCatalog(ctx context.Context) (picker.Catalog, bool) {
 
 func (p *Provider) staticModelCatalog() picker.Catalog {
 	def := p.cfg.Model
+	if def == "" {
+		def = p.spec.StaticDefaultModel
+	}
 	return picker.SingleCatalog(picker.SourceStatic, slices.Clone(p.spec.StaticModels), def, true)
 }
 

@@ -6,6 +6,9 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/maccavelli/go-llmprovider-sdk/llmprovider"
+	"github.com/maccavelli/go-llmprovider-sdk/llmprovider/catalog"
+
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -15,19 +18,41 @@ import (
 // Config configures the Grok Build ACP provider.
 type Config = acpagent.Config
 
-// staticModels is the fallback catalog for when grok is not installed, or its
-// process cannot be started to read initialize `_meta.modelState`
-// (MADR 0039 D2). It is a floor, never a supplement: once a live catalog
-// exists it replaces this outright, because this list goes stale and a picker
-// that offers models the agent refuses is worse than a short one.
+// staticModels is the last fallback catalog, for when grok is not installed or
+// its process cannot be started to read initialize `_meta.modelState`
+// (MADR 0039 D2), and no catalog grok gave on this host is saved (MADR 0235
+// D1). It is a floor, never a supplement: once a live catalog exists it
+// replaces this outright, because a picker that offers models the agent
+// refuses is worse than a short one.
 //
-// Measured 2026-08-12 against grok 1.0.3; still true on 1.0.5 (MADR 0106): live availableModels are grok-4.6
-// (default) and grok-4.5. grok-code-fast-1 and grok-4 were removed because
-// session/set_model rejects them. AllowCustom stays the type-in escape hatch
-// for an older install (MADR 0081 P1.1).
-var staticModels = []picker.Option{
-	{ID: "grok-4.6", Label: "Grok 4.6", Group: "xai"},
-	{ID: "grok-4.5", Label: "Grok 4.5", Group: "xai"},
+// It is go-llmprovider-sdk's grok list in the SDK's rank order, newest
+// generation first (MADR 0235 D4), so it is not kept by hand here. Labels are
+// the SDK's display names, such as "Grok 4.7", which are the names a
+// signed-in grok gives the same models; the notes are not used (MADR 0235,
+// amendment of 2026-11-06). Static(grok)'s first id is grok-build's
+// compiled-in default, not the default here: the floor's first is. A test
+// holds every id to the newest committed grok capture. AllowCustom stays the
+// type-in escape hatch for an older install (MADR 0081 P1.1).
+var staticModels = floorModels()
+
+// floorModels is staticModels: the SDK's grok list, sorted by its rank, under
+// the SDK's names.
+func floorModels() []picker.Option {
+	ids := catalog.SortByRank(llmprovider.ProviderGrok, catalog.Static(llmprovider.ProviderGrok), nil)
+	out := make([]picker.Option, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, picker.Option{ID: id, Label: catalog.LabelName(llmprovider.ProviderGrok, id), Group: "xai"})
+	}
+	return out
+}
+
+// floorDefault is the floor's first id, its default when no model is
+// configured, or "" for an empty floor.
+func floorDefault() string {
+	if len(staticModels) == 0 {
+		return ""
+	}
+	return staticModels[0].ID
 }
 
 // staticModes is grok's plan-mode vocabulary. Grok honors ACP
@@ -87,6 +112,7 @@ var spec = acpagent.Spec{
 	SetThinkingFallback: setThinkingFallback,
 	HarvestSessionMeta:  harvestSessionMeta,
 	StaticModels:        staticModels,
+	StaticDefaultModel:  floorDefault(),
 	StaticModes:         staticModes,
 	DefaultModeID:       "default",
 	SynthesizeAutoMode:  true,

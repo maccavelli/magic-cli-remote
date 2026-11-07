@@ -1,8 +1,14 @@
 package grok
 
 import (
+	"encoding/json"
+	"os"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/maccavelli/go-llmprovider-sdk/llmprovider"
+	"github.com/maccavelli/go-llmprovider-sdk/llmprovider/catalog"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
@@ -55,21 +61,103 @@ func TestGrokSessionMetaOmitsPermissionSeeds(t *testing.T) {
 	}
 }
 
-// T-A1: static floor is grok-4.6 then grok-4.5 (MADR 0081 P1.1).
+// T-A1: the static floor is the SDK's grok list in the SDK's rank order,
+// under the SDK's names, its first id the default (MADR 0081 P1.1; MADR 0235
+// D4, as amended). The expected ids and names are those of
+// go-llmprovider-sdk v1.27.0: a pin move that changes them fails here, so the
+// change is seen and recorded.
 func TestStaticModelsFloor(t *testing.T) {
-	if len(staticModels) != 2 {
-		t.Fatalf("len=%d, want 2", len(staticModels))
-	}
-	if staticModels[0].ID != "grok-4.6" || staticModels[1].ID != "grok-4.5" {
-		t.Fatalf("ids=%v,%v want grok-4.6, grok-4.5", staticModels[0].ID, staticModels[1].ID)
-	}
+	want := []string{"grok-4.7", "grok-4.6", "grok-4.5", "grok-4.3", "grok-build-0.1"}
+	wantLabels := []string{"Grok 4.7", "Grok 4.6", "Grok 4.5", "Grok 4.3", "Grok Build 0.1"}
+	got := make([]string, 0, len(staticModels))
+	labels := make([]string, 0, len(staticModels))
 	for _, o := range staticModels {
+		got = append(got, o.ID)
+		labels = append(labels, o.Label)
 		switch o.ID {
 		case "grok-code-fast-1", "grok-4", "grok-build":
 			t.Errorf("stale or docs-only id %q on the floor", o.ID)
 		}
 		if o.Group != "xai" {
 			t.Errorf("%s group=%q, want xai", o.ID, o.Group)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("floor = %v, want %v", got, want)
+	}
+	if !slices.Equal(labels, wantLabels) {
+		t.Errorf("floor labels = %q, want %q", labels, wantLabels)
+	}
+	sdk := catalog.SortByRank(llmprovider.ProviderGrok, catalog.Static(llmprovider.ProviderGrok), nil)
+	if !slices.Equal(got, sdk) {
+		t.Errorf("floor = %v, want the SDK's ranked list %v", got, sdk)
+	}
+	if spec.StaticDefaultModel != "grok-4.7" {
+		t.Errorf("floor default = %q, want grok-4.7", spec.StaticDefaultModel)
+	}
+}
+
+// TestTheFloorIsInTheKnownGoodCapture: every floor id is a model the pinned
+// grok offered, so the SDK's list cannot put a model grok refuses on the
+// picker (MADR 0235 D4). A new SDK list needs a new capture, or a recorded
+// reason, before the pin moves.
+func TestTheFloorIsInTheKnownGoodCapture(t *testing.T) {
+	data, err := os.ReadFile("testdata/wire/" + KnownGoodVersion + "/frames.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	offered := map[string]bool{}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		var frame any
+		if strings.TrimSpace(line) == "" || json.Unmarshal([]byte(line), &frame) != nil {
+			continue
+		}
+		collectAvailableModels(frame, offered)
+	}
+	if len(offered) == 0 {
+		t.Fatalf("the %s capture holds no availableModels", KnownGoodVersion)
+	}
+	for _, o := range staticModels {
+		if !offered[o.ID] {
+			t.Errorf("floor id %q is not among the models grok %s offered", o.ID, KnownGoodVersion)
+		}
+	}
+}
+
+// collectAvailableModels adds every modelId of every availableModels list in v.
+func collectAvailableModels(v any, into map[string]bool) {
+	switch x := v.(type) {
+	case map[string]any:
+		if list, ok := x["availableModels"].([]any); ok {
+			for _, m := range list {
+				if mm, ok := m.(map[string]any); ok {
+					if id, ok := mm["modelId"].(string); ok {
+						into[id] = true
+					}
+				}
+			}
+		}
+		for _, child := range x {
+			collectAvailableModels(child, into)
+		}
+	case []any:
+		for _, child := range x {
+			collectAvailableModels(child, into)
+		}
+	}
+}
+
+// TestFloorLabelsAreTheSDKNames: the floor names each model with the SDK's
+// display name, which is what a signed-in grok calls it, never the SDK's
+// padded terminal label, and carries no note (MADR 0235 D4, amendment of
+// 2026-11-06).
+func TestFloorLabelsAreTheSDKNames(t *testing.T) {
+	for _, o := range staticModels {
+		if want := catalog.LabelName(llmprovider.ProviderGrok, o.ID); o.Label != want {
+			t.Errorf("%s label %q, want the SDK's name %q", o.ID, o.Label, want)
+		}
+		if o.Description != "" {
+			t.Errorf("%s description %q, want none: the SDK's notes are not used", o.ID, o.Description)
 		}
 	}
 }

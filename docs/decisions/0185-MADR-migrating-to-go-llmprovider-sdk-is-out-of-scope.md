@@ -10,6 +10,14 @@ informed: maintainers of go-llmprovider-sdk
 
 # Keep Magic's model catalogs engine-backed: migrating to `go-llmprovider-sdk` is out of scope
 
+> **Superseded in part 2026-11-06** by
+> [0235-MADR-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md](0235-MADR-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md)
+> D5. The "No dependency" bullet, and the Confirmation's rejection of any `go-llmprovider-sdk`
+> module, give way to one module, three functions (`catalog.Static`, `catalog.SortByRank`,
+> `catalog.LabelName`) and one package (`internal/provider/grok`), for grok's static fallback list,
+> as amended there the same day. Everything else here stands:
+> catalogs stay engine-backed, and no catalog moves to the SDK's listing.
+
 ## Context and Problem Statement
 
 [0183-REPORT-go-llmprovider-sdk-catalog-parity-assessment.md](../reports/0183-REPORT-go-llmprovider-sdk-catalog-parity-assessment.md)
@@ -43,7 +51,8 @@ Chosen option: "Out of scope: Magic keeps its own engine-backed catalogs and doe
 This means:
 
 * **No dependency.** Magic does not add `go-llmprovider-sdk` to `go.mod`. It has none today: no
-  `go.mod` or `go.sum` in this repository names an `llmprovider` module.
+  `go.mod` or `go.sum` in this repository names an `llmprovider` module. *(Superseded in part
+  2026-11-06 by 0235 D5; see the note under the title.)*
 * **Catalogs stay as they are.** `internal/picker` (catalog shape, `OrderModels`, `Cache`, the
   `Truncated` admission) and the engine adapters remain the catalog source. Nothing in them is
   planned to move.
@@ -81,7 +90,9 @@ No PLAN accompanies this record: it decides that no work happens.
 
 A review rejects any change that adds a `go-llmprovider-sdk` module to `go.mod`, or that calls its
 catalog API, unless a later MADR supersedes this one. Bringing the migration back into scope takes
-a new MADR, not an amendment to the 0183 report.
+a new MADR, not an amendment to the 0183 report. *(0235 D5, 2026-11-06, is such a MADR for its one
+module, three functions and one package; see the note under the title. The rest of this rule
+stands.)*
 
 ## Pros and Cons of the Options
 

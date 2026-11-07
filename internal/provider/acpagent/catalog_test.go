@@ -47,3 +47,17 @@ func TestLiveCatalogIsNotPaddedWithTheFloor(t *testing.T) {
 		t.Errorf("catalog IDs = %v, want %v: the live catalog was padded with the static floor", ids, want)
 	}
 }
+
+// TestTheStaticDefaultModelIsPreselected: a Spec's StaticDefaultModel is the
+// static catalog's default, so the phone preselects it, and a configured
+// model still wins (MADR 0235 D4 and its correction).
+func TestTheStaticDefaultModelIsPreselected(t *testing.T) {
+	spec := Spec{StaticModels: []picker.Option{{ID: "vendor-a"}, {ID: "vendor-b"}}, StaticDefaultModel: "vendor-b"}
+	if got := (&Provider{spec: spec}).staticModelCatalog().DefaultIDs; !slices.Equal(got, []string{"vendor-b"}) {
+		t.Errorf("static default = %v, want [vendor-b]", got)
+	}
+	configured := &Provider{spec: spec, cfg: Config{Model: "vendor-a"}}
+	if got := configured.staticModelCatalog().DefaultIDs; !slices.Equal(got, []string{"vendor-a"}) {
+		t.Errorf("with a configured model, static default = %v, want [vendor-a]", got)
+	}
+}
