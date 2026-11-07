@@ -42,6 +42,26 @@ void main() {
       expect(c.maxSelect, 3);
       expect(c.minSelect, 1);
     });
+
+    // MADR 0235 D2: the agent's last live catalog, served by the daemon when
+    // the agent cannot answer.
+    test('parses a saved catalog and labels it', () {
+      expect(PickerSource.parse('saved'), PickerSource.saved);
+      expect(PickerSource.saved.label, 'Saved catalog');
+      final c = PickerCatalog.fromJson({
+        'source': 'saved',
+        'options': [
+          {'id': 'a'},
+        ],
+      });
+      expect(c.source, PickerSource.saved);
+    });
+
+    // An older client meeting a newer daemon's source shows no badge.
+    test('an unknown source shows no badge', () {
+      expect(PickerSource.parse('unknown-value'), PickerSource.unknown);
+      expect(PickerSource.unknown.label, isEmpty);
+    });
   });
 
   testWidgets('option picker single-select confirms choice', (tester) async {

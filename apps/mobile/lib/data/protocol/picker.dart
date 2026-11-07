@@ -17,10 +17,15 @@ enum PickerKind {
 }
 
 /// Where the catalog came from.
+///
+/// [saved] is the agent's last live catalog on that host, which the daemon
+/// serves when the agent cannot answer (MADR 0235 D2). A value this client
+/// does not know parses as [unknown] and shows no badge.
 enum PickerSource {
   live,
   staticSource,
   merged,
+  saved,
   unknown;
 
   static PickerSource parse(String? raw) {
@@ -31,6 +36,8 @@ enum PickerSource {
         return PickerSource.staticSource;
       case 'merged':
         return PickerSource.merged;
+      case 'saved':
+        return PickerSource.saved;
       default:
         return PickerSource.unknown;
     }
@@ -44,6 +51,8 @@ enum PickerSource {
         return 'Offline catalog';
       case PickerSource.merged:
         return 'Live + offline';
+      case PickerSource.saved:
+        return 'Saved catalog';
       case PickerSource.unknown:
         return '';
     }
