@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
   "stable": {
     "client_requests": [
@@ -1213,7 +1213,1892 @@
         "response": "typed",
         "classification": "implemented"
       }
-    ]
+    ],
+    "enums": {
+      "Account/chatgptAuthTokens/refreshRequestMethod": [
+        "account/chatgptAuthTokens/refresh"
+      ],
+      "Account/gatewayOAuth/cancelRequestMethod": [
+        "account/gatewayOAuth/cancel"
+      ],
+      "Account/gatewayOAuth/changedNotificationMethod": [
+        "account/gatewayOAuth/changed"
+      ],
+      "Account/gatewayOAuth/loginRequestMethod": [
+        "account/gatewayOAuth/login"
+      ],
+      "Account/gatewayOAuth/readRequestMethod": [
+        "account/gatewayOAuth/read"
+      ],
+      "Account/login/cancelRequestMethod": [
+        "account/login/cancel"
+      ],
+      "Account/login/completedNotificationMethod": [
+        "account/login/completed"
+      ],
+      "Account/login/startRequestMethod": [
+        "account/login/start"
+      ],
+      "Account/logoutRequestMethod": [
+        "account/logout"
+      ],
+      "Account/rateLimitResetCredit/consumeRequestMethod": [
+        "account/rateLimitResetCredit/consume"
+      ],
+      "Account/rateLimits/readRequestMethod": [
+        "account/rateLimits/read"
+      ],
+      "Account/rateLimits/updatedNotificationMethod": [
+        "account/rateLimits/updated"
+      ],
+      "Account/readRequestMethod": [
+        "account/read"
+      ],
+      "Account/sendAddCreditsNudgeEmailRequestMethod": [
+        "account/sendAddCreditsNudgeEmail"
+      ],
+      "Account/updatedNotificationMethod": [
+        "account/updated"
+      ],
+      "Account/usage/readRequestMethod": [
+        "account/usage/read"
+      ],
+      "Account/workspaceMessages/readRequestMethod": [
+        "account/workspaceMessages/read"
+      ],
+      "AccountRoutingOverride": [
+        "NO_CONSTRAINT",
+        "us",
+        "us_cr"
+      ],
+      "AccountSessionWorkspaceKind": [
+        "personal",
+        "workspace"
+      ],
+      "ActiveThreadStatusType": [
+        "active"
+      ],
+      "AddCreditsNudgeCreditType": [
+        "credits",
+        "usage_limit"
+      ],
+      "AddCreditsNudgeEmailStatus": [
+        "cooldown_active",
+        "sent"
+      ],
+      "AddFileChangeType": [
+        "add"
+      ],
+      "AddPatchChangeKindType": [
+        "add"
+      ],
+      "AdditionalContextKind": [
+        "application",
+        "untrusted"
+      ],
+      "AdditionalToolsResponseItemType": [
+        "additional_tools"
+      ],
+      "AgentConfiguredHookHandlerType": [
+        "agent"
+      ],
+      "AgentMessageDelivery": [
+        "async"
+      ],
+      "AgentMessageResponseItemType": [
+        "agent_message"
+      ],
+      "AgentMessageThreadItemType": [
+        "agentMessage"
+      ],
+      "AllowDenyRequirement": [
+        "allow",
+        "deny"
+      ],
+      "AmazonBedrockAccessKeysv2::LoginAccountParamsType": [
+        "amazonBedrockAccessKeys"
+      ],
+      "AmazonBedrockAccountType": [
+        "amazonBedrock"
+      ],
+      "AmazonBedrockv2::LoginAccountParamsType": [
+        "amazonBedrock"
+      ],
+      "AmazonBedrockv2::LoginAccountResponseType": [
+        "amazonBedrock"
+      ],
+      "ApiKeyAccountType": [
+        "apiKey"
+      ],
+      "ApiKeyv2::LoginAccountParamsType": [
+        "apiKey"
+      ],
+      "ApiKeyv2::LoginAccountResponseType": [
+        "apiKey"
+      ],
+      "App/installedRequestMethod": [
+        "app/installed"
+      ],
+      "App/list/updatedNotificationMethod": [
+        "app/list/updated"
+      ],
+      "App/listRequestMethod": [
+        "app/list"
+      ],
+      "App/readRequestMethod": [
+        "app/read"
+      ],
+      "AppTemplateUnavailableReason": [
+        "NOT_CONFIGURED_FOR_WORKSPACE",
+        "NO_ACTIVE_WORKSPACE"
+      ],
+      "AppToolApproval": [
+        "approve",
+        "auto",
+        "prompt",
+        "writes"
+      ],
+      "ApplyPatchApprovalRequestMethod": [
+        "applyPatchApproval"
+      ],
+      "ApplyPatchGuardianApprovalReviewActionType": [
+        "applyPatch"
+      ],
+      "ApprovalsReviewer": [
+        "auto_review",
+        "guardian_subagent",
+        "user"
+      ],
+      "Attestation/generateRequestMethod": [
+        "attestation/generate"
+      ],
+      "AudioUserInputType": [
+        "audio"
+      ],
+      "AuthMode": [
+        "agentIdentity",
+        "apikey",
+        "bedrockAccessKeys",
+        "bedrockApiKey",
+        "chatgpt",
+        "chatgptAuthTokens",
+        "headers",
+        "personalAccessToken"
+      ],
+      "AutoApprovalReview/strictReviewRequiredNotificationMethod": [
+        "autoApprovalReview/strictReviewRequired"
+      ],
+      "AutoCompactTokenLimitScope": [
+        "body_after_prefix",
+        "total"
+      ],
+      "AutoReviewDecisionSource": [
+        "agent"
+      ],
+      "BaseBranchReviewTargetType": [
+        "baseBranch"
+      ],
+      "BemItemPromotedThreadRealtimeItemType": [
+        "bemItemPromoted"
+      ],
+      "BrowserUseAccessApprovalLifetime": [
+        "thread",
+        "turn"
+      ],
+      "CancelLoginAccountStatus": [
+        "canceled",
+        "notFound"
+      ],
+      "ChatgptAccountType": [
+        "chatgpt"
+      ],
+      "ChatgptAuthTokensRefreshReason": [
+        "unauthorized"
+      ],
+      "ChatgptAuthTokensv2::LoginAccountParamsType": [
+        "chatgptAuthTokens"
+      ],
+      "ChatgptAuthTokensv2::LoginAccountResponseType": [
+        "chatgptAuthTokens"
+      ],
+      "ChatgptDeviceCodev2::LoginAccountParamsType": [
+        "chatgptDeviceCode"
+      ],
+      "ChatgptDeviceCodev2::LoginAccountResponseType": [
+        "chatgptDeviceCode"
+      ],
+      "Chatgptv2::LoginAccountParamsType": [
+        "chatgpt"
+      ],
+      "Chatgptv2::LoginAccountResponseType": [
+        "chatgpt"
+      ],
+      "CliAuthCredentialsStoreMode": [
+        "auto",
+        "ephemeral",
+        "file",
+        "keyring"
+      ],
+      "CodexResponseHandoffMode": [
+        "bemTags",
+        "commentary",
+        "thinking"
+      ],
+      "CollabAgentStatus": [
+        "completed",
+        "errored",
+        "interrupted",
+        "notFound",
+        "pendingInit",
+        "running",
+        "shutdown"
+      ],
+      "CollabAgentTool": [
+        "closeAgent",
+        "followupTask",
+        "interruptAgent",
+        "listAgents",
+        "resumeAgent",
+        "sendInput",
+        "sendMessage",
+        "spawnAgent",
+        "wait"
+      ],
+      "CollabAgentToolCallStatus": [
+        "completed",
+        "failed",
+        "inProgress",
+        "interrupted"
+      ],
+      "CollabAgentToolCallThreadItemType": [
+        "collabAgentToolCall"
+      ],
+      "Command/exec/outputDeltaNotificationMethod": [
+        "command/exec/outputDelta"
+      ],
+      "Command/exec/resizeRequestMethod": [
+        "command/exec/resize"
+      ],
+      "Command/exec/terminateRequestMethod": [
+        "command/exec/terminate"
+      ],
+      "Command/exec/writeRequestMethod": [
+        "command/exec/write"
+      ],
+      "Command/execRequestMethod": [
+        "command/exec"
+      ],
+      "CommandConfiguredHookHandlerType": [
+        "command"
+      ],
+      "CommandExecOutputStream": [
+        "stderr",
+        "stdout"
+      ],
+      "CommandExecutionApprovalKind": [
+        "command",
+        "writeStdin"
+      ],
+      "CommandExecutionSource": [
+        "agent",
+        "unifiedExecInteraction",
+        "unifiedExecStartup",
+        "userShell"
+      ],
+      "CommandExecutionStatus": [
+        "completed",
+        "declined",
+        "failed",
+        "inProgress"
+      ],
+      "CommandExecutionThreadItemType": [
+        "commandExecution"
+      ],
+      "CommandGuardianApprovalReviewActionType": [
+        "command"
+      ],
+      "CommitReviewTargetType": [
+        "commit"
+      ],
+      "CompactionResponseItemType": [
+        "compaction"
+      ],
+      "CompactionTriggerResponseItemType": [
+        "compaction_trigger"
+      ],
+      "CompletedThreadPredictionResultType": [
+        "completed"
+      ],
+      "Config/batchWriteRequestMethod": [
+        "config/batchWrite"
+      ],
+      "Config/mcpServer/reloadRequestMethod": [
+        "config/mcpServer/reload"
+      ],
+      "Config/readRequestMethod": [
+        "config/read"
+      ],
+      "Config/value/writeRequestMethod": [
+        "config/value/write"
+      ],
+      "ConfigRequirements/readRequestMethod": [
+        "configRequirements/read"
+      ],
+      "ConfigWarningNotificationMethod": [
+        "configWarning"
+      ],
+      "ConfigurationUpdateResponseItemType": [
+        "configuration_update"
+      ],
+      "ConsumeAccountRateLimitResetCreditOutcome": [
+        "alreadyRedeemed",
+        "noCredit",
+        "nothingToReset",
+        "reset"
+      ],
+      "ContextCompactionResponseItemType": [
+        "context_compaction"
+      ],
+      "ContextCompactionThreadItemType": [
+        "contextCompaction"
+      ],
+      "ConversationTextRole": [
+        "assistant",
+        "developer",
+        "user"
+      ],
+      "CustomReviewTargetType": [
+        "custom"
+      ],
+      "CustomToolCallOutputResponseItemType": [
+        "custom_tool_call_output"
+      ],
+      "CustomToolCallResponseItemType": [
+        "custom_tool_call"
+      ],
+      "CyberAccessProgram": [
+        "daybreakBlue",
+        "daybreakRed",
+        "standard"
+      ],
+      "DailyScheduledTaskScheduleType": [
+        "daily"
+      ],
+      "DangerFullAccessSandboxPolicyType": [
+        "dangerFullAccess"
+      ],
+      "DeleteFileChangeType": [
+        "delete"
+      ],
+      "DeletePatchChangeKindType": [
+        "delete"
+      ],
+      "DeprecationNoticeNotificationMethod": [
+        "deprecationNotice"
+      ],
+      "DesktopOnboardingEntrypoint": [
+        "life_sciences"
+      ],
+      "DynamicToolCallStatus": [
+        "completed",
+        "failed",
+        "inProgress"
+      ],
+      "DynamicToolCallThreadItemType": [
+        "dynamicToolCall"
+      ],
+      "EncryptedContentAgentMessageInputContentType": [
+        "encrypted_content"
+      ],
+      "EncryptedContentFunctionCallOutputContentItemType": [
+        "encrypted_content"
+      ],
+      "EnteredReviewModeThreadItemType": [
+        "enteredReviewMode"
+      ],
+      "EnterpriseManagedConfigLayerSourceType": [
+        "enterpriseManaged"
+      ],
+      "EnvironmentCapabilityRootLocationType": [
+        "environment"
+      ],
+      "ErrorNotificationMethod": [
+        "error"
+      ],
+      "ExecCommandApprovalRequestMethod": [
+        "execCommandApproval"
+      ],
+      "ExecLocalShellActionType": [
+        "exec"
+      ],
+      "ExecveGuardianApprovalReviewActionType": [
+        "execve"
+      ],
+      "ExistingCallThreadRealtimeStartTransportType": [
+        "existingCall"
+      ],
+      "ExitedReviewModeThreadItemType": [
+        "exitedReviewMode"
+      ],
+      "ExperimentalFeature/enablement/setRequestMethod": [
+        "experimentalFeature/enablement/set"
+      ],
+      "ExperimentalFeature/listRequestMethod": [
+        "experimentalFeature/list"
+      ],
+      "ExperimentalFeatureStage": [
+        "beta",
+        "deprecated",
+        "removed",
+        "stable",
+        "underDevelopment"
+      ],
+      "ExternalAgentConfig/detectRequestMethod": [
+        "externalAgentConfig/detect"
+      ],
+      "ExternalAgentConfig/import/completedNotificationMethod": [
+        "externalAgentConfig/import/completed"
+      ],
+      "ExternalAgentConfig/import/progressNotificationMethod": [
+        "externalAgentConfig/import/progress"
+      ],
+      "ExternalAgentConfig/import/readHistoriesRequestMethod": [
+        "externalAgentConfig/import/readHistories"
+      ],
+      "ExternalAgentConfig/import/recordHistoryRequestMethod": [
+        "externalAgentConfig/import/recordHistory"
+      ],
+      "ExternalAgentConfig/importRequestMethod": [
+        "externalAgentConfig/import"
+      ],
+      "ExternalAgentConfigMigrationItemType": [
+        "AGENTS_MD",
+        "COMMANDS",
+        "CONFIG",
+        "HOOKS",
+        "MCP_SERVER_CONFIG",
+        "MEMORY",
+        "PLUGINS",
+        "SESSIONS",
+        "SKILLS",
+        "SUBAGENTS"
+      ],
+      "ExternalAgentDetectedConnectorSource": [
+        "remoteMcpServersConfig",
+        "sessionToolUse"
+      ],
+      "ExternalAgentImportedConnectorSource": [
+        "remoteMcpServersConfig"
+      ],
+      "ExternalSandboxSandboxPolicyType": [
+        "externalSandbox"
+      ],
+      "FailedThreadPredictionResultType": [
+        "failed"
+      ],
+      "Feedback/saveRequestMethod": [
+        "feedback/save"
+      ],
+      "Feedback/uploadRequestMethod": [
+        "feedback/upload"
+      ],
+      "FileChangeThreadItemType": [
+        "fileChange"
+      ],
+      "FileSystemAccessMode": [
+        "deny",
+        "read",
+        "write"
+      ],
+      "FindInPageResponsesApiWebSearchActionType": [
+        "find_in_page"
+      ],
+      "FindInPageWebSearchActionType": [
+        "findInPage"
+      ],
+      "ForcedLoginMethod": [
+        "api",
+        "chatgpt"
+      ],
+      "Fs/changedNotificationMethod": [
+        "fs/changed"
+      ],
+      "Fs/copyRequestMethod": [
+        "fs/copy"
+      ],
+      "Fs/createDirectoryRequestMethod": [
+        "fs/createDirectory"
+      ],
+      "Fs/getMetadataRequestMethod": [
+        "fs/getMetadata"
+      ],
+      "Fs/readDirectoryRequestMethod": [
+        "fs/readDirectory"
+      ],
+      "Fs/readFileRequestMethod": [
+        "fs/readFile"
+      ],
+      "Fs/removeRequestMethod": [
+        "fs/remove"
+      ],
+      "Fs/unwatchRequestMethod": [
+        "fs/unwatch"
+      ],
+      "Fs/watchRequestMethod": [
+        "fs/watch"
+      ],
+      "Fs/writeFileRequestMethod": [
+        "fs/writeFile"
+      ],
+      "FunctionCallOutputResponseItemType": [
+        "function_call_output"
+      ],
+      "FunctionCallOutputThreadItemType": [
+        "functionCallOutput"
+      ],
+      "FunctionCallResponseItemType": [
+        "function_call"
+      ],
+      "FunctionDynamicToolNamespaceToolType": [
+        "function"
+      ],
+      "FunctionDynamicToolSpecType": [
+        "function"
+      ],
+      "FuzzyFileSearch/sessionCompletedNotificationMethod": [
+        "fuzzyFileSearch/sessionCompleted"
+      ],
+      "FuzzyFileSearch/sessionUpdatedNotificationMethod": [
+        "fuzzyFileSearch/sessionUpdated"
+      ],
+      "FuzzyFileSearchMatchType": [
+        "directory",
+        "file"
+      ],
+      "FuzzyFileSearchRequestMethod": [
+        "fuzzyFileSearch"
+      ],
+      "GatewayOAuthStatus": [
+        "failed",
+        "notReady",
+        "started",
+        "succeeded"
+      ],
+      "GcpAccountType": [
+        "gcp"
+      ],
+      "GitPluginSourceType": [
+        "git"
+      ],
+      "GlobPatternFileSystemPathType": [
+        "glob_pattern"
+      ],
+      "GuardianApprovalReviewStatus": [
+        "aborted",
+        "approved",
+        "denied",
+        "inProgress",
+        "timedOut"
+      ],
+      "GuardianCommandSource": [
+        "shell",
+        "unifiedExec"
+      ],
+      "GuardianRiskLevel": [
+        "critical",
+        "high",
+        "low",
+        "medium"
+      ],
+      "GuardianUserAuthorization": [
+        "high",
+        "low",
+        "medium",
+        "unknown"
+      ],
+      "GuardianWarningNotificationMethod": [
+        "guardianWarning"
+      ],
+      "Hook/completedNotificationMethod": [
+        "hook/completed"
+      ],
+      "Hook/startedNotificationMethod": [
+        "hook/started"
+      ],
+      "HookEventName": [
+        "interrupt",
+        "permissionRequest",
+        "postCompact",
+        "postModelRequest",
+        "postToolUse",
+        "preCompact",
+        "preModelRequest",
+        "preToolUse",
+        "sessionEnd",
+        "sessionStart",
+        "stop",
+        "subagentStart",
+        "subagentStop",
+        "userPromptSubmit"
+      ],
+      "HookExecutionMode": [
+        "async",
+        "sync"
+      ],
+      "HookHandlerType": [
+        "agent",
+        "command",
+        "mcpTool",
+        "prompt"
+      ],
+      "HookOutputEntryKind": [
+        "context",
+        "error",
+        "feedback",
+        "stop",
+        "warning"
+      ],
+      "HookPromptThreadItemType": [
+        "hookPrompt"
+      ],
+      "HookRunStatus": [
+        "blocked",
+        "completed",
+        "failed",
+        "running",
+        "stopped"
+      ],
+      "HookScope": [
+        "thread",
+        "turn"
+      ],
+      "HookSource": [
+        "cloudManagedConfig",
+        "cloudRequirements",
+        "legacyManagedConfigFile",
+        "legacyManagedConfigMdm",
+        "mdm",
+        "plugin",
+        "project",
+        "sessionFlags",
+        "system",
+        "unknown",
+        "user"
+      ],
+      "HookTrustStatus": [
+        "managed",
+        "modified",
+        "trusted",
+        "untrusted"
+      ],
+      "Hooks/listRequestMethod": [
+        "hooks/list"
+      ],
+      "HourlyScheduledTaskScheduleType": [
+        "hourly"
+      ],
+      "IdleThreadStatusType": [
+        "idle"
+      ],
+      "ImageDetail": [
+        "auto",
+        "high",
+        "low",
+        "original"
+      ],
+      "ImageGenerationCallResponseItemType": [
+        "image_generation_call"
+      ],
+      "ImageGenerationThreadItemType": [
+        "imageGeneration"
+      ],
+      "ImageUserInputType": [
+        "image"
+      ],
+      "ImageViewThreadItemType": [
+        "imageView"
+      ],
+      "InitializeRequestMethod": [
+        "initialize"
+      ],
+      "InlineMarkdownThreadRealtimeBemItemPresentationType": [
+        "inlineMarkdown"
+      ],
+      "InlineVisualizationThreadRealtimeBemItemPresentationType": [
+        "inlineVisualization"
+      ],
+      "InputAudioContentItemType": [
+        "input_audio"
+      ],
+      "InputAudioDynamicToolCallOutputContentItemType": [
+        "inputAudio"
+      ],
+      "InputAudioFunctionCallOutputContentItemType": [
+        "input_audio"
+      ],
+      "InputImageContentItemType": [
+        "input_image"
+      ],
+      "InputImageDynamicToolCallOutputContentItemType": [
+        "inputImage"
+      ],
+      "InputImageFunctionCallOutputContentItemType": [
+        "input_image"
+      ],
+      "InputModality": [
+        "audio",
+        "image",
+        "text"
+      ],
+      "InputTextAgentMessageInputContentType": [
+        "input_text"
+      ],
+      "InputTextContentItemType": [
+        "input_text"
+      ],
+      "InputTextDynamicToolCallOutputContentItemType": [
+        "inputText"
+      ],
+      "InputTextFunctionCallOutputContentItemType": [
+        "input_text"
+      ],
+      "Item/agentMessage/deltaNotificationMethod": [
+        "item/agentMessage/delta"
+      ],
+      "Item/autoApprovalReview/completedNotificationMethod": [
+        "item/autoApprovalReview/completed"
+      ],
+      "Item/autoApprovalReview/startedNotificationMethod": [
+        "item/autoApprovalReview/started"
+      ],
+      "Item/commandExecution/outputDeltaNotificationMethod": [
+        "item/commandExecution/outputDelta"
+      ],
+      "Item/commandExecution/requestApprovalRequestMethod": [
+        "item/commandExecution/requestApproval"
+      ],
+      "Item/commandExecution/terminalInteractionNotificationMethod": [
+        "item/commandExecution/terminalInteraction"
+      ],
+      "Item/completedNotificationMethod": [
+        "item/completed"
+      ],
+      "Item/fileChange/outputDeltaNotificationMethod": [
+        "item/fileChange/outputDelta"
+      ],
+      "Item/fileChange/patchUpdatedNotificationMethod": [
+        "item/fileChange/patchUpdated"
+      ],
+      "Item/fileChange/requestApprovalRequestMethod": [
+        "item/fileChange/requestApproval"
+      ],
+      "Item/mcpToolCall/progressNotificationMethod": [
+        "item/mcpToolCall/progress"
+      ],
+      "Item/permissions/requestApprovalRequestMethod": [
+        "item/permissions/requestApproval"
+      ],
+      "Item/plan/deltaNotificationMethod": [
+        "item/plan/delta"
+      ],
+      "Item/reasoning/summaryPartAddedNotificationMethod": [
+        "item/reasoning/summaryPartAdded"
+      ],
+      "Item/reasoning/summaryTextDeltaNotificationMethod": [
+        "item/reasoning/summaryTextDelta"
+      ],
+      "Item/reasoning/textDeltaNotificationMethod": [
+        "item/reasoning/textDelta"
+      ],
+      "Item/startedNotificationMethod": [
+        "item/started"
+      ],
+      "Item/tool/callRequestMethod": [
+        "item/tool/call"
+      ],
+      "Item/tool/requestUserInputRequestMethod": [
+        "item/tool/requestUserInput"
+      ],
+      "ItemThreadItemsListAnchorType": [
+        "item"
+      ],
+      "ItemThreadTimelineEntryType": [
+        "item"
+      ],
+      "LegacyManagedConfigTomlFromFileConfigLayerSourceType": [
+        "legacyManagedConfigTomlFromFile"
+      ],
+      "LegacyManagedConfigTomlFromMdmConfigLayerSourceType": [
+        "legacyManagedConfigTomlFromMdm"
+      ],
+      "ListFilesCommandActionType": [
+        "listFiles"
+      ],
+      "ListFilesParsedCommandType": [
+        "list_files"
+      ],
+      "LocalAudioUserInputType": [
+        "localAudio"
+      ],
+      "LocalImageUserInputType": [
+        "localImage"
+      ],
+      "LocalPluginSourceType": [
+        "local"
+      ],
+      "LocalShellCallResponseItemType": [
+        "local_shell_call"
+      ],
+      "LocalShellStatus": [
+        "completed",
+        "in_progress",
+        "incomplete"
+      ],
+      "LoginAppBrand": [
+        "chatgpt",
+        "codex"
+      ],
+      "Marketplace/addRequestMethod": [
+        "marketplace/add"
+      ],
+      "Marketplace/removeRequestMethod": [
+        "marketplace/remove"
+      ],
+      "Marketplace/upgradeRequestMethod": [
+        "marketplace/upgrade"
+      ],
+      "McpAppDisplayMode": [
+        "fullscreen",
+        "inline"
+      ],
+      "McpAuthStatus": [
+        "bearerToken",
+        "notLoggedIn",
+        "oAuth",
+        "unknown",
+        "unsupported"
+      ],
+      "McpElicitationArrayType": [
+        "array"
+      ],
+      "McpElicitationBooleanType": [
+        "boolean"
+      ],
+      "McpElicitationNumberType": [
+        "integer",
+        "number"
+      ],
+      "McpElicitationObjectType": [
+        "object"
+      ],
+      "McpElicitationStringFormat": [
+        "date",
+        "date-time",
+        "email",
+        "uri"
+      ],
+      "McpElicitationStringType": [
+        "string"
+      ],
+      "McpServer/elicitation/requestRequestMethod": [
+        "mcpServer/elicitation/request"
+      ],
+      "McpServer/event/stream/notificationNotificationMethod": [
+        "mcpServer/event/stream/notification"
+      ],
+      "McpServer/oauth/loginRequestMethod": [
+        "mcpServer/oauth/login"
+      ],
+      "McpServer/oauthLogin/completedNotificationMethod": [
+        "mcpServer/oauthLogin/completed"
+      ],
+      "McpServer/resource/readRequestMethod": [
+        "mcpServer/resource/read"
+      ],
+      "McpServer/startupStatus/updatedNotificationMethod": [
+        "mcpServer/startupStatus/updated"
+      ],
+      "McpServer/tool/callRequestMethod": [
+        "mcpServer/tool/call"
+      ],
+      "McpServerConnectionStatus": [
+        "authenticationRequired",
+        "cancelled",
+        "connected",
+        "disabled",
+        "failed",
+        "notStarted",
+        "starting"
+      ],
+      "McpServerOauthClientRegistration": [
+        "auto",
+        "cimd",
+        "dcr"
+      ],
+      "McpServerStartupFailureReason": [
+        "reauthenticationRequired"
+      ],
+      "McpServerStartupState": [
+        "cancelled",
+        "failed",
+        "ready",
+        "starting"
+      ],
+      "McpServerStatus/listRequestMethod": [
+        "mcpServerStatus/list"
+      ],
+      "McpServerStatusDetail": [
+        "full",
+        "toolsAndAuthOnly"
+      ],
+      "McpToolCallGuardianApprovalReviewActionType": [
+        "mcpToolCall"
+      ],
+      "McpToolCallStatus": [
+        "completed",
+        "failed",
+        "inProgress"
+      ],
+      "McpToolCallThreadItemType": [
+        "mcpToolCall"
+      ],
+      "McpToolConfiguredHookHandlerType": [
+        "mcp_tool"
+      ],
+      "MdmConfigLayerSourceType": [
+        "mdm"
+      ],
+      "MentionUserInputType": [
+        "mention"
+      ],
+      "MergeStrategy": [
+        "replace",
+        "upsert"
+      ],
+      "MessagePhase": [
+        "commentary",
+        "final_answer",
+        "partial_answer"
+      ],
+      "MessageResponseItemType": [
+        "message"
+      ],
+      "ModeKind": [
+        "default",
+        "plan"
+      ],
+      "Model/listRequestMethod": [
+        "model/list"
+      ],
+      "Model/reroutedNotificationMethod": [
+        "model/rerouted"
+      ],
+      "Model/safetyBuffering/updatedNotificationMethod": [
+        "model/safetyBuffering/updated"
+      ],
+      "Model/verificationNotificationMethod": [
+        "model/verification"
+      ],
+      "ModelProvider/authRecoveryCompletedNotificationMethod": [
+        "modelProvider/authRecoveryCompleted"
+      ],
+      "ModelProvider/authRecoveryStartedNotificationMethod": [
+        "modelProvider/authRecoveryStarted"
+      ],
+      "ModelProvider/capabilities/readRequestMethod": [
+        "modelProvider/capabilities/read"
+      ],
+      "ModelProviderMismatchv2::ModelProviderErrorType": [
+        "modelProviderMismatch"
+      ],
+      "ModelProviderNotConfiguredv2::ModelProviderErrorType": [
+        "modelProviderNotConfigured"
+      ],
+      "ModelProviderPolicyConflictv2::ModelProviderErrorType": [
+        "modelProviderPolicyConflict"
+      ],
+      "ModelRerouteReason": [
+        "highRiskCyberActivity"
+      ],
+      "ModelVerification": [
+        "trustedAccessForCyber"
+      ],
+      "MultiAgentVersion": [
+        "disabled",
+        "v1",
+        "v2"
+      ],
+      "NamespaceDynamicToolSpecType": [
+        "namespace"
+      ],
+      "NetworkAccess": [
+        "enabled",
+        "restricted"
+      ],
+      "NetworkAccessGuardianApprovalReviewActionType": [
+        "networkAccess"
+      ],
+      "NetworkApprovalProtocol": [
+        "http",
+        "https",
+        "socks5Tcp",
+        "socks5Udp"
+      ],
+      "NetworkDomainPermission": [
+        "allow",
+        "deny"
+      ],
+      "NetworkPolicyRuleAction": [
+        "allow",
+        "deny"
+      ],
+      "NetworkUnixSocketPermission": [
+        "allow",
+        "deny"
+      ],
+      "NonSteerableTurnKind": [
+        "compact",
+        "review"
+      ],
+      "NotLoadedThreadStatusType": [
+        "notLoaded"
+      ],
+      "NpmPluginSourceType": [
+        "npm"
+      ],
+      "OpenPageResponsesApiWebSearchActionType": [
+        "open_page"
+      ],
+      "OpenPageWebSearchActionType": [
+        "openPage"
+      ],
+      "OtelHttpProtocol": [
+        "binary",
+        "json"
+      ],
+      "OtherResponseItemType": [
+        "other"
+      ],
+      "OtherResponsesApiWebSearchActionType": [
+        "other"
+      ],
+      "OtherWebSearchActionType": [
+        "other"
+      ],
+      "OutputTextContentItemType": [
+        "output_text"
+      ],
+      "PackagedDefaultsConfigLayerSourceType": [
+        "packagedDefaults"
+      ],
+      "PatchApplyStatus": [
+        "completed",
+        "declined",
+        "failed",
+        "inProgress"
+      ],
+      "PathFileSystemPathType": [
+        "path"
+      ],
+      "PermissionProfile/listRequestMethod": [
+        "permissionProfile/list"
+      ],
+      "Personality": [
+        "friendly",
+        "none",
+        "pragmatic"
+      ],
+      "PlanThreadItemType": [
+        "plan"
+      ],
+      "PlanType": [
+        "business",
+        "edu",
+        "edu_plus",
+        "edu_pro",
+        "ent26",
+        "enterprise",
+        "enterprise_cbp_automation",
+        "enterprise_cbp_usage_based",
+        "free",
+        "go",
+        "plus",
+        "pro",
+        "prolite",
+        "promax",
+        "sci",
+        "sci_plus",
+        "self_serve_business_prolite",
+        "self_serve_business_usage_based",
+        "team",
+        "unknown"
+      ],
+      "Plugin/installRequestMethod": [
+        "plugin/install"
+      ],
+      "Plugin/installedRequestMethod": [
+        "plugin/installed"
+      ],
+      "Plugin/listRequestMethod": [
+        "plugin/list"
+      ],
+      "Plugin/readRequestMethod": [
+        "plugin/read"
+      ],
+      "Plugin/reconcileRequestMethod": [
+        "plugin/reconcile"
+      ],
+      "Plugin/share/checkoutRequestMethod": [
+        "plugin/share/checkout"
+      ],
+      "Plugin/share/deleteRequestMethod": [
+        "plugin/share/delete"
+      ],
+      "Plugin/share/listRequestMethod": [
+        "plugin/share/list"
+      ],
+      "Plugin/share/saveRequestMethod": [
+        "plugin/share/save"
+      ],
+      "Plugin/share/updateTargetsRequestMethod": [
+        "plugin/share/updateTargets"
+      ],
+      "Plugin/skill/readRequestMethod": [
+        "plugin/skill/read"
+      ],
+      "Plugin/uninstallRequestMethod": [
+        "plugin/uninstall"
+      ],
+      "PluginAuthPolicy": [
+        "ON_INSTALL",
+        "ON_USE"
+      ],
+      "PluginAvailability": [
+        "AVAILABLE",
+        "DISABLED_BY_ADMIN"
+      ],
+      "PluginDisabledReason": [
+        "disabled_by_admin",
+        "plan_not_eligible",
+        "required_app_unavailable",
+        "unknown"
+      ],
+      "PluginInstallPolicy": [
+        "AVAILABLE",
+        "INSTALLED_BY_DEFAULT",
+        "NOT_AVAILABLE"
+      ],
+      "PluginInstallPolicySource": [
+        "IMPLICIT_CANONICAL_APP",
+        "WORKSPACE_SETTING"
+      ],
+      "PluginListMarketplaceKind": [
+        "created-by-me-remote",
+        "local",
+        "shared-with-me",
+        "vertical",
+        "workspace-directory"
+      ],
+      "PluginSearchScope": [
+        "global",
+        "personal",
+        "workspace"
+      ],
+      "PluginShareDiscoverability": [
+        "LISTED",
+        "PRIVATE",
+        "UNLISTED"
+      ],
+      "PluginSharePrincipalRole": [
+        "editor",
+        "owner",
+        "reader"
+      ],
+      "PluginSharePrincipalType": [
+        "group",
+        "user",
+        "workspace"
+      ],
+      "PluginShareTargetRole": [
+        "editor",
+        "reader"
+      ],
+      "PluginShareUpdateDiscoverability": [
+        "LISTED",
+        "PRIVATE",
+        "UNLISTED"
+      ],
+      "Process/exitedNotificationMethod": [
+        "process/exited"
+      ],
+      "Process/outputDeltaNotificationMethod": [
+        "process/outputDelta"
+      ],
+      "ProcessOutputStream": [
+        "stderr",
+        "stdout"
+      ],
+      "Project/changedNotificationMethod": [
+        "project/changed"
+      ],
+      "ProjectChangeType": [
+        "created",
+        "deleted",
+        "updated"
+      ],
+      "ProjectConfigLayerSourceType": [
+        "project"
+      ],
+      "ProjectSortKey": [
+        "position",
+        "recencyAt"
+      ],
+      "PromptConfiguredHookHandlerType": [
+        "prompt"
+      ],
+      "RateLimitReachedType": [
+        "rate_limit_reached",
+        "workspace_member_credits_depleted",
+        "workspace_member_usage_limit_reached",
+        "workspace_owner_credits_depleted",
+        "workspace_owner_usage_limit_reached"
+      ],
+      "RateLimitResetCreditStatus": [
+        "available",
+        "redeemed",
+        "redeeming",
+        "unknown"
+      ],
+      "RateLimitResetType": [
+        "codexRateLimits",
+        "unknown"
+      ],
+      "ReadCommandActionType": [
+        "read"
+      ],
+      "ReadOnlySandboxPolicyType": [
+        "readOnly"
+      ],
+      "ReadParsedCommandType": [
+        "read"
+      ],
+      "ReadThreadReadStateOperationType": [
+        "read"
+      ],
+      "RealtimeConversationVersion": [
+        "v1",
+        "v2",
+        "v3"
+      ],
+      "RealtimeOutputModality": [
+        "audio",
+        "text"
+      ],
+      "RealtimeSessionClosedThreadRealtimeItemType": [
+        "realtimeSessionClosed"
+      ],
+      "RealtimeSessionStartedThreadRealtimeItemType": [
+        "realtimeSessionStarted"
+      ],
+      "RealtimeThreadTimelineEntryType": [
+        "realtime"
+      ],
+      "RealtimeVoice": [
+        "alloy",
+        "arbor",
+        "ash",
+        "aube",
+        "ballad",
+        "breeze",
+        "bubbie",
+        "cedar",
+        "coral",
+        "cove",
+        "echo",
+        "ember",
+        "haetsal",
+        "hanul",
+        "himari",
+        "juniper",
+        "leher",
+        "maple",
+        "marin",
+        "miko",
+        "neer",
+        "porto",
+        "rindo",
+        "rio",
+        "rivage",
+        "sage",
+        "selva",
+        "shimmer",
+        "sol",
+        "sonna",
+        "spruce",
+        "tinta",
+        "vale",
+        "verse",
+        "viola"
+      ],
+      "ReasoningResponseItemType": [
+        "reasoning"
+      ],
+      "ReasoningSummary": [
+        "auto",
+        "concise",
+        "detailed",
+        "none"
+      ],
+      "ReasoningTextReasoningItemContentType": [
+        "reasoning_text"
+      ],
+      "ReasoningThreadItemType": [
+        "reasoning"
+      ],
+      "RemoteControl/status/changedNotificationMethod": [
+        "remoteControl/status/changed"
+      ],
+      "RemoteControlConnectionStatus": [
+        "connected",
+        "connecting",
+        "disabled",
+        "errored"
+      ],
+      "RemotePluginSourceType": [
+        "remote"
+      ],
+      "RequestPermissionsGuardianApprovalReviewActionType": [
+        "requestPermissions"
+      ],
+      "ResidencyRequirement": [
+        "us"
+      ],
+      "Review/startRequestMethod": [
+        "review/start"
+      ],
+      "ReviewDelivery": [
+        "inline"
+      ],
+      "SandboxMode": [
+        "danger-full-access",
+        "read-only",
+        "workspace-write"
+      ],
+      "ScheduledTaskWeekday": [
+        "FR",
+        "MO",
+        "SA",
+        "SU",
+        "TH",
+        "TU",
+        "WE"
+      ],
+      "SearchCommandActionType": [
+        "search"
+      ],
+      "SearchParsedCommandType": [
+        "search"
+      ],
+      "SearchResponsesApiWebSearchActionType": [
+        "search"
+      ],
+      "SearchWebSearchActionType": [
+        "search"
+      ],
+      "ServerRequest/resolvedNotificationMethod": [
+        "serverRequest/resolved"
+      ],
+      "SessionFlagsConfigLayerSourceType": [
+        "sessionFlags"
+      ],
+      "SkillScope": [
+        "admin",
+        "repo",
+        "system",
+        "user"
+      ],
+      "SkillUserInputType": [
+        "skill"
+      ],
+      "Skills/changedNotificationMethod": [
+        "skills/changed"
+      ],
+      "Skills/config/writeRequestMethod": [
+        "skills/config/write"
+      ],
+      "Skills/extraRoots/setRequestMethod": [
+        "skills/extraRoots/set"
+      ],
+      "Skills/listRequestMethod": [
+        "skills/list"
+      ],
+      "SleepThreadItemType": [
+        "sleep"
+      ],
+      "SortDirection": [
+        "asc",
+        "desc"
+      ],
+      "SpecialFileSystemPathType": [
+        "special"
+      ],
+      "SubAgentActivityKind": [
+        "completed",
+        "interacted",
+        "interrupted",
+        "started"
+      ],
+      "SubAgentActivityThreadItemType": [
+        "subAgentActivity"
+      ],
+      "SummaryTextReasoningItemReasoningSummaryType": [
+        "summary_text"
+      ],
+      "SystemConfigLayerSourceType": [
+        "system"
+      ],
+      "SystemErrorThreadStatusType": [
+        "systemError"
+      ],
+      "TextReasoningItemContentType": [
+        "text"
+      ],
+      "TextUserInputType": [
+        "text"
+      ],
+      "Thread/approveGuardianDeniedActionRequestMethod": [
+        "thread/approveGuardianDeniedAction"
+      ],
+      "Thread/archiveRequestMethod": [
+        "thread/archive"
+      ],
+      "Thread/archivedNotificationMethod": [
+        "thread/archived"
+      ],
+      "Thread/attachment/addRequestMethod": [
+        "thread/attachment/add"
+      ],
+      "Thread/attachment/listRequestMethod": [
+        "thread/attachment/list"
+      ],
+      "Thread/attachment/removeRequestMethod": [
+        "thread/attachment/remove"
+      ],
+      "Thread/attachment/updatedNotificationMethod": [
+        "thread/attachment/updated"
+      ],
+      "Thread/attachmentOwner/listRequestMethod": [
+        "thread/attachmentOwner/list"
+      ],
+      "Thread/closedNotificationMethod": [
+        "thread/closed"
+      ],
+      "Thread/compact/startRequestMethod": [
+        "thread/compact/start"
+      ],
+      "Thread/compactedNotificationMethod": [
+        "thread/compacted"
+      ],
+      "Thread/deleteRequestMethod": [
+        "thread/delete"
+      ],
+      "Thread/deletedNotificationMethod": [
+        "thread/deleted"
+      ],
+      "Thread/environment/connectedNotificationMethod": [
+        "thread/environment/connected"
+      ],
+      "Thread/environment/disconnectedNotificationMethod": [
+        "thread/environment/disconnected"
+      ],
+      "Thread/forkRequestMethod": [
+        "thread/fork"
+      ],
+      "Thread/goal/clearRequestMethod": [
+        "thread/goal/clear"
+      ],
+      "Thread/goal/clearedNotificationMethod": [
+        "thread/goal/cleared"
+      ],
+      "Thread/goal/getRequestMethod": [
+        "thread/goal/get"
+      ],
+      "Thread/goal/setRequestMethod": [
+        "thread/goal/set"
+      ],
+      "Thread/goal/updatedNotificationMethod": [
+        "thread/goal/updated"
+      ],
+      "Thread/injectItemsRequestMethod": [
+        "thread/inject_items"
+      ],
+      "Thread/items/listRequestMethod": [
+        "thread/items/list"
+      ],
+      "Thread/listRequestMethod": [
+        "thread/list"
+      ],
+      "Thread/loaded/listRequestMethod": [
+        "thread/loaded/list"
+      ],
+      "Thread/metadata/updateRequestMethod": [
+        "thread/metadata/update"
+      ],
+      "Thread/name/setRequestMethod": [
+        "thread/name/set"
+      ],
+      "Thread/name/updatedNotificationMethod": [
+        "thread/name/updated"
+      ],
+      "Thread/prediction/updatedNotificationMethod": [
+        "thread/prediction/updated"
+      ],
+      "Thread/project/updatedNotificationMethod": [
+        "thread/project/updated"
+      ],
+      "Thread/queue/changedNotificationMethod": [
+        "thread/queue/changed"
+      ],
+      "Thread/readRequestMethod": [
+        "thread/read"
+      ],
+      "Thread/readState/changedNotificationMethod": [
+        "thread/readState/changed"
+      ],
+      "Thread/realtime/closedNotificationMethod": [
+        "thread/realtime/closed"
+      ],
+      "Thread/realtime/errorNotificationMethod": [
+        "thread/realtime/error"
+      ],
+      "Thread/realtime/item/completedNotificationMethod": [
+        "thread/realtime/item/completed"
+      ],
+      "Thread/realtime/item/startedNotificationMethod": [
+        "thread/realtime/item/started"
+      ],
+      "Thread/realtime/item/transcript/deltaNotificationMethod": [
+        "thread/realtime/item/transcript/delta"
+      ],
+      "Thread/realtime/itemAddedNotificationMethod": [
+        "thread/realtime/itemAdded"
+      ],
+      "Thread/realtime/outputAudio/deltaNotificationMethod": [
+        "thread/realtime/outputAudio/delta"
+      ],
+      "Thread/realtime/sdpNotificationMethod": [
+        "thread/realtime/sdp"
+      ],
+      "Thread/realtime/startedNotificationMethod": [
+        "thread/realtime/started"
+      ],
+      "Thread/realtime/transcript/deltaNotificationMethod": [
+        "thread/realtime/transcript/delta"
+      ],
+      "Thread/realtime/transcript/doneNotificationMethod": [
+        "thread/realtime/transcript/done"
+      ],
+      "Thread/resumeRequestMethod": [
+        "thread/resume"
+      ],
+      "Thread/revertRequestMethod": [
+        "thread/revert"
+      ],
+      "Thread/revertedNotificationMethod": [
+        "thread/reverted"
+      ],
+      "Thread/section/moveRequestMethod": [
+        "thread/section/move"
+      ],
+      "Thread/settings/updatedNotificationMethod": [
+        "thread/settings/updated"
+      ],
+      "Thread/shellCommandRequestMethod": [
+        "thread/shellCommand"
+      ],
+      "Thread/startRequestMethod": [
+        "thread/start"
+      ],
+      "Thread/startedNotificationMethod": [
+        "thread/started"
+      ],
+      "Thread/status/changedNotificationMethod": [
+        "thread/status/changed"
+      ],
+      "Thread/tokenUsage/updatedNotificationMethod": [
+        "thread/tokenUsage/updated"
+      ],
+      "Thread/turns/listRequestMethod": [
+        "thread/turns/list"
+      ],
+      "Thread/unarchiveRequestMethod": [
+        "thread/unarchive"
+      ],
+      "Thread/unarchivedNotificationMethod": [
+        "thread/unarchived"
+      ],
+      "Thread/unsubscribeRequestMethod": [
+        "thread/unsubscribe"
+      ],
+      "ThreadActiveFlag": [
+        "waitingOnApproval",
+        "waitingOnUserInput"
+      ],
+      "ThreadAttachmentAddOutcome": [
+        "created",
+        "existing"
+      ],
+      "ThreadAttachmentOperation": [
+        "created",
+        "deleted"
+      ],
+      "ThreadGoalMutationOrigin": [
+        "automatic",
+        "user"
+      ],
+      "ThreadGoalStatus": [
+        "active",
+        "blocked",
+        "budgetLimited",
+        "complete",
+        "paused",
+        "usageLimited"
+      ],
+      "ThreadHistoryMode": [
+        "legacy",
+        "paginated"
+      ],
+      "ThreadMemoryMode": [
+        "disabled",
+        "enabled"
+      ],
+      "ThreadRealtimeSessionOutcome": [
+        "ended",
+        "failed"
+      ],
+      "ThreadRealtimeTranscriptRole": [
+        "assistant",
+        "user"
+      ],
+      "ThreadSearchSortKey": [
+        "created_at",
+        "recency_at",
+        "updated_at"
+      ],
+      "ThreadSection/createRequestMethod": [
+        "threadSection/create"
+      ],
+      "ThreadSection/deleteRequestMethod": [
+        "threadSection/delete"
+      ],
+      "ThreadSection/listRequestMethod": [
+        "threadSection/list"
+      ],
+      "ThreadSection/updateRequestMethod": [
+        "threadSection/update"
+      ],
+      "ThreadSortKey": [
+        "created_at",
+        "recency_at",
+        "section_position",
+        "updated_at"
+      ],
+      "ThreadSourceKind": [
+        "appServer",
+        "cli",
+        "exec",
+        "subAgent",
+        "subAgentCompact",
+        "subAgentOther",
+        "subAgentReview",
+        "subAgentThreadSpawn",
+        "unknown",
+        "vscode"
+      ],
+      "ThreadStartSource": [
+        "clear",
+        "startup"
+      ],
+      "ThreadStartThreadUnreadPositionType": [
+        "threadStart"
+      ],
+      "ThreadUnsubscribeStatus": [
+        "notLoaded",
+        "notSubscribed",
+        "unsubscribed"
+      ],
+      "ToolExposureSurface": [
+        "code_mode",
+        "deferred",
+        "direct"
+      ],
+      "ToolSearchCallResponseItemType": [
+        "tool_search_call"
+      ],
+      "ToolSearchOutputResponseItemType": [
+        "tool_search_output"
+      ],
+      "TranscriptSegmentThreadRealtimeItemType": [
+        "transcriptSegment"
+      ],
+      "Turn/completedNotificationMethod": [
+        "turn/completed"
+      ],
+      "Turn/diff/updatedNotificationMethod": [
+        "turn/diff/updated"
+      ],
+      "Turn/interruptRequestMethod": [
+        "turn/interrupt"
+      ],
+      "Turn/moderationMetadataNotificationMethod": [
+        "turn/moderationMetadata"
+      ],
+      "Turn/plan/updatedNotificationMethod": [
+        "turn/plan/updated"
+      ],
+      "Turn/startRequestMethod": [
+        "turn/start"
+      ],
+      "Turn/startedNotificationMethod": [
+        "turn/started"
+      ],
+      "Turn/steerRequestMethod": [
+        "turn/steer"
+      ],
+      "TurnCompletedThreadTimelineEntryType": [
+        "turnCompleted"
+      ],
+      "TurnItemsView": [
+        "full",
+        "notLoaded",
+        "summary"
+      ],
+      "TurnPlanStepStatus": [
+        "completed",
+        "inProgress",
+        "pending"
+      ],
+      "TurnStartedThreadTimelineEntryType": [
+        "turnStarted"
+      ],
+      "TurnStatus": [
+        "completed",
+        "failed",
+        "inProgress",
+        "interrupted"
+      ],
+      "TurnThreadUnreadPositionType": [
+        "turn"
+      ],
+      "UncommittedChangesReviewTargetType": [
+        "uncommittedChanges"
+      ],
+      "UnknownCommandActionType": [
+        "unknown"
+      ],
+      "UnknownParsedCommandType": [
+        "unknown"
+      ],
+      "UnreadThreadReadStateOperationType": [
+        "unread"
+      ],
+      "UpdateFileChangeType": [
+        "update"
+      ],
+      "UpdatePatchChangeKindType": [
+        "update"
+      ],
+      "UsageLimitExceededImageGenerationFailureType": [
+        "usageLimitExceeded"
+      ],
+      "UserConfigLayerSourceType": [
+        "user"
+      ],
+      "UserMessageThreadItemType": [
+        "userMessage"
+      ],
+      "Verbosity": [
+        "high",
+        "low",
+        "medium"
+      ],
+      "WarningNotificationMethod": [
+        "warning"
+      ],
+      "WebSearchCallResponseItemType": [
+        "web_search_call"
+      ],
+      "WebSearchContextSize": [
+        "high",
+        "low",
+        "medium"
+      ],
+      "WebSearchMode": [
+        "cached",
+        "disabled",
+        "indexed",
+        "live"
+      ],
+      "WebSearchThreadItemType": [
+        "webSearch"
+      ],
+      "WebrtcThreadRealtimeStartTransportType": [
+        "webrtc"
+      ],
+      "WebsocketThreadRealtimeStartTransportType": [
+        "websocket"
+      ],
+      "WeekdaysScheduledTaskScheduleType": [
+        "weekdays"
+      ],
+      "WeeklyScheduledTaskScheduleType": [
+        "weekly"
+      ],
+      "WholeItemThreadRealtimeBemItemPresentationType": [
+        "wholeItem"
+      ],
+      "Windows/worldWritableWarningNotificationMethod": [
+        "windows/worldWritableWarning"
+      ],
+      "WindowsSandbox/readinessRequestMethod": [
+        "windowsSandbox/readiness"
+      ],
+      "WindowsSandbox/setupCompletedNotificationMethod": [
+        "windowsSandbox/setupCompleted"
+      ],
+      "WindowsSandbox/setupStartRequestMethod": [
+        "windowsSandbox/setupStart"
+      ],
+      "WindowsSandboxImplementation": [
+        "elevated",
+        "mxc",
+        "unelevated"
+      ],
+      "WindowsSandboxReadiness": [
+        "notConfigured",
+        "ready",
+        "updateRequired"
+      ],
+      "WindowsSandboxSetupMode": [
+        "elevated",
+        "unelevated"
+      ],
+      "WorkspaceMessageType": [
+        "announcement",
+        "headline",
+        "unknown"
+      ],
+      "WorkspaceWriteSandboxPolicyType": [
+        "workspaceWrite"
+      ],
+      "WriteStatus": [
+        "ok",
+        "okOverridden"
+      ],
+      "WriteStdinGuardianApprovalReviewActionType": [
+        "writeStdin"
+      ]
+    }
   },
   "experimental": {
     "client_requests": [
@@ -2871,7 +4756,2168 @@
         "response": "typed",
         "classification": "implemented"
       }
-    ]
+    ],
+    "enums": {
+      "Account/bedrock/checkGovCloudRequirementsRequestMethod": [
+        "account/bedrock/checkGovCloudRequirements"
+      ],
+      "Account/bedrock/discoverRequestMethod": [
+        "account/bedrock/discover"
+      ],
+      "Account/bedrock/setupRequestMethod": [
+        "account/bedrock/setup"
+      ],
+      "Account/chatgptAuthTokens/refreshRequestMethod": [
+        "account/chatgptAuthTokens/refresh"
+      ],
+      "Account/gatewayOAuth/cancelRequestMethod": [
+        "account/gatewayOAuth/cancel"
+      ],
+      "Account/gatewayOAuth/changedNotificationMethod": [
+        "account/gatewayOAuth/changed"
+      ],
+      "Account/gatewayOAuth/loginRequestMethod": [
+        "account/gatewayOAuth/login"
+      ],
+      "Account/gatewayOAuth/readRequestMethod": [
+        "account/gatewayOAuth/read"
+      ],
+      "Account/gcp/setupRequestMethod": [
+        "account/gcp/setup"
+      ],
+      "Account/login/cancelRequestMethod": [
+        "account/login/cancel"
+      ],
+      "Account/login/completedNotificationMethod": [
+        "account/login/completed"
+      ],
+      "Account/login/startRequestMethod": [
+        "account/login/start"
+      ],
+      "Account/logoutRequestMethod": [
+        "account/logout"
+      ],
+      "Account/rateLimitResetCredit/consumeRequestMethod": [
+        "account/rateLimitResetCredit/consume"
+      ],
+      "Account/rateLimits/readRequestMethod": [
+        "account/rateLimits/read"
+      ],
+      "Account/rateLimits/updatedNotificationMethod": [
+        "account/rateLimits/updated"
+      ],
+      "Account/readRequestMethod": [
+        "account/read"
+      ],
+      "Account/sendAddCreditsNudgeEmailRequestMethod": [
+        "account/sendAddCreditsNudgeEmail"
+      ],
+      "Account/updatedNotificationMethod": [
+        "account/updated"
+      ],
+      "Account/usage/readRequestMethod": [
+        "account/usage/read"
+      ],
+      "Account/workspaceMessages/readRequestMethod": [
+        "account/workspaceMessages/read"
+      ],
+      "AccountRoutingOverride": [
+        "NO_CONSTRAINT",
+        "us",
+        "us_cr"
+      ],
+      "AccountSession/listRequestMethod": [
+        "accountSession/list"
+      ],
+      "AccountSession/switchRequestMethod": [
+        "accountSession/switch"
+      ],
+      "AccountSessionWorkspaceKind": [
+        "personal",
+        "workspace"
+      ],
+      "ActiveThreadStatusType": [
+        "active"
+      ],
+      "AddCreditsNudgeCreditType": [
+        "credits",
+        "usage_limit"
+      ],
+      "AddCreditsNudgeEmailStatus": [
+        "cooldown_active",
+        "sent"
+      ],
+      "AddFileChangeType": [
+        "add"
+      ],
+      "AddPatchChangeKindType": [
+        "add"
+      ],
+      "AdditionalContextKind": [
+        "application",
+        "untrusted"
+      ],
+      "AdditionalToolsResponseItemType": [
+        "additional_tools"
+      ],
+      "AgentConfiguredHookHandlerType": [
+        "agent"
+      ],
+      "AgentMessageDelivery": [
+        "async"
+      ],
+      "AgentMessageResponseItemType": [
+        "agent_message"
+      ],
+      "AgentMessageThreadItemType": [
+        "agentMessage"
+      ],
+      "AllowDenyRequirement": [
+        "allow",
+        "deny"
+      ],
+      "AmazonBedrockAccessKeysv2::LoginAccountParamsType": [
+        "amazonBedrockAccessKeys"
+      ],
+      "AmazonBedrockAccountType": [
+        "amazonBedrock"
+      ],
+      "AmazonBedrockv2::LoginAccountParamsType": [
+        "amazonBedrock"
+      ],
+      "AmazonBedrockv2::LoginAccountResponseType": [
+        "amazonBedrock"
+      ],
+      "ApiKeyAccountType": [
+        "apiKey"
+      ],
+      "ApiKeyv2::LoginAccountParamsType": [
+        "apiKey"
+      ],
+      "ApiKeyv2::LoginAccountResponseType": [
+        "apiKey"
+      ],
+      "App/installedRequestMethod": [
+        "app/installed"
+      ],
+      "App/list/updatedNotificationMethod": [
+        "app/list/updated"
+      ],
+      "App/listRequestMethod": [
+        "app/list"
+      ],
+      "App/readRequestMethod": [
+        "app/read"
+      ],
+      "AppTemplateUnavailableReason": [
+        "NOT_CONFIGURED_FOR_WORKSPACE",
+        "NO_ACTIVE_WORKSPACE"
+      ],
+      "AppToolApproval": [
+        "approve",
+        "auto",
+        "prompt",
+        "writes"
+      ],
+      "ApplyPatchApprovalRequestMethod": [
+        "applyPatchApproval"
+      ],
+      "ApplyPatchGuardianApprovalReviewActionType": [
+        "applyPatch"
+      ],
+      "ApprovalsReviewer": [
+        "auto_review",
+        "guardian_subagent",
+        "user"
+      ],
+      "Attestation/generateRequestMethod": [
+        "attestation/generate"
+      ],
+      "AudioUserInputType": [
+        "audio"
+      ],
+      "AuthMode": [
+        "agentIdentity",
+        "apikey",
+        "bedrockAccessKeys",
+        "bedrockApiKey",
+        "chatgpt",
+        "chatgptAuthTokens",
+        "headers",
+        "personalAccessToken"
+      ],
+      "AutoApprovalReview/strictReviewRequiredNotificationMethod": [
+        "autoApprovalReview/strictReviewRequired"
+      ],
+      "AutoCompactTokenLimitScope": [
+        "body_after_prefix",
+        "total"
+      ],
+      "AutoReviewDecisionSource": [
+        "agent"
+      ],
+      "AwsCredentialType": [
+        "accessKeys",
+        "bedrockApiKey"
+      ],
+      "BaseBranchReviewTargetType": [
+        "baseBranch"
+      ],
+      "BemItemPromotedThreadRealtimeItemType": [
+        "bemItemPromoted"
+      ],
+      "BrowserUseAccessApprovalLifetime": [
+        "thread",
+        "turn"
+      ],
+      "CancelLoginAccountStatus": [
+        "canceled",
+        "notFound"
+      ],
+      "CancelledUserVerificationErrorDetailsType": [
+        "cancelled"
+      ],
+      "ChatgptAccountType": [
+        "chatgpt"
+      ],
+      "ChatgptAuthTokensRefreshReason": [
+        "unauthorized"
+      ],
+      "ChatgptAuthTokensv2::LoginAccountParamsType": [
+        "chatgptAuthTokens"
+      ],
+      "ChatgptAuthTokensv2::LoginAccountResponseType": [
+        "chatgptAuthTokens"
+      ],
+      "ChatgptDeviceCodev2::LoginAccountParamsType": [
+        "chatgptDeviceCode"
+      ],
+      "ChatgptDeviceCodev2::LoginAccountResponseType": [
+        "chatgptDeviceCode"
+      ],
+      "Chatgptv2::LoginAccountParamsType": [
+        "chatgpt"
+      ],
+      "Chatgptv2::LoginAccountResponseType": [
+        "chatgpt"
+      ],
+      "CliAuthCredentialsStoreMode": [
+        "auto",
+        "ephemeral",
+        "file",
+        "keyring"
+      ],
+      "CodexResponseHandoffMode": [
+        "bemTags",
+        "commentary",
+        "thinking"
+      ],
+      "CollabAgentStatus": [
+        "completed",
+        "errored",
+        "interrupted",
+        "notFound",
+        "pendingInit",
+        "running",
+        "shutdown"
+      ],
+      "CollabAgentTool": [
+        "closeAgent",
+        "followupTask",
+        "interruptAgent",
+        "listAgents",
+        "resumeAgent",
+        "sendInput",
+        "sendMessage",
+        "spawnAgent",
+        "wait"
+      ],
+      "CollabAgentToolCallStatus": [
+        "completed",
+        "failed",
+        "inProgress",
+        "interrupted"
+      ],
+      "CollabAgentToolCallThreadItemType": [
+        "collabAgentToolCall"
+      ],
+      "CollaborationMode/listRequestMethod": [
+        "collaborationMode/list"
+      ],
+      "Command/exec/outputDeltaNotificationMethod": [
+        "command/exec/outputDelta"
+      ],
+      "Command/exec/resizeRequestMethod": [
+        "command/exec/resize"
+      ],
+      "Command/exec/terminateRequestMethod": [
+        "command/exec/terminate"
+      ],
+      "Command/exec/writeRequestMethod": [
+        "command/exec/write"
+      ],
+      "Command/execRequestMethod": [
+        "command/exec"
+      ],
+      "CommandConfiguredHookHandlerType": [
+        "command"
+      ],
+      "CommandExecOutputStream": [
+        "stderr",
+        "stdout"
+      ],
+      "CommandExecutionApprovalKind": [
+        "command",
+        "writeStdin"
+      ],
+      "CommandExecutionSource": [
+        "agent",
+        "unifiedExecInteraction",
+        "unifiedExecStartup",
+        "userShell"
+      ],
+      "CommandExecutionStatus": [
+        "completed",
+        "declined",
+        "failed",
+        "inProgress"
+      ],
+      "CommandExecutionThreadItemType": [
+        "commandExecution"
+      ],
+      "CommandGuardianApprovalReviewActionType": [
+        "command"
+      ],
+      "CommitReviewTargetType": [
+        "commit"
+      ],
+      "CompactionResponseItemType": [
+        "compaction"
+      ],
+      "CompactionTriggerResponseItemType": [
+        "compaction_trigger"
+      ],
+      "CompletedThreadPredictionResultType": [
+        "completed"
+      ],
+      "Config/batchWriteRequestMethod": [
+        "config/batchWrite"
+      ],
+      "Config/mcpServer/reloadRequestMethod": [
+        "config/mcpServer/reload"
+      ],
+      "Config/readRequestMethod": [
+        "config/read"
+      ],
+      "Config/value/writeRequestMethod": [
+        "config/value/write"
+      ],
+      "ConfigRequirements/readRequestMethod": [
+        "configRequirements/read"
+      ],
+      "ConfigWarningNotificationMethod": [
+        "configWarning"
+      ],
+      "ConfigurationUpdateResponseItemType": [
+        "configuration_update"
+      ],
+      "ConsumeAccountRateLimitResetCreditOutcome": [
+        "alreadyRedeemed",
+        "noCredit",
+        "nothingToReset",
+        "reset"
+      ],
+      "ContextCompactionResponseItemType": [
+        "context_compaction"
+      ],
+      "ContextCompactionThreadItemType": [
+        "contextCompaction"
+      ],
+      "ConversationTextRole": [
+        "assistant",
+        "developer",
+        "user"
+      ],
+      "CurrentTime/readRequestMethod": [
+        "currentTime/read"
+      ],
+      "CustomReviewTargetType": [
+        "custom"
+      ],
+      "CustomToolCallOutputResponseItemType": [
+        "custom_tool_call_output"
+      ],
+      "CustomToolCallResponseItemType": [
+        "custom_tool_call"
+      ],
+      "CyberAccessProgram": [
+        "daybreakBlue",
+        "daybreakRed",
+        "standard"
+      ],
+      "DailyScheduledTaskScheduleType": [
+        "daily"
+      ],
+      "DangerFullAccessSandboxPolicyType": [
+        "dangerFullAccess"
+      ],
+      "DeleteFileChangeType": [
+        "delete"
+      ],
+      "DeletePatchChangeKindType": [
+        "delete"
+      ],
+      "DeprecationNoticeNotificationMethod": [
+        "deprecationNotice"
+      ],
+      "DesktopOnboardingEntrypoint": [
+        "life_sciences"
+      ],
+      "DynamicToolCallStatus": [
+        "completed",
+        "failed",
+        "inProgress"
+      ],
+      "DynamicToolCallThreadItemType": [
+        "dynamicToolCall"
+      ],
+      "EncryptedContentAgentMessageInputContentType": [
+        "encrypted_content"
+      ],
+      "EncryptedContentFunctionCallOutputContentItemType": [
+        "encrypted_content"
+      ],
+      "EnteredReviewModeThreadItemType": [
+        "enteredReviewMode"
+      ],
+      "EnterpriseManagedConfigLayerSourceType": [
+        "enterpriseManaged"
+      ],
+      "Environment/addRequestMethod": [
+        "environment/add"
+      ],
+      "Environment/infoRequestMethod": [
+        "environment/info"
+      ],
+      "Environment/statusRequestMethod": [
+        "environment/status"
+      ],
+      "EnvironmentCapabilityRootLocationType": [
+        "environment"
+      ],
+      "EnvironmentStatusKind": [
+        "disconnected",
+        "pending",
+        "ready",
+        "unknown"
+      ],
+      "Environmentv2::BedrockSetupParamsType": [
+        "environment"
+      ],
+      "ErrorNotificationMethod": [
+        "error"
+      ],
+      "ExecCommandApprovalRequestMethod": [
+        "execCommandApproval"
+      ],
+      "ExecLocalShellActionType": [
+        "exec"
+      ],
+      "ExecveGuardianApprovalReviewActionType": [
+        "execve"
+      ],
+      "ExistingCallThreadRealtimeStartTransportType": [
+        "existingCall"
+      ],
+      "ExitedReviewModeThreadItemType": [
+        "exitedReviewMode"
+      ],
+      "ExperimentalFeature/enablement/setRequestMethod": [
+        "experimentalFeature/enablement/set"
+      ],
+      "ExperimentalFeature/listRequestMethod": [
+        "experimentalFeature/list"
+      ],
+      "ExperimentalFeatureStage": [
+        "beta",
+        "deprecated",
+        "removed",
+        "stable",
+        "underDevelopment"
+      ],
+      "ExternalAgentConfig/detectRequestMethod": [
+        "externalAgentConfig/detect"
+      ],
+      "ExternalAgentConfig/import/completedNotificationMethod": [
+        "externalAgentConfig/import/completed"
+      ],
+      "ExternalAgentConfig/import/progressNotificationMethod": [
+        "externalAgentConfig/import/progress"
+      ],
+      "ExternalAgentConfig/import/readHistoriesRequestMethod": [
+        "externalAgentConfig/import/readHistories"
+      ],
+      "ExternalAgentConfig/import/recordHistoryRequestMethod": [
+        "externalAgentConfig/import/recordHistory"
+      ],
+      "ExternalAgentConfig/importRequestMethod": [
+        "externalAgentConfig/import"
+      ],
+      "ExternalAgentConfigMigrationItemType": [
+        "AGENTS_MD",
+        "COMMANDS",
+        "CONFIG",
+        "HOOKS",
+        "MCP_SERVER_CONFIG",
+        "MEMORY",
+        "PLUGINS",
+        "SESSIONS",
+        "SKILLS",
+        "SUBAGENTS"
+      ],
+      "ExternalAgentDetectedConnectorSource": [
+        "remoteMcpServersConfig",
+        "sessionToolUse"
+      ],
+      "ExternalAgentImportedConnectorSource": [
+        "remoteMcpServersConfig"
+      ],
+      "ExternalSandboxSandboxPolicyType": [
+        "externalSandbox"
+      ],
+      "FailedThreadPredictionResultType": [
+        "failed"
+      ],
+      "FailedUserVerificationErrorDetailsType": [
+        "failed"
+      ],
+      "Feedback/saveRequestMethod": [
+        "feedback/save"
+      ],
+      "Feedback/uploadRequestMethod": [
+        "feedback/upload"
+      ],
+      "FileChangeThreadItemType": [
+        "fileChange"
+      ],
+      "FileSystemAccessMode": [
+        "deny",
+        "read",
+        "write"
+      ],
+      "FindInPageResponsesApiWebSearchActionType": [
+        "find_in_page"
+      ],
+      "FindInPageWebSearchActionType": [
+        "findInPage"
+      ],
+      "ForcedLoginMethod": [
+        "api",
+        "chatgpt"
+      ],
+      "Fs/changedNotificationMethod": [
+        "fs/changed"
+      ],
+      "Fs/copyRequestMethod": [
+        "fs/copy"
+      ],
+      "Fs/createDirectoryRequestMethod": [
+        "fs/createDirectory"
+      ],
+      "Fs/getMetadataRequestMethod": [
+        "fs/getMetadata"
+      ],
+      "Fs/readDirectoryRequestMethod": [
+        "fs/readDirectory"
+      ],
+      "Fs/readFileRequestMethod": [
+        "fs/readFile"
+      ],
+      "Fs/removeRequestMethod": [
+        "fs/remove"
+      ],
+      "Fs/unwatchRequestMethod": [
+        "fs/unwatch"
+      ],
+      "Fs/watchRequestMethod": [
+        "fs/watch"
+      ],
+      "Fs/writeFileRequestMethod": [
+        "fs/writeFile"
+      ],
+      "FunctionCallOutputResponseItemType": [
+        "function_call_output"
+      ],
+      "FunctionCallOutputThreadItemType": [
+        "functionCallOutput"
+      ],
+      "FunctionCallResponseItemType": [
+        "function_call"
+      ],
+      "FunctionDynamicToolNamespaceToolType": [
+        "function"
+      ],
+      "FunctionDynamicToolSpecType": [
+        "function"
+      ],
+      "FuzzyFileSearch/sessionCompletedNotificationMethod": [
+        "fuzzyFileSearch/sessionCompleted"
+      ],
+      "FuzzyFileSearch/sessionStartRequestMethod": [
+        "fuzzyFileSearch/sessionStart"
+      ],
+      "FuzzyFileSearch/sessionStopRequestMethod": [
+        "fuzzyFileSearch/sessionStop"
+      ],
+      "FuzzyFileSearch/sessionUpdateRequestMethod": [
+        "fuzzyFileSearch/sessionUpdate"
+      ],
+      "FuzzyFileSearch/sessionUpdatedNotificationMethod": [
+        "fuzzyFileSearch/sessionUpdated"
+      ],
+      "FuzzyFileSearchMatchType": [
+        "directory",
+        "file"
+      ],
+      "FuzzyFileSearchRequestMethod": [
+        "fuzzyFileSearch"
+      ],
+      "GatewayOAuthStatus": [
+        "failed",
+        "notReady",
+        "started",
+        "succeeded"
+      ],
+      "GcpAccountType": [
+        "gcp"
+      ],
+      "GitPluginSourceType": [
+        "git"
+      ],
+      "GlobPatternFileSystemPathType": [
+        "glob_pattern"
+      ],
+      "GuardianApprovalReviewStatus": [
+        "aborted",
+        "approved",
+        "denied",
+        "inProgress",
+        "timedOut"
+      ],
+      "GuardianCommandSource": [
+        "shell",
+        "unifiedExec"
+      ],
+      "GuardianRiskLevel": [
+        "critical",
+        "high",
+        "low",
+        "medium"
+      ],
+      "GuardianUserAuthorization": [
+        "high",
+        "low",
+        "medium",
+        "unknown"
+      ],
+      "GuardianWarningNotificationMethod": [
+        "guardianWarning"
+      ],
+      "Hook/completedNotificationMethod": [
+        "hook/completed"
+      ],
+      "Hook/startedNotificationMethod": [
+        "hook/started"
+      ],
+      "HookEventName": [
+        "interrupt",
+        "permissionRequest",
+        "postCompact",
+        "postModelRequest",
+        "postToolUse",
+        "preCompact",
+        "preModelRequest",
+        "preToolUse",
+        "sessionEnd",
+        "sessionStart",
+        "stop",
+        "subagentStart",
+        "subagentStop",
+        "userPromptSubmit"
+      ],
+      "HookExecutionMode": [
+        "async",
+        "sync"
+      ],
+      "HookHandlerType": [
+        "agent",
+        "command",
+        "mcpTool",
+        "prompt"
+      ],
+      "HookOutputEntryKind": [
+        "context",
+        "error",
+        "feedback",
+        "stop",
+        "warning"
+      ],
+      "HookPromptThreadItemType": [
+        "hookPrompt"
+      ],
+      "HookRunStatus": [
+        "blocked",
+        "completed",
+        "failed",
+        "running",
+        "stopped"
+      ],
+      "HookScope": [
+        "thread",
+        "turn"
+      ],
+      "HookSource": [
+        "cloudManagedConfig",
+        "cloudRequirements",
+        "legacyManagedConfigFile",
+        "legacyManagedConfigMdm",
+        "mdm",
+        "plugin",
+        "project",
+        "sessionFlags",
+        "system",
+        "unknown",
+        "user"
+      ],
+      "HookTrustStatus": [
+        "managed",
+        "modified",
+        "trusted",
+        "untrusted"
+      ],
+      "Hooks/listRequestMethod": [
+        "hooks/list"
+      ],
+      "HourlyScheduledTaskScheduleType": [
+        "hourly"
+      ],
+      "IdleThreadStatusType": [
+        "idle"
+      ],
+      "ImageDetail": [
+        "auto",
+        "high",
+        "low",
+        "original"
+      ],
+      "ImageGenerationCallResponseItemType": [
+        "image_generation_call"
+      ],
+      "ImageGenerationThreadItemType": [
+        "imageGeneration"
+      ],
+      "ImageUserInputType": [
+        "image"
+      ],
+      "ImageViewThreadItemType": [
+        "imageView"
+      ],
+      "InitializeRequestMethod": [
+        "initialize"
+      ],
+      "InlineMarkdownThreadRealtimeBemItemPresentationType": [
+        "inlineMarkdown"
+      ],
+      "InlineVisualizationThreadRealtimeBemItemPresentationType": [
+        "inlineVisualization"
+      ],
+      "InputAudioContentItemType": [
+        "input_audio"
+      ],
+      "InputAudioDynamicToolCallOutputContentItemType": [
+        "inputAudio"
+      ],
+      "InputAudioFunctionCallOutputContentItemType": [
+        "input_audio"
+      ],
+      "InputImageContentItemType": [
+        "input_image"
+      ],
+      "InputImageDynamicToolCallOutputContentItemType": [
+        "inputImage"
+      ],
+      "InputImageFunctionCallOutputContentItemType": [
+        "input_image"
+      ],
+      "InputModality": [
+        "audio",
+        "image",
+        "text"
+      ],
+      "InputTextAgentMessageInputContentType": [
+        "input_text"
+      ],
+      "InputTextContentItemType": [
+        "input_text"
+      ],
+      "InputTextDynamicToolCallOutputContentItemType": [
+        "inputText"
+      ],
+      "InputTextFunctionCallOutputContentItemType": [
+        "input_text"
+      ],
+      "InvalidRequestUserVerificationErrorDetailsType": [
+        "invalidRequest"
+      ],
+      "Item/agentMessage/deltaNotificationMethod": [
+        "item/agentMessage/delta"
+      ],
+      "Item/autoApprovalReview/completedNotificationMethod": [
+        "item/autoApprovalReview/completed"
+      ],
+      "Item/autoApprovalReview/startedNotificationMethod": [
+        "item/autoApprovalReview/started"
+      ],
+      "Item/commandExecution/outputDeltaNotificationMethod": [
+        "item/commandExecution/outputDelta"
+      ],
+      "Item/commandExecution/requestApprovalRequestMethod": [
+        "item/commandExecution/requestApproval"
+      ],
+      "Item/commandExecution/terminalInteractionNotificationMethod": [
+        "item/commandExecution/terminalInteraction"
+      ],
+      "Item/completedNotificationMethod": [
+        "item/completed"
+      ],
+      "Item/fileChange/outputDeltaNotificationMethod": [
+        "item/fileChange/outputDelta"
+      ],
+      "Item/fileChange/patchUpdatedNotificationMethod": [
+        "item/fileChange/patchUpdated"
+      ],
+      "Item/fileChange/requestApprovalRequestMethod": [
+        "item/fileChange/requestApproval"
+      ],
+      "Item/mcpToolCall/progressNotificationMethod": [
+        "item/mcpToolCall/progress"
+      ],
+      "Item/permissions/requestApprovalRequestMethod": [
+        "item/permissions/requestApproval"
+      ],
+      "Item/plan/deltaNotificationMethod": [
+        "item/plan/delta"
+      ],
+      "Item/reasoning/summaryPartAddedNotificationMethod": [
+        "item/reasoning/summaryPartAdded"
+      ],
+      "Item/reasoning/summaryTextDeltaNotificationMethod": [
+        "item/reasoning/summaryTextDelta"
+      ],
+      "Item/reasoning/textDeltaNotificationMethod": [
+        "item/reasoning/textDelta"
+      ],
+      "Item/startedNotificationMethod": [
+        "item/started"
+      ],
+      "Item/tool/callRequestMethod": [
+        "item/tool/call"
+      ],
+      "Item/tool/requestUserInputRequestMethod": [
+        "item/tool/requestUserInput"
+      ],
+      "ItemThreadItemsListAnchorType": [
+        "item"
+      ],
+      "ItemThreadTimelineEntryType": [
+        "item"
+      ],
+      "LegacyManagedConfigTomlFromFileConfigLayerSourceType": [
+        "legacyManagedConfigTomlFromFile"
+      ],
+      "LegacyManagedConfigTomlFromMdmConfigLayerSourceType": [
+        "legacyManagedConfigTomlFromMdm"
+      ],
+      "ListFilesCommandActionType": [
+        "listFiles"
+      ],
+      "ListFilesParsedCommandType": [
+        "list_files"
+      ],
+      "LocalAudioUserInputType": [
+        "localAudio"
+      ],
+      "LocalImageUserInputType": [
+        "localImage"
+      ],
+      "LocalPluginSourceType": [
+        "local"
+      ],
+      "LocalShellCallResponseItemType": [
+        "local_shell_call"
+      ],
+      "LocalShellStatus": [
+        "completed",
+        "in_progress",
+        "incomplete"
+      ],
+      "LoginAppBrand": [
+        "chatgpt",
+        "codex"
+      ],
+      "Marketplace/addRequestMethod": [
+        "marketplace/add"
+      ],
+      "Marketplace/removeRequestMethod": [
+        "marketplace/remove"
+      ],
+      "Marketplace/upgradeRequestMethod": [
+        "marketplace/upgrade"
+      ],
+      "McpAppDisplayMode": [
+        "fullscreen",
+        "inline"
+      ],
+      "McpAuthStatus": [
+        "bearerToken",
+        "notLoggedIn",
+        "oAuth",
+        "unknown",
+        "unsupported"
+      ],
+      "McpElicitationArrayType": [
+        "array"
+      ],
+      "McpElicitationBooleanType": [
+        "boolean"
+      ],
+      "McpElicitationNumberType": [
+        "integer",
+        "number"
+      ],
+      "McpElicitationObjectType": [
+        "object"
+      ],
+      "McpElicitationStringFormat": [
+        "date",
+        "date-time",
+        "email",
+        "uri"
+      ],
+      "McpElicitationStringType": [
+        "string"
+      ],
+      "McpServer/elicitation/requestRequestMethod": [
+        "mcpServer/elicitation/request"
+      ],
+      "McpServer/event/stream/notificationNotificationMethod": [
+        "mcpServer/event/stream/notification"
+      ],
+      "McpServer/event/stream/startRequestMethod": [
+        "mcpServer/event/stream/start"
+      ],
+      "McpServer/event/stream/stopRequestMethod": [
+        "mcpServer/event/stream/stop"
+      ],
+      "McpServer/oauth/loginRequestMethod": [
+        "mcpServer/oauth/login"
+      ],
+      "McpServer/oauthLogin/completedNotificationMethod": [
+        "mcpServer/oauthLogin/completed"
+      ],
+      "McpServer/resource/readRequestMethod": [
+        "mcpServer/resource/read"
+      ],
+      "McpServer/startupStatus/updatedNotificationMethod": [
+        "mcpServer/startupStatus/updated"
+      ],
+      "McpServer/tool/callRequestMethod": [
+        "mcpServer/tool/call"
+      ],
+      "McpServerConnectionStatus": [
+        "authenticationRequired",
+        "cancelled",
+        "connected",
+        "disabled",
+        "failed",
+        "notStarted",
+        "starting"
+      ],
+      "McpServerOauthClientRegistration": [
+        "auto",
+        "cimd",
+        "dcr"
+      ],
+      "McpServerStartupFailureReason": [
+        "reauthenticationRequired"
+      ],
+      "McpServerStartupState": [
+        "cancelled",
+        "failed",
+        "ready",
+        "starting"
+      ],
+      "McpServerStatus/listRequestMethod": [
+        "mcpServerStatus/list"
+      ],
+      "McpServerStatusDetail": [
+        "full",
+        "toolsAndAuthOnly"
+      ],
+      "McpToolCallGuardianApprovalReviewActionType": [
+        "mcpToolCall"
+      ],
+      "McpToolCallStatus": [
+        "completed",
+        "failed",
+        "inProgress"
+      ],
+      "McpToolCallThreadItemType": [
+        "mcpToolCall"
+      ],
+      "McpToolConfiguredHookHandlerType": [
+        "mcp_tool"
+      ],
+      "MdmConfigLayerSourceType": [
+        "mdm"
+      ],
+      "Memory/resetRequestMethod": [
+        "memory/reset"
+      ],
+      "Memory/statusRequestMethod": [
+        "memory/status"
+      ],
+      "MentionUserInputType": [
+        "mention"
+      ],
+      "MergeStrategy": [
+        "replace",
+        "upsert"
+      ],
+      "MessagePhase": [
+        "commentary",
+        "final_answer",
+        "partial_answer"
+      ],
+      "MessageResponseItemType": [
+        "message"
+      ],
+      "Mock/experimentalMethodRequestMethod": [
+        "mock/experimentalMethod"
+      ],
+      "ModeKind": [
+        "default",
+        "plan"
+      ],
+      "Model/listRequestMethod": [
+        "model/list"
+      ],
+      "Model/reroutedNotificationMethod": [
+        "model/rerouted"
+      ],
+      "Model/safetyBuffering/updatedNotificationMethod": [
+        "model/safetyBuffering/updated"
+      ],
+      "Model/verificationNotificationMethod": [
+        "model/verification"
+      ],
+      "ModelProvider/authRecoveryCompletedNotificationMethod": [
+        "modelProvider/authRecoveryCompleted"
+      ],
+      "ModelProvider/authRecoveryStartedNotificationMethod": [
+        "modelProvider/authRecoveryStarted"
+      ],
+      "ModelProvider/capabilities/readRequestMethod": [
+        "modelProvider/capabilities/read"
+      ],
+      "ModelProviderMismatchv2::ModelProviderErrorType": [
+        "modelProviderMismatch"
+      ],
+      "ModelProviderNotConfiguredv2::ModelProviderErrorType": [
+        "modelProviderNotConfigured"
+      ],
+      "ModelProviderPolicyConflictv2::ModelProviderErrorType": [
+        "modelProviderPolicyConflict"
+      ],
+      "ModelRerouteReason": [
+        "highRiskCyberActivity"
+      ],
+      "ModelVerification": [
+        "trustedAccessForCyber"
+      ],
+      "MultiAgentVersion": [
+        "disabled",
+        "v1",
+        "v2"
+      ],
+      "NamespaceDynamicToolSpecType": [
+        "namespace"
+      ],
+      "NetworkAccess": [
+        "enabled",
+        "restricted"
+      ],
+      "NetworkAccessGuardianApprovalReviewActionType": [
+        "networkAccess"
+      ],
+      "NetworkApprovalProtocol": [
+        "http",
+        "https",
+        "socks5Tcp",
+        "socks5Udp"
+      ],
+      "NetworkDomainPermission": [
+        "allow",
+        "deny"
+      ],
+      "NetworkPolicyRuleAction": [
+        "allow",
+        "deny"
+      ],
+      "NetworkUnixSocketPermission": [
+        "allow",
+        "deny"
+      ],
+      "NonSteerableTurnKind": [
+        "compact",
+        "review"
+      ],
+      "NotLoadedThreadStatusType": [
+        "notLoaded"
+      ],
+      "NpmPluginSourceType": [
+        "npm"
+      ],
+      "OpenPageResponsesApiWebSearchActionType": [
+        "open_page"
+      ],
+      "OpenPageWebSearchActionType": [
+        "openPage"
+      ],
+      "OtelHttpProtocol": [
+        "binary",
+        "json"
+      ],
+      "OtherResponseItemType": [
+        "other"
+      ],
+      "OtherResponsesApiWebSearchActionType": [
+        "other"
+      ],
+      "OtherWebSearchActionType": [
+        "other"
+      ],
+      "OutputTextContentItemType": [
+        "output_text"
+      ],
+      "PackagedDefaultsConfigLayerSourceType": [
+        "packagedDefaults"
+      ],
+      "PatchApplyStatus": [
+        "completed",
+        "declined",
+        "failed",
+        "inProgress"
+      ],
+      "PathFileSystemPathType": [
+        "path"
+      ],
+      "PermissionProfile/listRequestMethod": [
+        "permissionProfile/list"
+      ],
+      "Personality": [
+        "friendly",
+        "none",
+        "pragmatic"
+      ],
+      "PlanThreadItemType": [
+        "plan"
+      ],
+      "PlanType": [
+        "business",
+        "edu",
+        "edu_plus",
+        "edu_pro",
+        "ent26",
+        "enterprise",
+        "enterprise_cbp_automation",
+        "enterprise_cbp_usage_based",
+        "free",
+        "go",
+        "plus",
+        "pro",
+        "prolite",
+        "promax",
+        "sci",
+        "sci_plus",
+        "self_serve_business_prolite",
+        "self_serve_business_usage_based",
+        "team",
+        "unknown"
+      ],
+      "Plugin/installRequestMethod": [
+        "plugin/install"
+      ],
+      "Plugin/installedRequestMethod": [
+        "plugin/installed"
+      ],
+      "Plugin/listRequestMethod": [
+        "plugin/list"
+      ],
+      "Plugin/readRequestMethod": [
+        "plugin/read"
+      ],
+      "Plugin/reconcileRequestMethod": [
+        "plugin/reconcile"
+      ],
+      "Plugin/searchRequestMethod": [
+        "plugin/search"
+      ],
+      "Plugin/share/checkoutRequestMethod": [
+        "plugin/share/checkout"
+      ],
+      "Plugin/share/deleteRequestMethod": [
+        "plugin/share/delete"
+      ],
+      "Plugin/share/listRequestMethod": [
+        "plugin/share/list"
+      ],
+      "Plugin/share/saveRequestMethod": [
+        "plugin/share/save"
+      ],
+      "Plugin/share/updateTargetsRequestMethod": [
+        "plugin/share/updateTargets"
+      ],
+      "Plugin/skill/readRequestMethod": [
+        "plugin/skill/read"
+      ],
+      "Plugin/uninstallRequestMethod": [
+        "plugin/uninstall"
+      ],
+      "PluginAuthPolicy": [
+        "ON_INSTALL",
+        "ON_USE"
+      ],
+      "PluginAvailability": [
+        "AVAILABLE",
+        "DISABLED_BY_ADMIN"
+      ],
+      "PluginDisabledReason": [
+        "disabled_by_admin",
+        "plan_not_eligible",
+        "required_app_unavailable",
+        "unknown"
+      ],
+      "PluginInstallPolicy": [
+        "AVAILABLE",
+        "INSTALLED_BY_DEFAULT",
+        "NOT_AVAILABLE"
+      ],
+      "PluginInstallPolicySource": [
+        "IMPLICIT_CANONICAL_APP",
+        "WORKSPACE_SETTING"
+      ],
+      "PluginListMarketplaceKind": [
+        "created-by-me-remote",
+        "local",
+        "shared-with-me",
+        "vertical",
+        "workspace-directory"
+      ],
+      "PluginSearchScope": [
+        "global",
+        "personal",
+        "workspace"
+      ],
+      "PluginShareDiscoverability": [
+        "LISTED",
+        "PRIVATE",
+        "UNLISTED"
+      ],
+      "PluginSharePrincipalRole": [
+        "editor",
+        "owner",
+        "reader"
+      ],
+      "PluginSharePrincipalType": [
+        "group",
+        "user",
+        "workspace"
+      ],
+      "PluginShareTargetRole": [
+        "editor",
+        "reader"
+      ],
+      "PluginShareUpdateDiscoverability": [
+        "LISTED",
+        "PRIVATE",
+        "UNLISTED"
+      ],
+      "Process/exitedNotificationMethod": [
+        "process/exited"
+      ],
+      "Process/killRequestMethod": [
+        "process/kill"
+      ],
+      "Process/outputDeltaNotificationMethod": [
+        "process/outputDelta"
+      ],
+      "Process/resizePtyRequestMethod": [
+        "process/resizePty"
+      ],
+      "Process/spawnRequestMethod": [
+        "process/spawn"
+      ],
+      "Process/writeStdinRequestMethod": [
+        "process/writeStdin"
+      ],
+      "ProcessOutputStream": [
+        "stderr",
+        "stdout"
+      ],
+      "Profilev2::BedrockSetupParamsType": [
+        "profile"
+      ],
+      "Project/changedNotificationMethod": [
+        "project/changed"
+      ],
+      "Project/createRequestMethod": [
+        "project/create"
+      ],
+      "Project/deleteRequestMethod": [
+        "project/delete"
+      ],
+      "Project/importRequestMethod": [
+        "project/import"
+      ],
+      "Project/listRequestMethod": [
+        "project/list"
+      ],
+      "Project/moveRequestMethod": [
+        "project/move"
+      ],
+      "Project/readRequestMethod": [
+        "project/read"
+      ],
+      "Project/updateRequestMethod": [
+        "project/update"
+      ],
+      "ProjectChangeType": [
+        "created",
+        "deleted",
+        "updated"
+      ],
+      "ProjectConfigLayerSourceType": [
+        "project"
+      ],
+      "ProjectSortKey": [
+        "position",
+        "recencyAt"
+      ],
+      "PromptConfiguredHookHandlerType": [
+        "prompt"
+      ],
+      "RateLimitReachedType": [
+        "rate_limit_reached",
+        "workspace_member_credits_depleted",
+        "workspace_member_usage_limit_reached",
+        "workspace_owner_credits_depleted",
+        "workspace_owner_usage_limit_reached"
+      ],
+      "RateLimitResetCreditStatus": [
+        "available",
+        "redeemed",
+        "redeeming",
+        "unknown"
+      ],
+      "RateLimitResetType": [
+        "codexRateLimits",
+        "unknown"
+      ],
+      "ReadCommandActionType": [
+        "read"
+      ],
+      "ReadOnlySandboxPolicyType": [
+        "readOnly"
+      ],
+      "ReadParsedCommandType": [
+        "read"
+      ],
+      "ReadThreadReadStateOperationType": [
+        "read"
+      ],
+      "RealtimeConversationVersion": [
+        "v1",
+        "v2",
+        "v3"
+      ],
+      "RealtimeOutputModality": [
+        "audio",
+        "text"
+      ],
+      "RealtimeSessionClosedThreadRealtimeItemType": [
+        "realtimeSessionClosed"
+      ],
+      "RealtimeSessionStartedThreadRealtimeItemType": [
+        "realtimeSessionStarted"
+      ],
+      "RealtimeThreadTimelineEntryType": [
+        "realtime"
+      ],
+      "RealtimeVoice": [
+        "alloy",
+        "arbor",
+        "ash",
+        "aube",
+        "ballad",
+        "breeze",
+        "bubbie",
+        "cedar",
+        "coral",
+        "cove",
+        "echo",
+        "ember",
+        "haetsal",
+        "hanul",
+        "himari",
+        "juniper",
+        "leher",
+        "maple",
+        "marin",
+        "miko",
+        "neer",
+        "porto",
+        "rindo",
+        "rio",
+        "rivage",
+        "sage",
+        "selva",
+        "shimmer",
+        "sol",
+        "sonna",
+        "spruce",
+        "tinta",
+        "vale",
+        "verse",
+        "viola"
+      ],
+      "ReasoningResponseItemType": [
+        "reasoning"
+      ],
+      "ReasoningSummary": [
+        "auto",
+        "concise",
+        "detailed",
+        "none"
+      ],
+      "ReasoningTextReasoningItemContentType": [
+        "reasoning_text"
+      ],
+      "ReasoningThreadItemType": [
+        "reasoning"
+      ],
+      "RemoteControl/client/listRequestMethod": [
+        "remoteControl/client/list"
+      ],
+      "RemoteControl/client/revokeRequestMethod": [
+        "remoteControl/client/revoke"
+      ],
+      "RemoteControl/disableRequestMethod": [
+        "remoteControl/disable"
+      ],
+      "RemoteControl/enableRequestMethod": [
+        "remoteControl/enable"
+      ],
+      "RemoteControl/pairing/startRequestMethod": [
+        "remoteControl/pairing/start"
+      ],
+      "RemoteControl/pairing/statusRequestMethod": [
+        "remoteControl/pairing/status"
+      ],
+      "RemoteControl/status/changedNotificationMethod": [
+        "remoteControl/status/changed"
+      ],
+      "RemoteControl/status/readRequestMethod": [
+        "remoteControl/status/read"
+      ],
+      "RemoteControlClientsListOrder": [
+        "asc",
+        "desc"
+      ],
+      "RemoteControlConnectionStatus": [
+        "connected",
+        "connecting",
+        "disabled",
+        "errored"
+      ],
+      "RemotePluginSourceType": [
+        "remote"
+      ],
+      "RequestPermissionsGuardianApprovalReviewActionType": [
+        "requestPermissions"
+      ],
+      "ResidencyRequirement": [
+        "us"
+      ],
+      "Review/startRequestMethod": [
+        "review/start"
+      ],
+      "ReviewDelivery": [
+        "inline"
+      ],
+      "Rollout/compressRequestMethod": [
+        "rollout/compress"
+      ],
+      "SandboxMode": [
+        "danger-full-access",
+        "read-only",
+        "workspace-write"
+      ],
+      "ScheduledTaskWeekday": [
+        "FR",
+        "MO",
+        "SA",
+        "SU",
+        "TH",
+        "TU",
+        "WE"
+      ],
+      "SearchCommandActionType": [
+        "search"
+      ],
+      "SearchParsedCommandType": [
+        "search"
+      ],
+      "SearchResponsesApiWebSearchActionType": [
+        "search"
+      ],
+      "SearchWebSearchActionType": [
+        "search"
+      ],
+      "Server/diagnosticsRequestMethod": [
+        "server/diagnostics"
+      ],
+      "ServerRequest/resolvedNotificationMethod": [
+        "serverRequest/resolved"
+      ],
+      "SessionFlagsConfigLayerSourceType": [
+        "sessionFlags"
+      ],
+      "SkillScope": [
+        "admin",
+        "repo",
+        "system",
+        "user"
+      ],
+      "SkillUserInputType": [
+        "skill"
+      ],
+      "Skills/changedNotificationMethod": [
+        "skills/changed"
+      ],
+      "Skills/config/writeRequestMethod": [
+        "skills/config/write"
+      ],
+      "Skills/extraRoots/setRequestMethod": [
+        "skills/extraRoots/set"
+      ],
+      "Skills/listRequestMethod": [
+        "skills/list"
+      ],
+      "SleepThreadItemType": [
+        "sleep"
+      ],
+      "SortDirection": [
+        "asc",
+        "desc"
+      ],
+      "SpecialFileSystemPathType": [
+        "special"
+      ],
+      "SubAgentActivityKind": [
+        "completed",
+        "interacted",
+        "interrupted",
+        "started"
+      ],
+      "SubAgentActivityThreadItemType": [
+        "subAgentActivity"
+      ],
+      "SummaryTextReasoningItemReasoningSummaryType": [
+        "summary_text"
+      ],
+      "SystemConfigLayerSourceType": [
+        "system"
+      ],
+      "SystemErrorThreadStatusType": [
+        "systemError"
+      ],
+      "TextReasoningItemContentType": [
+        "text"
+      ],
+      "TextUserInputType": [
+        "text"
+      ],
+      "Thread/approveGuardianDeniedActionRequestMethod": [
+        "thread/approveGuardianDeniedAction"
+      ],
+      "Thread/archiveRequestMethod": [
+        "thread/archive"
+      ],
+      "Thread/archivedNotificationMethod": [
+        "thread/archived"
+      ],
+      "Thread/attachment/addRequestMethod": [
+        "thread/attachment/add"
+      ],
+      "Thread/attachment/listRequestMethod": [
+        "thread/attachment/list"
+      ],
+      "Thread/attachment/removeRequestMethod": [
+        "thread/attachment/remove"
+      ],
+      "Thread/attachment/updatedNotificationMethod": [
+        "thread/attachment/updated"
+      ],
+      "Thread/attachmentOwner/listRequestMethod": [
+        "thread/attachmentOwner/list"
+      ],
+      "Thread/backgroundTerminals/cleanRequestMethod": [
+        "thread/backgroundTerminals/clean"
+      ],
+      "Thread/backgroundTerminals/listRequestMethod": [
+        "thread/backgroundTerminals/list"
+      ],
+      "Thread/backgroundTerminals/terminateRequestMethod": [
+        "thread/backgroundTerminals/terminate"
+      ],
+      "Thread/closedNotificationMethod": [
+        "thread/closed"
+      ],
+      "Thread/compact/startRequestMethod": [
+        "thread/compact/start"
+      ],
+      "Thread/compactedNotificationMethod": [
+        "thread/compacted"
+      ],
+      "Thread/decrementElicitationRequestMethod": [
+        "thread/decrement_elicitation"
+      ],
+      "Thread/deleteRequestMethod": [
+        "thread/delete"
+      ],
+      "Thread/deletedNotificationMethod": [
+        "thread/deleted"
+      ],
+      "Thread/environment/connectedNotificationMethod": [
+        "thread/environment/connected"
+      ],
+      "Thread/environment/disconnectedNotificationMethod": [
+        "thread/environment/disconnected"
+      ],
+      "Thread/forkRequestMethod": [
+        "thread/fork"
+      ],
+      "Thread/goal/clearRequestMethod": [
+        "thread/goal/clear"
+      ],
+      "Thread/goal/clearedNotificationMethod": [
+        "thread/goal/cleared"
+      ],
+      "Thread/goal/getRequestMethod": [
+        "thread/goal/get"
+      ],
+      "Thread/goal/setRequestMethod": [
+        "thread/goal/set"
+      ],
+      "Thread/goal/updatedNotificationMethod": [
+        "thread/goal/updated"
+      ],
+      "Thread/incrementElicitationRequestMethod": [
+        "thread/increment_elicitation"
+      ],
+      "Thread/injectItemsRequestMethod": [
+        "thread/inject_items"
+      ],
+      "Thread/items/listRequestMethod": [
+        "thread/items/list"
+      ],
+      "Thread/items/readRequestMethod": [
+        "thread/items/read"
+      ],
+      "Thread/listRequestMethod": [
+        "thread/list"
+      ],
+      "Thread/loaded/listRequestMethod": [
+        "thread/loaded/list"
+      ],
+      "Thread/memory/readRequestMethod": [
+        "thread/memory/read"
+      ],
+      "Thread/memoryMode/setRequestMethod": [
+        "thread/memoryMode/set"
+      ],
+      "Thread/metadata/updateRequestMethod": [
+        "thread/metadata/update"
+      ],
+      "Thread/name/setRequestMethod": [
+        "thread/name/set"
+      ],
+      "Thread/name/updatedNotificationMethod": [
+        "thread/name/updated"
+      ],
+      "Thread/prediction/requestRequestMethod": [
+        "thread/prediction/request"
+      ],
+      "Thread/prediction/updatedNotificationMethod": [
+        "thread/prediction/updated"
+      ],
+      "Thread/project/updatedNotificationMethod": [
+        "thread/project/updated"
+      ],
+      "Thread/queue/addRequestMethod": [
+        "thread/queue/add"
+      ],
+      "Thread/queue/changedNotificationMethod": [
+        "thread/queue/changed"
+      ],
+      "Thread/queue/deleteRequestMethod": [
+        "thread/queue/delete"
+      ],
+      "Thread/queue/listRequestMethod": [
+        "thread/queue/list"
+      ],
+      "Thread/queue/reorderRequestMethod": [
+        "thread/queue/reorder"
+      ],
+      "Thread/queue/startRequestMethod": [
+        "thread/queue/start"
+      ],
+      "Thread/queue/updateRequestMethod": [
+        "thread/queue/update"
+      ],
+      "Thread/readRequestMethod": [
+        "thread/read"
+      ],
+      "Thread/readState/changedNotificationMethod": [
+        "thread/readState/changed"
+      ],
+      "Thread/readState/updateRequestMethod": [
+        "thread/readState/update"
+      ],
+      "Thread/realtime/appendAudioRequestMethod": [
+        "thread/realtime/appendAudio"
+      ],
+      "Thread/realtime/appendSpeechRequestMethod": [
+        "thread/realtime/appendSpeech"
+      ],
+      "Thread/realtime/appendTextRequestMethod": [
+        "thread/realtime/appendText"
+      ],
+      "Thread/realtime/closedNotificationMethod": [
+        "thread/realtime/closed"
+      ],
+      "Thread/realtime/errorNotificationMethod": [
+        "thread/realtime/error"
+      ],
+      "Thread/realtime/item/completedNotificationMethod": [
+        "thread/realtime/item/completed"
+      ],
+      "Thread/realtime/item/startedNotificationMethod": [
+        "thread/realtime/item/started"
+      ],
+      "Thread/realtime/item/transcript/deltaNotificationMethod": [
+        "thread/realtime/item/transcript/delta"
+      ],
+      "Thread/realtime/itemAddedNotificationMethod": [
+        "thread/realtime/itemAdded"
+      ],
+      "Thread/realtime/listVoicesRequestMethod": [
+        "thread/realtime/listVoices"
+      ],
+      "Thread/realtime/outputAudio/deltaNotificationMethod": [
+        "thread/realtime/outputAudio/delta"
+      ],
+      "Thread/realtime/sdpNotificationMethod": [
+        "thread/realtime/sdp"
+      ],
+      "Thread/realtime/startRequestMethod": [
+        "thread/realtime/start"
+      ],
+      "Thread/realtime/startedNotificationMethod": [
+        "thread/realtime/started"
+      ],
+      "Thread/realtime/stopRequestMethod": [
+        "thread/realtime/stop"
+      ],
+      "Thread/realtime/transcript/deltaNotificationMethod": [
+        "thread/realtime/transcript/delta"
+      ],
+      "Thread/realtime/transcript/doneNotificationMethod": [
+        "thread/realtime/transcript/done"
+      ],
+      "Thread/resumeRequestMethod": [
+        "thread/resume"
+      ],
+      "Thread/revertRequestMethod": [
+        "thread/revert"
+      ],
+      "Thread/revertedNotificationMethod": [
+        "thread/reverted"
+      ],
+      "Thread/sample/cancelRequestMethod": [
+        "thread/sample/cancel"
+      ],
+      "Thread/sampleRequestMethod": [
+        "thread/sample"
+      ],
+      "Thread/searchOccurrencesRequestMethod": [
+        "thread/searchOccurrences"
+      ],
+      "Thread/searchRequestMethod": [
+        "thread/search"
+      ],
+      "Thread/section/moveRequestMethod": [
+        "thread/section/move"
+      ],
+      "Thread/settings/updateRequestMethod": [
+        "thread/settings/update"
+      ],
+      "Thread/settings/updatedNotificationMethod": [
+        "thread/settings/updated"
+      ],
+      "Thread/shellCommandRequestMethod": [
+        "thread/shellCommand"
+      ],
+      "Thread/startRequestMethod": [
+        "thread/start"
+      ],
+      "Thread/startedNotificationMethod": [
+        "thread/started"
+      ],
+      "Thread/status/changedNotificationMethod": [
+        "thread/status/changed"
+      ],
+      "Thread/timeline/listRequestMethod": [
+        "thread/timeline/list"
+      ],
+      "Thread/tokenUsage/updatedNotificationMethod": [
+        "thread/tokenUsage/updated"
+      ],
+      "Thread/turns/listRequestMethod": [
+        "thread/turns/list"
+      ],
+      "Thread/unarchiveRequestMethod": [
+        "thread/unarchive"
+      ],
+      "Thread/unarchivedNotificationMethod": [
+        "thread/unarchived"
+      ],
+      "Thread/unsubscribeRequestMethod": [
+        "thread/unsubscribe"
+      ],
+      "ThreadActiveFlag": [
+        "waitingOnApproval",
+        "waitingOnUserInput"
+      ],
+      "ThreadAttachmentAddOutcome": [
+        "created",
+        "existing"
+      ],
+      "ThreadAttachmentOperation": [
+        "created",
+        "deleted"
+      ],
+      "ThreadGoalMutationOrigin": [
+        "automatic",
+        "user"
+      ],
+      "ThreadGoalStatus": [
+        "active",
+        "blocked",
+        "budgetLimited",
+        "complete",
+        "paused",
+        "usageLimited"
+      ],
+      "ThreadHistoryMode": [
+        "legacy",
+        "paginated"
+      ],
+      "ThreadMemoryMode": [
+        "disabled",
+        "enabled"
+      ],
+      "ThreadRealtimeSessionOutcome": [
+        "ended",
+        "failed"
+      ],
+      "ThreadRealtimeTranscriptRole": [
+        "assistant",
+        "user"
+      ],
+      "ThreadSearchSortKey": [
+        "created_at",
+        "recency_at",
+        "updated_at"
+      ],
+      "ThreadSection/createRequestMethod": [
+        "threadSection/create"
+      ],
+      "ThreadSection/deleteRequestMethod": [
+        "threadSection/delete"
+      ],
+      "ThreadSection/listRequestMethod": [
+        "threadSection/list"
+      ],
+      "ThreadSection/updateRequestMethod": [
+        "threadSection/update"
+      ],
+      "ThreadSortKey": [
+        "created_at",
+        "recency_at",
+        "section_position",
+        "updated_at"
+      ],
+      "ThreadSourceKind": [
+        "appServer",
+        "cli",
+        "exec",
+        "subAgent",
+        "subAgentCompact",
+        "subAgentOther",
+        "subAgentReview",
+        "subAgentThreadSpawn",
+        "unknown",
+        "vscode"
+      ],
+      "ThreadStartSource": [
+        "clear",
+        "startup"
+      ],
+      "ThreadStartThreadUnreadPositionType": [
+        "threadStart"
+      ],
+      "ThreadUnsubscribeStatus": [
+        "notLoaded",
+        "notSubscribed",
+        "unsubscribed"
+      ],
+      "ToolExposureSurface": [
+        "code_mode",
+        "deferred",
+        "direct"
+      ],
+      "ToolSearchCallResponseItemType": [
+        "tool_search_call"
+      ],
+      "ToolSearchOutputResponseItemType": [
+        "tool_search_output"
+      ],
+      "TranscriptSegmentThreadRealtimeItemType": [
+        "transcriptSegment"
+      ],
+      "Turn/completedNotificationMethod": [
+        "turn/completed"
+      ],
+      "Turn/diff/updatedNotificationMethod": [
+        "turn/diff/updated"
+      ],
+      "Turn/interruptRequestMethod": [
+        "turn/interrupt"
+      ],
+      "Turn/moderationMetadataNotificationMethod": [
+        "turn/moderationMetadata"
+      ],
+      "Turn/plan/updatedNotificationMethod": [
+        "turn/plan/updated"
+      ],
+      "Turn/settings/updateRequestMethod": [
+        "turn/settings/update"
+      ],
+      "Turn/startRequestMethod": [
+        "turn/start"
+      ],
+      "Turn/startedNotificationMethod": [
+        "turn/started"
+      ],
+      "Turn/steerRequestMethod": [
+        "turn/steer"
+      ],
+      "TurnCompletedThreadTimelineEntryType": [
+        "turnCompleted"
+      ],
+      "TurnItemsView": [
+        "full",
+        "notLoaded",
+        "summary"
+      ],
+      "TurnPlanStepStatus": [
+        "completed",
+        "inProgress",
+        "pending"
+      ],
+      "TurnSettingsUpdateStatus": [
+        "applied",
+        "targetUnavailable"
+      ],
+      "TurnStartedThreadTimelineEntryType": [
+        "turnStarted"
+      ],
+      "TurnStatus": [
+        "completed",
+        "failed",
+        "inProgress",
+        "interrupted"
+      ],
+      "TurnThreadUnreadPositionType": [
+        "turn"
+      ],
+      "UnavailableUserVerificationErrorDetailsType": [
+        "unavailable"
+      ],
+      "UncommittedChangesReviewTargetType": [
+        "uncommittedChanges"
+      ],
+      "UnknownCommandActionType": [
+        "unknown"
+      ],
+      "UnknownParsedCommandType": [
+        "unknown"
+      ],
+      "UnreadThreadReadStateOperationType": [
+        "unread"
+      ],
+      "UpdateFileChangeType": [
+        "update"
+      ],
+      "UpdatePatchChangeKindType": [
+        "update"
+      ],
+      "UsageLimitExceededImageGenerationFailureType": [
+        "usageLimitExceeded"
+      ],
+      "UserConfigLayerSourceType": [
+        "user"
+      ],
+      "UserMessageThreadItemType": [
+        "userMessage"
+      ],
+      "UserVerification/cancelRequestMethod": [
+        "userVerification/cancel"
+      ],
+      "UserVerification/deleteRequestMethod": [
+        "userVerification/delete"
+      ],
+      "UserVerification/enrollRequestMethod": [
+        "userVerification/enroll"
+      ],
+      "UserVerification/statusRequestMethod": [
+        "userVerification/status"
+      ],
+      "UserVerification/verifyRequestMethod": [
+        "userVerification/verify"
+      ],
+      "UserVerificationCancellationReason": [
+        "interrupted",
+        "userCancelled"
+      ],
+      "UserVerificationFailureReason": [
+        "authenticationFailed",
+        "providerError",
+        "serviceError",
+        "timeout"
+      ],
+      "UserVerificationInvalidRequestReason": [
+        "invalidParams"
+      ],
+      "UserVerificationUnavailableReason": [
+        "biometricsUnavailable",
+        "credentialMissing",
+        "providerUnavailable"
+      ],
+      "Verbosity": [
+        "high",
+        "low",
+        "medium"
+      ],
+      "WarningNotificationMethod": [
+        "warning"
+      ],
+      "WebSearchCallResponseItemType": [
+        "web_search_call"
+      ],
+      "WebSearchContextSize": [
+        "high",
+        "low",
+        "medium"
+      ],
+      "WebSearchMode": [
+        "cached",
+        "disabled",
+        "indexed",
+        "live"
+      ],
+      "WebSearchThreadItemType": [
+        "webSearch"
+      ],
+      "WebrtcThreadRealtimeStartTransportType": [
+        "webrtc"
+      ],
+      "WebsocketThreadRealtimeStartTransportType": [
+        "websocket"
+      ],
+      "WeekdaysScheduledTaskScheduleType": [
+        "weekdays"
+      ],
+      "WeeklyScheduledTaskScheduleType": [
+        "weekly"
+      ],
+      "WholeItemThreadRealtimeBemItemPresentationType": [
+        "wholeItem"
+      ],
+      "Windows/worldWritableWarningNotificationMethod": [
+        "windows/worldWritableWarning"
+      ],
+      "WindowsSandbox/readinessRequestMethod": [
+        "windowsSandbox/readiness"
+      ],
+      "WindowsSandbox/setupCompletedNotificationMethod": [
+        "windowsSandbox/setupCompleted"
+      ],
+      "WindowsSandbox/setupStartRequestMethod": [
+        "windowsSandbox/setupStart"
+      ],
+      "WindowsSandboxImplementation": [
+        "elevated",
+        "mxc",
+        "unelevated"
+      ],
+      "WindowsSandboxReadiness": [
+        "notConfigured",
+        "ready",
+        "updateRequired"
+      ],
+      "WindowsSandboxSetupMode": [
+        "elevated",
+        "unelevated"
+      ],
+      "WorkspaceMessageType": [
+        "announcement",
+        "headline",
+        "unknown"
+      ],
+      "WorkspaceWriteSandboxPolicyType": [
+        "workspaceWrite"
+      ],
+      "WriteStatus": [
+        "ok",
+        "okOverridden"
+      ],
+      "WriteStdinGuardianApprovalReviewActionType": [
+        "writeStdin"
+      ]
+    }
   },
   "installed_delta": null
 }

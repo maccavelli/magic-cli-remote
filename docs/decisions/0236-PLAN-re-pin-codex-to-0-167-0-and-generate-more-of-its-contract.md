@@ -100,9 +100,10 @@ When this plan is done:
    * Exact mode compares the maps.
    * Seen failing on a scratch manifest with `writeStdin` removed from
      `CommandExecutionApprovalKind`, which must be reported as breaking.
-3. **The notification split (D3.3).** Each `server_notifications` entry gains `stability`, taken
-   from the existing `#[experimental]` scan. The capture's printed totals must equal the counts in
-   the manifest.
+3. **The notification split (D3.3).** ~~Each `server_notifications` entry gains `stability`,~~ *The
+   manifest gains a top-level `experimental_notifications` list (P1 Deviation 2),* taken from the
+   existing `#[experimental]` scan. The capture's printed totals must equal the counts in the
+   manifest.
 4. **`schema_version` 2.** The validation at `contract.go:157`, and `contract_test.go:12`, accept
    only 2. Every other reader of the manifest moves in the same commit.
 5. **Decoded names (D3.4).** `decoded_names_test.go`:
@@ -122,8 +123,10 @@ When this plan is done:
    the schema defines it (`review` a string). Today's code passes it, so this test pins the
    behaviour that stays. The object branch, `review.go:268-272`, is removed, and the decoded-name
    check then passes without listing `body`.
-7. **Regenerate 0.166.0.** `pwsh ./scripts/codex-contract.ps1 -Version 0.166.0 -SourceCommit
-   6ff1e1ca3b30fc8b914720681fcf5fe62e95f856 -SourceTree <scratch at rust-v0.166.0>`. The diff to
+7. **Regenerate 0.166.0.** *With codex 0.166.0 installed into a scratch npm prefix and first on
+   `PATH` for this command only (P1 Deviation 1):* `pwsh ./scripts/codex-contract.ps1 -Version
+   0.166.0 -SourceCommit 6ff1e1ca3b30fc8b914720681fcf5fe62e95f856 -SourceTree <scratch at
+   rust-v0.166.0>`. The diff to
    `testdata/0.166.0/` may add only the new fields. Any change to an existing method,
    classification or fixture is a stop.
 8. **Checks:**
@@ -218,3 +221,107 @@ When this plan is done:
   0.166.0 pin without stopping a 0.167.0 binary from running.
 * P3 changes daemon text only (Q2 A). Reverting it restores the server-name-only sheet.
 * Nothing here changes the phone protocol (Q1 A, Q3 A).
+
+## Execution record
+
+### P1 Deviation 1, 2026-11-07 — step 7 cannot capture 0.166.0 with 0.167.0 installed. The owner decided: "Scratch 0.166.0"
+
+- **Found** before any code was written. The generator refuses unless the codex on `PATH` reports
+  the version being captured (`contract_inputs_test.go:89-93`), and the installed codex is 0.167.0.
+- **Resolution:** codex 0.166.0 is installed with `npm install --prefix <scratch>`, with npm's
+  cache also in the scratch directory so nothing is written under `$HOME`. That prefix's `.bin` goes
+  first on `PATH` for the capture command only. The installed 0.167.0 is not touched. Step 7's
+  criterion is unchanged.
+- **Not taken:** folding the proof into P2 by capturing 0.167.0 twice.
+- **The MADR is unchanged.**
+
+### P1 Deviation 2, 2026-11-07 — a per-entry notification `stability` would break exact mode. The owner decided: "Top-level list"
+
+- **Found** while designing step 3. Exact mode compares the pinned surfaces with the binary's
+  export by `reflect.DeepEqual` (`live_contract_test.go`). The live test has no source tree, so it
+  cannot know a notification's stability, and a per-entry field would make exact mode fail on every
+  run.
+- **Resolution:** the manifest gains a top-level `experimental_notifications` list, outside the
+  compared surfaces. D3.3 holds as written: the manifest keeps each notification's stability.
+- **Not taken:** holding D3.3 out of P1.
+- **The MADR is unchanged.**
+
+### P1 — 2026-11-07: the generator, at the 0.166.0 pin
+
+Installed `codex-cli 0.167.0`, unchanged throughout. Scratch 0.166.0 from `npm install --prefix`
+(Deviation 1). Its `bin/codex.js` hashes to the pinned `e14fc837…`, and so does 0.167.0's launcher.
+On macOS, then, the digest cannot tell releases apart: version equality is the only evidence.
+
+1. **Response types (D3.1).** `sourceResponseTypes` and `macroEntries` (`contract_inputs_test.go`)
+   read `response:` from `client_request_definitions!` and `server_request_definitions!`.
+   * The legacy server requests take their lower-camel-cased variant name.
+   * `checkSourceResponseTypes` fails the capture on a bundle request with no declaration, or with
+     a type the export does not define.
+   * The override map and the name-guessing are deleted (`responseSchema`).
+   * The live gate takes the pin's response types from its fixtures (`fixtureResponseTypes`).
+2. **Enums (D3.2).** `ContractSurface.Enums` is filled by `readSchemaVocabulary`. It covers named
+   definitions, `oneOf`/`anyOf` unions of string enums, and titled enums nested anywhere.
+   `compareEnums` is wired into `CompareSurfaces`. The titled enums include each method's own
+   discriminator (such as `Thread/guardianReviewRequestMethod`), so a new method also reports an
+   "added enum" line. That duplicates the method inventory, but it follows D3.2's "every string
+   enum" as written.
+3. **The split (D3.3).** `ContractManifest.ExperimentalNotifications` (Deviation 2). `Validate`
+   requires it sorted and declared.
+4. **`schema_version` 2.** `manifestSchemaVersion = 2` in `contract.go`, used by `Validate`, the
+   generator and the source-watch manifest. `contract_test.go` asserts 2 and 24 experimental
+   notifications.
+5. **Decoded names (D3.4).** `decoded_names_test.go`, with 19 `notAppServerTypes` entries, each
+   with its reason:
+   * `contract.go`;
+   * `authDotJSON`;
+   * the capability and runtime snapshots;
+   * the doctor and daemon JSON;
+   * the two `settings.go` projections.
+
+   One `knownOutsideSchema` entry: `capability`, tied to 0109 D39. The first run without
+   exclusions flagged the 75 names MADR F14 counted.
+6. **The review fallback (F14).** `TestReviewFallbackTextReadsTheSchemaString` was added, and the
+   object branch in `review.go` removed. After that, the decoded-name check flags nothing.
+7. **Regenerate 0.166.0.** `PATH=<scratch 0.166.0>:$PATH pwsh ./scripts/codex-contract.ps1
+   -Version 0.166.0 -SourceCommit 6ff1e1ca… -SourceTree <scratch clone at rust-v0.166.0>`: exit
+   0, "notifications: 85 declared; 61 stable, 24 experimental-only".
+   * **V1:** `scratch compare_manifests.py`, old against new: "manifest.json: identical apart from
+     the new fields", "fixtures.json: identical apart from the new fields",
+     "source-watch-manifest.json: identical apart from the new fields". `fixtures.json` is
+     byte-identical at 78,490 bytes, so the source-derived response types reproduce exactly what
+     the guess plus the 19 overrides gave.
+   * New content: 521 stable and 611 experimental enums, 24 experimental notifications, 1,055
+     property names.
+   * Size: `manifest.json` grows from 116,258 to 239,987 bytes, and `source-watch-manifest.json`
+     from 84,358 to 184,190. Both are embedded, so the daemon grows by about 224 KB.
+   * The README names this regeneration and the new fields.
+8. **Seen failing** (`scratch p1_plants.py`; each plant on its own rsync copy of the tree; 7 of 7
+   failed as intended):
+   * a planted `json:"planted-name-3f9a"` in `reviewFallbackText`: "JSON name with no source in
+     the 0.166.0 schema: review.go:264 review.go:reviewFallbackText json:\"planted-name-3f9a\"";
+   * the pre-change object branch restored:
+     * the review test fails with `got "guessed", want nothing`;
+     * the decoded-name check names `review.go:275 … json:"body"`;
+   * `compareEnums` unwired: all four `TestCompareSurfacesClassifiesEnumDrift` subtests fail;
+   * `writeStdin` removed from the pinned manifest: "stable CommandExecutionApprovalKind =
+     [\"command\"], want [command writeStdin] at 0.166.0";
+   * comment stripping removed from the source parser: "entry \"/// Starts a thread; returns\"
+     declares no response: type";
+   * `thread/unsubscribe` deleted from a copy of `common.rs`: "client_request thread/unsubscribe
+     is in the export but has no declaration in common.rs". Nothing was written;
+   * the live gate against 0.167.0, with a pinned value codex never had: "BREAKING drift:
+     removed stable enum value CommandExecutionApprovalKind.notAKind9f2", exit 1.
+9. **Checks:**
+   * `go test -race ./internal/provider/codex/`: ok.
+   * `make vet-tags`: ok. `go build ./...`: ok.
+   * `make pre-add-check` on the nine changed Go files: "9 file(s) clean (gofmt, golint,
+     govulncheck)".
+   * `make live-codex-contract` on 0.167.0: exit 0, and **9 additive differences** where 3 were
+     reported before P1, among them `CommandExecutionApprovalKind.humanCommand` on both surfaces
+     and the experimental `GuardianAssessmentOutcome` (V4).
+   * `CODEX_CONTRACT_EXACT=1 make live-codex-contract`:
+     * on 0.167.0: exit 2, "exact mode: installed stable surface differs from the 0.166.0
+       manifest" and a binary identity mismatch, expected and recorded;
+     * on the scratch 0.166.0: exit 0, so exact mode passes against the regenerated manifest.
+
+**Not done in P1:** the guide's text (P4), and the re-pin (P2).

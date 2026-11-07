@@ -9,8 +9,8 @@ import (
 
 func TestContractManifestExactVersion(t *testing.T) {
 	m := mustLoadContractManifest(t)
-	if m.SchemaVersion != 1 {
-		t.Fatalf("schema version = %d, want 1", m.SchemaVersion)
+	if m.SchemaVersion != 2 {
+		t.Fatalf("schema version = %d, want 2", m.SchemaVersion)
 	}
 	if m.CodexVersion != "0.166.0" {
 		t.Fatalf("codex version = %q, want 0.166.0", m.CodexVersion)
@@ -28,12 +28,27 @@ func TestContractManifestExactVersion(t *testing.T) {
 	// never prunes experimental notifications, so the bundles are identical there
 	// even though the runtime suppresses 24 of them (0.155.1: 82 and 22). The capture mirrors the
 	// exporter rather than correcting it, because a manifest that disagrees with
-	// its source breaks the drift gate's exact mode; recording the real split needs
-	// schema_version 2 (0163 D4/F4, deferred).
+	// its source breaks the drift gate's exact mode. The real split is kept beside
+	// the surfaces instead (0163 D4/F4; MADR 0236 D3.3, PLAN P1 Deviation 2).
 	assertSurfaceCounts(t, "stable", m.Stable, 106, 85, 10)
 	assertSurfaceCounts(t, "experimental", m.Experimental, 179, 85, 11)
+	if got := len(m.ExperimentalNotifications); got != 24 {
+		t.Errorf("experimental notifications = %d, want 24", got)
+	}
 	if err := m.Validate(); err != nil {
 		t.Fatalf("validate: %v", err)
+	}
+}
+
+// TestContractManifestRecordsEnumValues pins MADR 0236 D3.2 to a real enum: the
+// one whose new value, humanCommand in 0.167.0, passed the gate unseen (0236 F4).
+func TestContractManifestRecordsEnumValues(t *testing.T) {
+	m := mustLoadContractManifest(t)
+	for name, surface := range map[string]ContractSurface{"stable": m.Stable, "experimental": m.Experimental} {
+		got := surface.Enums["CommandExecutionApprovalKind"]
+		if !slices.Equal(got, []string{"command", "writeStdin"}) {
+			t.Errorf("%s CommandExecutionApprovalKind = %q, want [command writeStdin] at 0.166.0", name, got)
+		}
 	}
 }
 

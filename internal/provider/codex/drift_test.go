@@ -85,6 +85,66 @@ func TestCompareSurfacesFlagsAStabilityDemotion(t *testing.T) {
 	}
 }
 
+// TestCompareSurfacesClassifiesEnumDrift is MADR 0236 D3.2: enum values follow
+// the methods' rule. codex 0.167.0 added humanCommand to
+// CommandExecutionApprovalKind and the gate, which compared only methods and
+// required fields, said nothing (0236 F4).
+func TestCompareSurfacesClassifiesEnumDrift(t *testing.T) {
+	withEnums := func(enums map[string][]string) ContractSurface {
+		s := surface([]string{"thread/start"}, nil, nil)
+		s.Enums = enums
+		return s
+	}
+	pinned := withEnums(map[string][]string{
+		"CommandExecutionApprovalKind": {"command", "writeStdin"},
+		"ThreadStatusKind":             {"active", "idle"},
+	})
+
+	t.Run("an added value is additive", func(t *testing.T) {
+		fresh := withEnums(map[string][]string{
+			"CommandExecutionApprovalKind": {"command", "humanCommand", "writeStdin"},
+			"ThreadStatusKind":             {"active", "idle"},
+		})
+		drift := CompareSurfaces(pinned, pinned, fresh, fresh)
+		if drift.HasBreaking() {
+			t.Fatalf("an added enum value was classified as breaking: %v", drift.Breaking)
+		}
+		if !strings.Contains(strings.Join(drift.Additive, " "), "CommandExecutionApprovalKind.humanCommand") {
+			t.Errorf("additive drift does not name the new value: %v", drift.Additive)
+		}
+	})
+	t.Run("a removed value is breaking", func(t *testing.T) {
+		fresh := withEnums(map[string][]string{
+			"CommandExecutionApprovalKind": {"command"},
+			"ThreadStatusKind":             {"active", "idle"},
+		})
+		drift := CompareSurfaces(pinned, pinned, fresh, fresh)
+		if !strings.Contains(strings.Join(drift.Breaking, " "), "removed stable enum value CommandExecutionApprovalKind.writeStdin") {
+			t.Errorf("a removed enum value was not breaking: %v", drift.Breaking)
+		}
+	})
+	t.Run("a removed enum is breaking", func(t *testing.T) {
+		fresh := withEnums(map[string][]string{"CommandExecutionApprovalKind": {"command", "writeStdin"}})
+		drift := CompareSurfaces(pinned, pinned, fresh, fresh)
+		if !strings.Contains(strings.Join(drift.Breaking, " "), "removed stable enum ThreadStatusKind") {
+			t.Errorf("a removed enum was not breaking: %v", drift.Breaking)
+		}
+	})
+	t.Run("a renamed enum with the same values is additive", func(t *testing.T) {
+		fresh := withEnums(map[string][]string{
+			"CommandExecutionApprovalKind": {"command", "writeStdin"},
+			"ThreadStatus":                 {"active", "idle"},
+		})
+		drift := CompareSurfaces(pinned, pinned, fresh, fresh)
+		if drift.HasBreaking() {
+			t.Fatalf("a rename, which never reaches the wire, was breaking: %v", drift.Breaking)
+		}
+		if !strings.Contains(strings.Join(drift.Additive, " "), "added stable enum ThreadStatus") {
+			t.Errorf("the new name is not reported: %v", drift.Additive)
+		}
+	})
+}
+
 func TestCompareRequiredFieldsFlagsNewlyRequiredAndIgnoresRelaxations(t *testing.T) {
 	pinned := []ContractFixture{{
 		Kind: WireClientRequest, Method: "turn/start",

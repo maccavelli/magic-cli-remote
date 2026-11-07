@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -169,6 +170,123 @@ func experimentalNotifications(t *testing.T, sourceTree string) map[string]struc
 	return out
 }
 
+// responseTypeRe takes a declared response type, such as v2::ThreadStartResponse.
+// A params: line may carry #[ts(...)] and #[serde(...)] attributes before its
+// type, which is why the parser reads response: and never the params: line
+// (MADR 0236 F13).
+var responseTypeRe = regexp.MustCompile(`response:\s*([A-Za-z0-9_:]+)`)
+
+// sourceResponseTypes reads every request's declared response type from
+// client_request_definitions! and server_request_definitions! in codex's
+// common.rs, keyed by fixtureKey. The legacy server requests have no wire literal
+// (ApplyPatchApproval {…}); their wire name is the variant's, lower-camel-cased,
+// which is what serde's rename_all on the macro's enum produces.
+func sourceResponseTypes(t *testing.T, sourceTree string) map[string]string {
+	t.Helper()
+	path := filepath.Join(sourceTree, "codex-rs", "app-server-protocol", "src", "protocol", "common.rs")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v (CODEX_SOURCE_TREE must be a codex checkout at CODEX_SOURCE_COMMIT)", path, err)
+	}
+	out := map[string]string{}
+	for kind, marker := range map[WireKind]string{
+		WireClientRequest: "client_request_definitions! {",
+		WireServerRequest: "server_request_definitions! {",
+	} {
+		entries := macroEntries(t, string(raw), marker)
+		for header, body := range entries {
+			match := responseTypeRe.FindStringSubmatch(body)
+			if match == nil {
+				t.Fatalf("%s entry %q declares no response: type", marker, header)
+			}
+			method, ok := firstQuoted(header)
+			if !ok {
+				name := strings.TrimSpace(header)
+				method = strings.ToLower(name[:1]) + name[1:]
+			}
+			response := match[1]
+			if i := strings.LastIndex(response, "::"); i >= 0 {
+				response = response[i+2:]
+			}
+			out[fixtureKey(kind, method)] = response
+		}
+		if len(entries) == 0 {
+			t.Fatalf("no entries in %s in %s: the macro changed shape and this parser needs updating", marker, path)
+		}
+	}
+	return out
+}
+
+// macroEntries splits one macro invocation into its entries: each header (the
+// text before an entry's opening brace, such as `ThreadStart => "thread/start"`)
+// mapped to the entry's body. Braces are counted on lines stripped of comments
+// and string contents, so a brace in a doc comment or a literal cannot unbalance
+// the walk.
+func macroEntries(t *testing.T, text, marker string) map[string]string {
+	t.Helper()
+	start := strings.Index(text, marker)
+	if start < 0 {
+		t.Fatalf("common.rs has no %q invocation", marker)
+	}
+	out := map[string]string{}
+	depth, header := 0, ""
+	var body strings.Builder
+	for line := range strings.SplitSeq(text[start:], "\n") {
+		code := stripRustLine(line)
+		opens, closes := strings.Count(code, "{"), strings.Count(code, "}")
+		switch {
+		case depth == 1 && opens > 0:
+			// The header comes from the raw line, because stripping empties the
+			// method literal; a wire method never contains a brace.
+			brace := strings.LastIndex(line, "{")
+			header = strings.TrimSpace(line[:brace])
+			body.Reset()
+			body.WriteString(line[brace+1:])
+			body.WriteByte('\n')
+		case depth >= 2:
+			body.WriteString(line)
+			body.WriteByte('\n')
+		}
+		depth += opens - closes
+		if depth == 1 && header != "" {
+			out[header] = body.String()
+			header = ""
+		}
+		if depth == 0 && opens+closes > 0 {
+			return out
+		}
+	}
+	t.Fatalf("%q never closes", marker)
+	return nil
+}
+
+// stripRustLine removes a line comment and the contents of string literals,
+// keeping the quotes so a header's `=> "method"` still reads as one literal.
+func stripRustLine(line string) string {
+	var b strings.Builder
+	inString := false
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case inString && c == '\\':
+			i++
+		case inString:
+			if c == '"' {
+				inString = false
+				b.WriteByte(c)
+			}
+		case c == '"':
+			inString = true
+			b.WriteByte(c)
+		case c == '/' && i+1 < len(line) && line[i+1] == '/':
+			return b.String()
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
 func firstQuoted(s string) (string, bool) {
 	_, after, ok := strings.Cut(s, "\"")
 	if !ok {
@@ -260,4 +378,61 @@ func stableNotificationsOnly(entries []WireContract, experimentalOnly map[string
 		}
 	}
 	return kept
+}
+
+// TestSourceResponseTypesReadsTheMacros feeds sourceResponseTypes the three entry
+// shapes common.rs uses (MADR 0236 F13): a plain one, one whose params: carries
+// attributes before its type, and a legacy server request with no wire literal.
+// A doc comment holding braces must not unbalance the walk.
+func TestSourceResponseTypesReadsTheMacros(t *testing.T) {
+	tree := t.TempDir()
+	dir := filepath.Join(tree, "codex-rs", "app-server-protocol", "src", "protocol")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := `macro_rules! client_request_definitions { ($($x:tt)*) => {} }
+client_request_definitions! {
+    /// Starts a thread; returns {thread} once it exists.
+    ThreadStart => "thread/start" {
+        params: v2::ThreadStartParams,
+        serialization: None,
+        response: v2::ThreadStartResponse,
+    },
+    #[experimental("thread/guardianReview")]
+    LogoutAccount => "account/logout" {
+        params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
+        serialization: global("account-auth"),
+        response: v2::LogoutAccountResponse,
+    },
+}
+
+server_request_definitions! {
+    CommandExecutionRequestApproval => "item/commandExecution/requestApproval" {
+        params: v2::CommandExecutionRequestApprovalParams,
+        response: v2::CommandExecutionRequestApprovalResponse,
+    },
+    ApplyPatchApproval {
+        params: v1::ApplyPatchApprovalParams,
+        response: v1::ApplyPatchApprovalResponse,
+    },
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "common.rs"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := sourceResponseTypes(t, tree)
+	want := map[string]string{
+		fixtureKey(WireClientRequest, "thread/start"):                          "ThreadStartResponse",
+		fixtureKey(WireClientRequest, "account/logout"):                        "LogoutAccountResponse",
+		fixtureKey(WireServerRequest, "item/commandExecution/requestApproval"): "CommandExecutionRequestApprovalResponse",
+		fixtureKey(WireServerRequest, "applyPatchApproval"):                    "ApplyPatchApprovalResponse",
+	}
+	if len(got) != len(want) {
+		t.Errorf("got %d entries, want %d: %q", len(got), len(want), got)
+	}
+	for key, response := range want {
+		if got[key] != response {
+			t.Errorf("%q = %q, want %q", strings.ReplaceAll(key, "\x00", " "), got[key], response)
+		}
+	}
 }

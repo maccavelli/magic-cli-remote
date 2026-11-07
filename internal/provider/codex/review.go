@@ -254,6 +254,10 @@ func (s *session) maybeEmitReviewFallback(item json.RawMessage) {
 	})
 }
 
+// reviewFallbackText reads a review item's text. Both enteredReviewMode and
+// exitedReviewMode declare `review` a required string; an object branch that
+// guessed at text/content/body had no source in any export and was removed
+// (MADR 0236 F14).
 func reviewFallbackText(item json.RawMessage) string {
 	var p struct {
 		Review json.RawMessage `json:"review"`
@@ -262,23 +266,10 @@ func reviewFallbackText(item json.RawMessage) string {
 		return ""
 	}
 	var s string
-	if json.Unmarshal(p.Review, &s) == nil {
-		return strings.TrimSpace(s)
-	}
-	var obj struct {
-		Text    string `json:"text"`
-		Content string `json:"content"`
-		Body    string `json:"body"`
-	}
-	if json.Unmarshal(p.Review, &obj) != nil {
+	if json.Unmarshal(p.Review, &s) != nil {
 		return ""
 	}
-	for _, v := range []string{obj.Text, obj.Content, obj.Body} {
-		if t := strings.TrimSpace(v); t != "" {
-			return t
-		}
-	}
-	return ""
+	return strings.TrimSpace(s)
 }
 
 func (s *session) snapshotSettings() reviewSettings {

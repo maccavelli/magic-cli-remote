@@ -262,3 +262,23 @@ func TestReviewEmptyTargetRejectedBeforeRPC(t *testing.T) {
 	}
 	_ = engineR
 }
+
+// TestReviewFallbackTextReadsTheSchemaString pins the review item to its schema:
+// both enteredReviewMode and exitedReviewMode declare `review` a required string.
+// The object branch that guessed at text/content/body had no source in any
+// export, which the decoded-name check found (MADR 0236 F14, D3.4).
+func TestReviewFallbackTextReadsTheSchemaString(t *testing.T) {
+	if got := reviewFallbackText([]byte(`{"type":"exitedReviewMode","id":"x","review":"  two findings  "}`)); got != "two findings" {
+		t.Errorf("string review = %q, want the trimmed text", got)
+	}
+	for _, item := range []string{
+		`{"type":"exitedReviewMode","id":"x","review":{"body":"guessed"}}`,
+		`{"type":"exitedReviewMode","id":"x","review":{"text":"guessed"}}`,
+		`{"type":"exitedReviewMode","id":"x","review":null}`,
+		`{"type":"exitedReviewMode","id":"x"}`,
+	} {
+		if got := reviewFallbackText([]byte(item)); got != "" {
+			t.Errorf("%s: got %q, want nothing; the schema's review is a string", item, got)
+		}
+	}
+}

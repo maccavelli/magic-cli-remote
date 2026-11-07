@@ -48,7 +48,9 @@ func TestLiveContractNoModelTurn(t *testing.T) {
 	// notifications went unrouted behind it for six releases (0163 F1).
 	exact := os.Getenv("CODEX_CONTRACT_EXACT") == "1"
 	drift := CompareSurfaces(manifest.Stable, manifest.Experimental, stable, experimental)
-	fresh := generatedFixtures(stable, experimental, stableDocs, experimentalDocs)
+	// The live gate has no source tree, so the response types are the pin's
+	// (MADR 0236 D3.1). A method the pin has never seen has no fixture to compare.
+	fresh := generatedFixtures(stable, experimental, stableDocs, experimentalDocs, fixtureResponseTypes(manifest.Fixtures))
 	drift.Breaking = append(drift.Breaking, CompareRequiredFields(manifest.Fixtures, fresh)...)
 
 	for _, item := range drift.Additive {

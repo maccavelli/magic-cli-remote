@@ -3,7 +3,10 @@
 The executable inventory of the app-server protocol, embedded into the daemon by
 `contract.go`. An invalid manifest fails engine start, so this is load-bearing.
 
-Captured 2026-11-01 on macOS with `./scripts/codex-contract.ps1` — see
+Captured 2026-11-01 on macOS with `./scripts/codex-contract.ps1`, and regenerated at
+`schema_version` 2 on 2026-11-07
+([0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md](../../../../../docs/decisions/0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md)
+P1). The regeneration changed nothing but the new fields. See
 [docs/guides/ops-codex-contract.md](../../../../../docs/guides/ops-codex-contract.md) for the
 procedure and the things that will mislead you. Decision:
 [0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md](../../../../../docs/decisions/0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md)
@@ -33,10 +36,9 @@ accidental re-capture.
 
 **Both surfaces record 85 notifications, and 24 of those are experimental.** Codex's exporter
 never prunes experimental notifications, so the two bundles are identical there even though the
-runtime suppresses them. These files mirror the exporter rather than correcting it, so the
-capture reports the real split (61 stable / 24 experimental, from scanning `#[experimental]` in
-the source) and records all 85. Persisting the split is a `schema_version` 2 change and is
-still deferred.
+runtime suppresses them. The surfaces mirror the exporter rather than correcting it, and record
+all 85. The real split (61 stable / 24 experimental, from scanning `#[experimental]` in the
+source) is kept beside them in `manifest.json`'s `experimental_notifications`.
 
 **`installed_delta` is empty, by observation.** Both source surfaces are decompressed from the
 committed `.zst` blobs at the same tag as the installed binary, so an empty delta means they
@@ -45,11 +47,14 @@ agree.
 ## What each file is
 
 - `manifest.json` — the surface inventory plus the capability allowlist, with a
-  `classification` per method derived from this package's own code.
+  `classification` per method derived from this package's own code. Each surface carries its
+  string enums (521 stable, 611 experimental). The manifest also carries the notification split
+  and the export's 1,055 property names, which `decoded_names_test.go` checks this package's JSON
+  tags against.
 - `fixtures.json` — schema identities and required field names, with no live paths, prompts,
-  account data or credentials. Five response types the generator cannot derive from a method's
-  name come from its override table, checked against
-  `codex-rs/app-server-protocol/src/protocol/common.rs` at the tag.
+  account data or credentials. Every response type is read from the `response:` declarations in
+  `codex-rs/app-server-protocol/src/protocol/common.rs` at the tag. This file is byte-identical
+  to the one the earlier name-guessing and override table produced.
 - `source-watch-manifest.json` — leading evidence from the pinned source commit. It never
   enables a runtime capability.
 

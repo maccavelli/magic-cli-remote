@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -64,10 +65,17 @@ type WireContract struct {
 }
 
 // ContractSurface is one complete stable or experimental schema inventory.
+//
+// Enums maps each string enum the export declares — a named definition, or a
+// titled enum nested inside one, such as an item type's discriminator — to its
+// sorted values. It lives on the surface, not the manifest, so that exact mode's
+// whole-surface comparison covers it and the stable export's pruned values stay
+// distinct from the experimental ones (MADR 0236 D3.2, F4).
 type ContractSurface struct {
-	ClientRequests      []WireContract `json:"client_requests"`
-	ServerNotifications []WireContract `json:"server_notifications"`
-	ServerRequests      []WireContract `json:"server_requests"`
+	ClientRequests      []WireContract      `json:"client_requests"`
+	ServerNotifications []WireContract      `json:"server_notifications"`
+	ServerRequests      []WireContract      `json:"server_requests"`
+	Enums               map[string][]string `json:"enums,omitempty"`
 }
 
 // WireRequirement binds a product capability to exact captured wire names.
@@ -98,15 +106,31 @@ type ContractFixture struct {
 	RequiredResult []string  `json:"required_result,omitempty"`
 }
 
+// manifestSchemaVersion is the only manifest layout this build reads. Version 2
+// added the surfaces' enums, the notification split and the schema's property
+// names (MADR 0236 D3).
+const manifestSchemaVersion = 2
+
 // ContractManifest is the exact installed-binary evidence used at runtime.
+//
+// ExperimentalNotifications is the notification split that the exporter cannot
+// express: both bundles list every notification, while the runtime suppresses
+// these without the experimentalApi opt-in. It is taken from codex's source at
+// capture time, and kept outside the surfaces because the live gate has no source
+// tree to compare it against (MADR 0236 D3.3, PLAN P1 Deviation 2).
+//
+// SchemaProperties is every property name the two exports declare anywhere, which
+// decoded_names_test.go holds this package's decode structs to (MADR 0236 D3.4).
 type ContractManifest struct {
-	SchemaVersion int                  `json:"schema_version"`
-	CodexVersion  string               `json:"codex_version"`
-	BinarySHA256  string               `json:"binary_sha256"`
-	Stable        ContractSurface      `json:"stable"`
-	Experimental  ContractSurface      `json:"experimental"`
-	Capabilities  []CapabilityContract `json:"capabilities"`
-	Fixtures      []ContractFixture    `json:"fixtures,omitempty"`
+	SchemaVersion             int                  `json:"schema_version"`
+	CodexVersion              string               `json:"codex_version"`
+	BinarySHA256              string               `json:"binary_sha256"`
+	Stable                    ContractSurface      `json:"stable"`
+	Experimental              ContractSurface      `json:"experimental"`
+	ExperimentalNotifications []string             `json:"experimental_notifications"`
+	SchemaProperties          []string             `json:"schema_properties"`
+	Capabilities              []CapabilityContract `json:"capabilities"`
+	Fixtures                  []ContractFixture    `json:"fixtures,omitempty"`
 }
 
 // SourceWatchManifest is deliberately separate from executable evidence.
@@ -154,7 +178,7 @@ func (m *ContractManifest) Validate() error {
 	if m == nil {
 		return errors.New("nil manifest")
 	}
-	if m.SchemaVersion != 1 || strings.TrimSpace(m.CodexVersion) == "" || len(m.BinarySHA256) != 64 {
+	if m.SchemaVersion != manifestSchemaVersion || strings.TrimSpace(m.CodexVersion) == "" || len(m.BinarySHA256) != 64 {
 		return errors.New("invalid manifest identity")
 	}
 	for name, surface := range map[string]ContractSurface{
@@ -163,6 +187,18 @@ func (m *ContractManifest) Validate() error {
 		if err := validateSurface(name, surface); err != nil {
 			return err
 		}
+	}
+	if !slices.IsSorted(m.ExperimentalNotifications) {
+		return errors.New("experimental notifications are unsorted")
+	}
+	declared := surfaceMethods(m.Experimental, WireNotification)
+	for _, method := range m.ExperimentalNotifications {
+		if _, ok := declared[method]; !ok {
+			return fmt.Errorf("experimental notification %q is not declared", method)
+		}
+	}
+	if len(m.SchemaProperties) == 0 || !slices.IsSorted(m.SchemaProperties) {
+		return errors.New("schema properties are missing or unsorted")
 	}
 
 	capabilities := make(map[CapabilityID]CapabilityContract, len(m.Capabilities))
@@ -359,6 +395,11 @@ func (d SurfaceDrift) HasBreaking() bool { return len(d.Breaking) > 0 }
 // Additive: a method the capture declares and the pin does not. A correct client
 // ignores what it does not know, so this is reported and does not fail.
 //
+// Enum values follow the same rule (MADR 0236 D3.2): a value that disappears is
+// breaking, because a switch over it may be handling it; a new value is additive.
+// codex 0.167.0's CommandExecutionApprovalKind "humanCommand" passed the gate
+// unseen before this (0236 F4).
+//
 // Newly required fields are compared separately by CompareRequiredFields, which
 // needs the fixtures rather than the surfaces.
 func CompareSurfaces(pinnedStable, pinnedExperimental, freshStable, freshExperimental ContractSurface) SurfaceDrift {
@@ -398,6 +439,9 @@ func CompareSurfaces(pinnedStable, pinnedExperimental, freshStable, freshExperim
 				}
 			}
 		}
+		breaking, additive := compareEnums(pair.label, pair.pinned.Enums, pair.fresh.Enums)
+		drift.Breaking = append(drift.Breaking, breaking...)
+		drift.Additive = append(drift.Additive, additive...)
 	}
 
 	// A demotion hides inside the two lists above as "removed from stable" plus
@@ -418,6 +462,38 @@ func CompareSurfaces(pinnedStable, pinnedExperimental, freshStable, freshExperim
 	sort.Strings(drift.Breaking)
 	sort.Strings(drift.Additive)
 	return drift
+}
+
+// compareEnums applies CompareSurfaces's rule to one surface's enums. An enum
+// whose name is gone is breaking unless the capture declares the same value set
+// under another name: definition names never travel on the wire, so a renamed
+// type with unchanged values is the additive "added enum" it also produces.
+func compareEnums(label string, pinned, fresh map[string][]string) (breaking, additive []string) {
+	freshSets := make(map[string]struct{}, len(fresh))
+	for _, values := range fresh {
+		freshSets[strings.Join(values, "\x00")] = struct{}{}
+	}
+	for name, values := range pinned {
+		now, ok := fresh[name]
+		if !ok {
+			if _, renamed := freshSets[strings.Join(values, "\x00")]; !renamed {
+				breaking = append(breaking, "removed "+label+" enum "+name)
+			}
+			continue
+		}
+		for _, value := range newlyRequired(now, values) {
+			breaking = append(breaking, "removed "+label+" enum value "+name+"."+value)
+		}
+		for _, value := range newlyRequired(values, now) {
+			additive = append(additive, "added "+label+" enum value "+name+"."+value)
+		}
+	}
+	for name := range fresh {
+		if _, ok := pinned[name]; !ok {
+			additive = append(additive, "added "+label+" enum "+name)
+		}
+	}
+	return breaking, additive
 }
 
 func surfaceMethods(surface ContractSurface, kind WireKind) map[string]struct{} {

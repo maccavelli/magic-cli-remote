@@ -23,19 +23,14 @@ func TestGenerateContractManifest(t *testing.T) {
 	stable, stableDocs := readGeneratedSurface(t, in.installedStable)
 	experimental, experimentalDocs := readGeneratedSurface(t, in.installedExpUnfl)
 
-	// Report the real notification stability split, but do NOT rewrite the
-	// captured surface with it (MADR 0163 D4, partially deferred).
+	// The notification split (MADR 0163 D4, persisted by MADR 0236 D3.3).
 	//
 	// Codex's exporter never prunes experimental notifications, so both bundles
-	// list all 82 while the runtime suppresses 22 of them. The honest fix is to
-	// record the split as its own field, and that is a manifest SCHEMA change:
-	// ContractManifest.Validate (contract.go) accepts only schema_version 1, so
-	// a new field means a new schema version. Filtering the stable surface in
-	// place instead makes the manifest disagree with the exporter it claims to
-	// mirror, which breaks the drift gate's exact mode — measured, not theorised.
-	//
-	// So the capture stays faithful to the exporter, the split is reported here and
-	// documented in the README, and persisting it waits for schema_version 2.
+	// list every notification while the runtime suppresses the experimental ones.
+	// The captured surfaces stay faithful to the exporter, because filtering them
+	// in place makes the manifest disagree with the export it mirrors and breaks
+	// the drift gate's exact mode. The split is kept beside them instead, as the
+	// manifest's own field, which is what schema_version 2 made room for.
 	experimentalOnly := experimentalNotifications(t, in.sourceTree)
 	total := len(experimental.ServerNotifications)
 	stableOnly := len(stableNotificationsOnly(stable.ServerNotifications, experimentalOnly))
@@ -44,14 +39,21 @@ func TestGenerateContractManifest(t *testing.T) {
 		total, stableOnly, total-stableOnly, total)
 
 	manifest := ContractManifest{
-		SchemaVersion: 1,
-		CodexVersion:  in.version,
-		BinarySHA256:  in.binarySHA256,
-		Stable:        stable,
-		Experimental:  experimental,
+		SchemaVersion:             manifestSchemaVersion,
+		CodexVersion:              in.version,
+		BinarySHA256:              in.binarySHA256,
+		Stable:                    stable,
+		Experimental:              experimental,
+		ExperimentalNotifications: declaredExperimentalNotifications(t, experimental, experimentalOnly),
+		SchemaProperties:          schemaPropertyNames(stableDocs, experimentalDocs),
 	}
+	if got := len(manifest.ExperimentalNotifications); got != total-stableOnly {
+		t.Fatalf("manifest records %d experimental notifications, the scan reported %d", got, total-stableOnly)
+	}
+	responses := sourceResponseTypes(t, in.sourceTree)
+	checkSourceResponseTypes(t, responses, experimental, experimentalDocs)
 	manifest.Capabilities = generatedCapabilities(stable, experimental)
-	manifest.Fixtures = generatedFixtures(stable, experimental, stableDocs, experimentalDocs)
+	manifest.Fixtures = generatedFixtures(stable, experimental, stableDocs, experimentalDocs, responses)
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("generated manifest: %v", err)
 	}
@@ -59,7 +61,7 @@ func TestGenerateContractManifest(t *testing.T) {
 	sourceStableSurface, _ := readGeneratedSurface(t, in.sourceStable)
 	sourceExperimentalSurface, _ := readGeneratedSurface(t, in.sourceExp)
 	watch := SourceWatchManifest{
-		SchemaVersion:  1,
+		SchemaVersion:  manifestSchemaVersion,
 		Commit:         in.sourceCommit,
 		Stable:         sourceStableSurface,
 		Experimental:   sourceExperimentalSurface,
@@ -80,6 +82,8 @@ type generatedSchemaDocs struct {
 	definitions map[string]struct {
 		Required []string `json:"required"`
 	}
+	// properties is every property name declared anywhere in the export.
+	properties map[string]struct{}
 }
 
 func readGeneratedSurface(t *testing.T, schemaPath string) (ContractSurface, generatedSchemaDocs) {
@@ -123,9 +127,187 @@ func readGeneratedSurface(t *testing.T, schemaPath string) (ContractSurface, gen
 	classifyGenerated(t, requests, WireClientRequest)
 	classifyGenerated(t, notifications, WireNotification)
 	classifyGenerated(t, callbacks, WireServerRequest)
+	enums, properties := readSchemaVocabulary(t, schemaPath)
 	return ContractSurface{
 		ClientRequests: requests, ServerNotifications: notifications, ServerRequests: callbacks,
-	}, generatedSchemaDocs{definitions: parsed.Definitions}
+		Enums: enums,
+	}, generatedSchemaDocs{
+		definitions: parsed.Definitions,
+		properties:  properties,
+	}
+}
+
+// readSchemaVocabulary collects, from the aggregate beside schemaPath and every
+// other JSON file in its directory, the export's string enums and its property
+// names (MADR 0236 D3.2 and D3.4). It reads the same files readGeneratedSurface
+// reads for required fields, so the two cannot describe different exports.
+func readSchemaVocabulary(t *testing.T, schemaPath string) (map[string][]string, map[string]struct{}) {
+	t.Helper()
+	dir := filepath.Dir(schemaPath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sets := map[string]map[string]struct{}{}
+	properties := map[string]struct{}{}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("decode %s: %v", entry.Name(), err)
+		}
+		if title, ok := doc["title"].(string); ok && title != "" {
+			addNamedEnum(sets, title, doc)
+		}
+		if definitions, ok := doc["definitions"].(map[string]any); ok {
+			for name, node := range definitions {
+				if m, ok := node.(map[string]any); ok {
+					addNamedEnum(sets, name, m)
+				}
+			}
+		}
+		walkSchema(doc, sets, properties)
+	}
+	if len(sets) == 0 || len(properties) == 0 {
+		t.Fatalf("no enums or no properties under %s: the export's layout changed and this reader needs updating", dir)
+	}
+	enums := make(map[string][]string, len(sets))
+	for name, set := range sets {
+		values := make([]string, 0, len(set))
+		for value := range set {
+			values = append(values, value)
+		}
+		sort.Strings(values)
+		enums[name] = values
+	}
+	return enums, properties
+}
+
+// addNamedEnum records a definition that is a string enum, or a oneOf/anyOf
+// whose every member is one. The second form is how 0.167.0 spells
+// CommandExecutionApprovalKind, and codex's own Python generator flattens it the
+// same way (_flatten_string_enum_one_of, MADR 0236 F15).
+func addNamedEnum(sets map[string]map[string]struct{}, name string, node map[string]any) {
+	if values, ok := stringEnum(node); ok {
+		addValues(sets, name, values)
+		return
+	}
+	for _, key := range []string{"oneOf", "anyOf"} {
+		members, ok := node[key].([]any)
+		if !ok || len(members) == 0 {
+			continue
+		}
+		var all []string
+		for _, member := range members {
+			m, ok := member.(map[string]any)
+			if !ok {
+				return
+			}
+			values, ok := stringEnum(m)
+			if !ok {
+				return
+			}
+			all = append(all, values...)
+		}
+		addValues(sets, name, all)
+		return
+	}
+}
+
+// walkSchema records every property name, and every titled string enum nested
+// anywhere, such as an item variant's "type" discriminator.
+func walkSchema(node any, sets map[string]map[string]struct{}, properties map[string]struct{}) {
+	switch n := node.(type) {
+	case map[string]any:
+		if props, ok := n["properties"].(map[string]any); ok {
+			for name := range props {
+				properties[name] = struct{}{}
+			}
+		}
+		if title, ok := n["title"].(string); ok && title != "" {
+			if values, ok := stringEnum(n); ok {
+				addValues(sets, title, values)
+			}
+		}
+		for _, child := range n {
+			walkSchema(child, sets, properties)
+		}
+	case []any:
+		for _, child := range n {
+			walkSchema(child, sets, properties)
+		}
+	}
+}
+
+func stringEnum(node map[string]any) ([]string, bool) {
+	raw, ok := node["enum"].([]any)
+	if !ok || len(raw) == 0 {
+		return nil, false
+	}
+	if _, hasProperties := node["properties"]; hasProperties {
+		return nil, false
+	}
+	values := make([]string, 0, len(raw))
+	for _, v := range raw {
+		s, ok := v.(string)
+		if !ok {
+			return nil, false
+		}
+		values = append(values, s)
+	}
+	return values, true
+}
+
+func addValues(sets map[string]map[string]struct{}, name string, values []string) {
+	set := sets[name]
+	if set == nil {
+		set = map[string]struct{}{}
+		sets[name] = set
+	}
+	for _, value := range values {
+		set[value] = struct{}{}
+	}
+}
+
+// schemaPropertyNames is the sorted union of both exports' property names.
+func schemaPropertyNames(docs ...generatedSchemaDocs) []string {
+	union := map[string]struct{}{}
+	for _, d := range docs {
+		for name := range d.properties {
+			union[name] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(union))
+	for name := range union {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// declaredExperimentalNotifications keeps the source scan's experimental
+// notifications that the export declares. The scan also finds the two that
+// export.rs strips from the JSON (rawResponseItem/completed and
+// rawResponse/completed), and the manifest describes only what is declared.
+func declaredExperimentalNotifications(t *testing.T, experimental ContractSurface, scanned map[string]struct{}) []string {
+	t.Helper()
+	declared := surfaceMethods(experimental, WireNotification)
+	out := make([]string, 0, len(scanned))
+	for method := range scanned {
+		if _, ok := declared[method]; ok {
+			out = append(out, method)
+		} else {
+			t.Logf("experimental notification %s is in the source but not in the export", method)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // classifyGenerated marks each captured method with what this package does about
@@ -258,7 +440,12 @@ func generatedCapabilities(stable, experimental ContractSurface) []CapabilityCon
 	return capabilities
 }
 
-func generatedFixtures(stable, experimental ContractSurface, stableDocs, experimentalDocs generatedSchemaDocs) []ContractFixture {
+// generatedFixtures builds one fixture per method. responses maps
+// fixtureKey(kind, method) to the method's response type: from codex's source at
+// capture time (sourceResponseTypes), and from the pinned fixtures in the live
+// gate, which has no source tree (fixtureResponseTypes). A method absent from it
+// gets "typed", which only a method the pin has never seen can do.
+func generatedFixtures(stable, experimental ContractSurface, stableDocs, experimentalDocs generatedSchemaDocs, responses map[string]string) []ContractFixture {
 	fixtures := make([]ContractFixture, 0, len(experimental.ClientRequests)+len(experimental.ServerNotifications)+len(experimental.ServerRequests))
 	seen := make(map[string]struct{})
 	appendSurface := func(stability Stability, surface ContractSurface, docs generatedSchemaDocs) {
@@ -266,14 +453,17 @@ func generatedFixtures(stable, experimental ContractSurface, stableDocs, experim
 			WireClientRequest: surface.ClientRequests, WireNotification: surface.ServerNotifications, WireServerRequest: surface.ServerRequests,
 		} {
 			for _, entry := range entries {
-				key := string(kind) + "\x00" + entry.Method
+				key := fixtureKey(kind, entry.Method)
 				if _, ok := seen[key]; ok {
 					continue
 				}
 				seen[key] = struct{}{}
-				response := responseSchema(entry.Method, entry.Params, docs)
-				if kind == WireNotification {
+				response := responses[key]
+				switch {
+				case kind == WireNotification:
 					response = "none"
+				case response == "":
+					response = "typed"
 				}
 				fixtures = append(fixtures, ContractFixture{
 					Kind: kind, Stability: stability, Method: entry.Method, ParamsSchema: entry.Params,
@@ -295,43 +485,46 @@ func generatedFixtures(stable, experimental ContractSurface, stableDocs, experim
 	return fixtures
 }
 
-func responseSchema(method, params string, docs generatedSchemaDocs) string {
-	if before, ok := strings.CutSuffix(params, "Params"); ok {
-		candidate := before + "Response"
-		if _, ok := docs.definitions[candidate]; ok {
-			return candidate
-		}
-	}
-	overrides := map[string]string{
-		"account/logout":                           "LogoutAccountResponse",
-		"account/rateLimits/read":                  "GetAccountRateLimitsResponse",
-		"account/usage/read":                       "GetAccountTokenUsageResponse",
-		"account/workspaceMessages/read":           "GetWorkspaceMessagesResponse",
-		"config/batchWrite":                        "ConfigWriteResponse",
-		"config/mcpServer/reload":                  "McpServerRefreshResponse",
-		"config/value/write":                       "ConfigWriteResponse",
-		"configRequirements/read":                  "ConfigRequirementsReadResponse",
-		"externalAgentConfig/import/readHistories": "ExternalAgentConfigImportHistoriesReadResponse",
-		"memory/reset":                             "MemoryResetResponse",
-		"remoteControl/disable":                    "RemoteControlDisableResponse",
-		"remoteControl/enable":                     "RemoteControlEnableResponse",
-		"remoteControl/status/read":                "RemoteControlStatusReadResponse",
-		"windowsSandbox/readiness":                 "WindowsSandboxReadinessResponse",
+func fixtureKey(kind WireKind, method string) string {
+	return string(kind) + "\x00" + method
+}
 
-		// codex 0.166.0, from app-server-protocol/src/protocol/common.rs at
-		// rust-v0.166.0 (MADR 0226, R3 Deviation 2).
-		"account/gatewayOAuth/cancel": "GatewayOAuthCancelResponse",
-		"account/gatewayOAuth/login":  "GatewayOAuthLoginResponse",
-		"account/gatewayOAuth/read":   "GatewayOAuthReadResponse",
-		"accountSession/list":         "AccountSessionsResponse",
-		"rollout/compress":            "RolloutCompressResponse",
-	}
-	if response := overrides[method]; response != "" {
-		if _, ok := docs.definitions[response]; ok {
-			return response
+// fixtureResponseTypes recovers the pinned response types from a manifest's
+// fixtures, for the live gate.
+func fixtureResponseTypes(fixtures []ContractFixture) map[string]string {
+	out := make(map[string]string, len(fixtures))
+	for _, fixture := range fixtures {
+		if fixture.Kind != WireNotification {
+			out[fixtureKey(fixture.Kind, fixture.Method)] = fixture.ResponseSchema
 		}
 	}
-	return "typed"
+	return out
+}
+
+// checkSourceResponseTypes fails the capture unless every client and server
+// request the export declares has a declaration in codex's source, naming a type
+// the export defines. It replaces a guess from the params name plus a
+// hand-written override map, which had to grow by five entries at the 0.166.0
+// re-pin after the tests failed (MADR 0236 F13, D3.1).
+func checkSourceResponseTypes(t *testing.T, responses map[string]string, experimental ContractSurface, docs generatedSchemaDocs) {
+	t.Helper()
+	for kind, entries := range map[WireKind][]WireContract{
+		WireClientRequest: experimental.ClientRequests, WireServerRequest: experimental.ServerRequests,
+	} {
+		for _, entry := range entries {
+			response, ok := responses[fixtureKey(kind, entry.Method)]
+			if !ok {
+				t.Errorf("%s %s is in the export but has no declaration in common.rs", kind, entry.Method)
+				continue
+			}
+			if _, defined := docs.definitions[response]; !defined {
+				t.Errorf("%s %s: common.rs declares response %s, which the export does not define", kind, entry.Method, response)
+			}
+		}
+	}
+	if t.Failed() {
+		t.FailNow()
+	}
 }
 
 func readStandaloneSchemas(t *testing.T, dir string) map[string]struct {
