@@ -10,6 +10,10 @@ informed: Implementers of the daemon, Codex provider, protocol, and mobile clien
 # Expand the Codex provider through capability-led app-server parity
 
 > Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+>
+> A **proposed** amendment of 2026-11-07, at the end of this record, adds D39–D44 for GitHub issue #31. Until the
+> Project Owner accepts it, D1–D38 stand as accepted and D39–D44 decide nothing. Its plan is
+> [0109-PLAN-retire-codex-runtime-guessing.md](0109-PLAN-retire-codex-runtime-guessing.md).
 
 ## Context and Problem Statement
 
@@ -864,3 +868,198 @@ implementation phase implicitly.
   project lifecycle, assignment, deletion, and notification semantics.
 * [Thread-source change](https://github.com/openai/codex/pull/40161) for
   create/fork-only source attribution.
+
+## Proposed Amendment — 2026-11-07: retire the provider's runtime guessing (issue #31)
+
+Status: **proposed.** D39–D44 below take effect only on the Project Owner's
+acceptance. D1–D38 are unchanged. The work is planned in
+[0109-PLAN-retire-codex-runtime-guessing.md](0109-PLAN-retire-codex-runtime-guessing.md),
+a second plan for this record; the first plan's P8–P17 are not touched.
+
+### Why this amendment
+
+GitHub issue #31 (opened 2026-10-31, codex-cli 0.166.0) says the provider
+"re-derives an undocumented upstream contract at runtime". It proposes five
+workstreams:
+
+* W1: capability-manifest governance, retiring the `(?i)experimental` prose
+  match;
+* W2: a generated contract with a quarantine lane for unknown frames;
+* W3: a shared app-server core, with codex reduced to a thin dialect;
+* W4: version gates and a release canary;
+* W5: asking OpenAI for a stable schema or for ACP.
+
+The issue named this record as the natural home. On 2026-11-07 the Project Owner
+answered its three questions:
+
+1. **Retiring the prose match:** "Dual-run, log only". For one codex release the
+   new rule decides, and the prose match only logs where it would have decided
+   differently. Then it is deleted.
+2. **The canary's cadence:** "Weekly". One billed turn a week, whether or not
+   codex changed.
+3. **Asking OpenAI:** "Don't ask; keep watching".
+
+Much of #31 had already been done when it was filed, by records this one never
+cited:
+
+* [0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md](0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md)
+  (accepted 2026-10-18) found the instability was ours: stale pins and a drift
+  gate that could not pass.
+* [0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md](0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md)
+  (accepted 2026-11-01) re-pinned codex to 0.166.0 and calls its F5 "the issue
+  #31 assessment".
+
+| #31 workstream | Already done | Left |
+| --- | --- | --- |
+| W1 | 0163 D9 (commit `d4b92231`) made `data.capability` the primary signal and demoted the prose match to a logged fallback. | E3 and E6 show the structured field never appears on a real binary, so the prose still decides. D39, D40 and D44. |
+| W2 | The contract is generated from codex's own schema export (0163 D19); a two-mode drift gate (0163 D3); every declared notification has a route (0163 D5); unknown completed items become a sanitized "Unsupported Codex activity" card (this record's P4). | Unknown inbound methods are logged at Debug only (E8), although this record's classification rule required more. D41. Persisting the notification split (`schema_version` 2) stays deferred as 0163 left it. |
+| W3 | Nothing. | Not adopted (see Considered options). |
+| W4 | `KnownGoodVersion` warns on mismatch and never refuses (`internal/provider/codex/version.go:17-19`); `make live-codex-contract` is free and manual. | No scheduled check of any kind (E10). D42. |
+| W5 | Nothing. | D43: watch only. |
+
+The issue also says codex publishes no schema. That is wrong:
+`codex app-server generate-json-schema` exists (E1), and the pinned contract is
+generated from it ([ops-codex-contract.md](../guides/ops-codex-contract.md)).
+What is missing is a **stability promise**: the generator itself is marked
+`[experimental]` (E5).
+
+### Evidence, 2026-11-07
+
+These were run with codex-cli 0.166.0 installed (the pin), a scratch
+`CODEX_HOME`, no login, no model and no turn. No quota was spent. npm lists
+0.167.0 as the latest release, published 2026-11-06.
+
+| ID | Observation |
+| --- | --- |
+| **E1** | `codex app-server generate-json-schema` exits 0. Stable: 106 client requests, 85 server notifications, 10 server requests. With `--experimental`: 179, 85 and 11. The 73 experimental-only client requests include `collaborationMode/list`. These counts equal `internal/provider/codex/testdata/0.166.0/README.md`. |
+| **E2** | `initialize` with `experimentalApi:true` is accepted (result keys `codexHome`, `platformFamily`, `platformOs`, `userAgent`), as at 0.149.1 (this record's binary-driven probe). No recorded binary has refused the opt-in at `initialize`. |
+| **E3** | With `experimentalApi:false`, `collaborationMode/list` answers JSON-RPC `-32600`, message `collaborationMode/list requires experimentalApi capability`, and `data` is `null`. The 0.145.0 spike recorded the same shape for `thread/turns/list`, also with no `data` (`testdata/codex-spike-0.145.0/summary.json:262-267`). |
+| **E4** | An unknown method answers `-32600`, message ``Invalid request: unknown variant `not/aMethod`, expected one of …``, `data` `null`. It is not `-32601`. |
+| **E5** | The CLI has no `acp` subcommand. These are marked experimental: `app-server` (with `daemon`, `proxy`, `generate-ts`, `generate-json-schema`), `remote-control`, `exec-server`, `cloud`. `agents` (the shared local daemon's session browser) is not marked. |
+| **E6** | The only fixtures that carry `data.capability` are `testdata/0.147.0/initialize-rejection-experimental.json` ("experimental API is not enabled") and `collaborationMode-list-experimental-gate.json` ("experimental method requires experimentalApi"). No real capture has either message. The commit that added them (`f3698131`) does not say they were captured, and E3 contradicts both. |
+| **E7** | `classifyExperimentalInitRejection` (`collaboration.go:89-104`) runs at one call site, an `initialize` error in `startEngine` (`provider.go:873`). A match reaps the engine and starts a second process without the opt-in. Its "error data" branch has no test, and no test checks its Warn line. |
+| **E8** | An unknown notification is logged at Debug and dropped (`provider.go:1297-1304`, `session.go:1851-1857`). An unknown server request gets a typed rejection with a Debug log (`provider.go:1322-1344`, `session.go:1878-1889`). An unknown item type increments `session.unknownItems` (`session.go:70`, `:1589`), which only a test reads. This record's classification rule says such an entry must "log only method/version/shape class" and reach the drift gate; neither happens. |
+| **E9** | Two denial paths key on `-32601`: `collaboration.go:197` and `fast_personality.go:147` (with `-32602`). By E4, codex 0.166.0 does not send `-32601` for an unknown method. |
+| **E10** | No workflow runs any codex check. `ci.yml` runs on pushes, tags, pull requests and manual dispatch. The only scheduled workflow, `ci-flake-ledger.yml`, runs no codex test. [ops-codex-contract.md](../guides/ops-codex-contract.md) says the default drift mode is for "CI, and any host", but CI never runs it. |
+| **E11** | The package has 44 non-test and 92 test `.go` files. No other provider imports it, and it imports no shared agent package. [0208-MADR-make-the-provider-layer-agent-neutral.md](0208-MADR-make-the-provider-layer-agent-neutral.md) and [0216-MADR-show-an-agents-last-stderr-and-record-and-replay-both-ways-of-the-acp-wire.md](0216-MADR-show-an-agents-last-stderr-and-record-and-replay-both-ways-of-the-acp-wire.md) D12 leave codex on its own protocol. |
+| **E12** | `make live-codex-turn` runs four tests, and so several turns. Its cheapest, `TestLiveThreadLifecycle` (`live_turn_test.go:16-66`), runs one turn, but logs a turn error and passes (`:53-55`), so it cannot serve as a canary. |
+
+### Decision drivers
+
+* **A decision rests on a contract, not on wording.** The error code is
+  documented JSON-RPC. The message is free text.
+* **Evidence comes from the real binary.** A fixture names the version it was
+  captured from, or says plainly that it is synthetic.
+* **Drift is found before a user finds it,** at a quota cost the owner chose.
+* **No new upstream dependency** (owner Q3).
+* **The largest adapter changes only where a defect or a decision requires it.**
+
+### Considered options
+
+* **W1, the `initialize` fallback:**
+  * keep 0163 D9 as it is (structured field, then prose);
+  * key on the JSON-RPC code, with a dual-run of the old match (chosen);
+  * drop the fallback, and always start with the opt-in.
+* **W3, a shared app-server core:** extract it now; do not adopt it until a
+  second consumer exists (chosen).
+* **W4, the canary:** nightly; weekly (chosen by the owner); only on a new
+  release.
+
+#### Pros and cons
+
+* **Keep 0163 D9.**
+  * Good, because nothing changes.
+  * Bad, because its primary signal is absent on every real capture (E3, E6),
+    so the provider steers between two processes on a word.
+* **Key on the code, dual-run the old match.**
+  * Good, because no text is read, and the behaviour is the same for every
+    error codex has been seen to send.
+  * Good, because the dual-run shows, from logs, any case where the two rules
+    differ before the old one is deleted (owner Q1).
+  * Neutral, because a `-32600` at `initialize` for an unrelated reason costs
+    one more process start before the same failure.
+* **Drop the fallback.**
+  * Good, because it answers 0163's open question 2 with "one process".
+  * Bad, because a binary or a managed policy that does refuse the opt-in would
+    then stop codex starting at all. One retry costs little.
+* **Extract a shared core now.**
+  * Good, because a second app-server engine would get a hardened transport.
+  * Bad, because no second consumer exists (E11). It is a refactor of the
+    largest adapter with no change a user can see, against 0208's choice to
+    keep codex separate.
+* **Do not adopt W3 yet.**
+  * Good, because the work waits until it has a consumer.
+  * Neutral, because the revisit trigger is recorded (D43).
+
+### Proposed decisions
+
+| ID | Proposed decision |
+| --- | --- |
+| **D39** | **The `initialize` fallback keys on the JSON-RPC code.** If an `initialize` with `experimentalApi:true` is answered with `-32600`, the engine is restarted once with `experimentalApi:false`, and a Warn names the code and the codex version. Any other error fails the start, as today. No message or data text is read. **Dual-run (owner Q1):** until the first codex re-pin after this lands has been accepted, the old classifier also runs, and only logs a Warn where it would have decided differently. It decides nothing. After that re-pin, it and `experimentalCapabilityRe` are deleted. This supersedes 0163 D9's prose fallback, and answers 0163's open question 2: the second process stays only as a bounded retry for a refusal no recorded binary sends (E2). |
+| **D40** | **Fixtures say where they came from.** The gate error (E3) and the unknown-method error (E4) are captured from the pinned binary into its testdata, and re-captured at each re-pin. The two hand-written `data.capability` fixtures (E6) move to a `synthetic` directory whose README says they were never captured. No test labels a synthetic shape with a codex version. |
+| **D41** | **Unknown inbound methods are visible.** This puts the classification rule's "unknown in newer binary" case into code. An unknown notification method, server request method, or item type is logged at Warn once per kind, method and codex version per engine generation. The log names the kind, the method, the version and the top-level key names (never values). Server requests keep their typed rejection, and the phone sees no change. `session.unknownItems` is replaced by this log. |
+| **D42** | **A weekly canary (owner Q2).** Once a week, a repository script does two things. Its **free part** compares npm's latest codex release with `KnownGoodVersion`, installs that release into a scratch prefix, runs `make live-codex-contract` in default mode against it, and records D43's watch list. Its **billed part** runs one cheap turn against the same binary, through a canary test that fails on a turn error (E12), under a dedicated canary `CODEX_HOME`, never the owner's own. A newer binary may migrate the state of a home it opens, and the canary must not touch the owner's sessions. The owner's "Weekly" authorizes that one turn a week and nothing more. Each run writes a report and exits non-zero on breaking drift, a failed turn, or a watch-list change. Where it runs is Q-A. |
+| **D43** | **Upstream: watch, don't ask (owner Q3).** The canary's free part records whether `app-server`, `generate-json-schema`, `remote-control` and the `app-server daemon` commands still carry `[experimental]`, and whether an `acp` subcommand exists. A change is reported, and acting on it needs a record. **W3's revisit trigger** is a second engine that speaks the app-server protocol, or codex shipping ACP. ACP would instead move codex onto `acpagent`. |
+| **D44** | **No runtime parsing of codex's error wording.** E4's `unknown variant` text is not parsed. The `-32601` latches (E9) stay for binaries that send that code. A method the pin lists but an installed binary lacks is breaking drift, which the drift gate and the D42 canary find, not the runtime. |
+
+### Consequences
+
+* Good, because the provider steers between its surfaces on a code, and its
+  fixtures stop claiming captures that never happened.
+* Good, because a newer codex's unknown traffic shows up in the logs, and a
+  release's breaking drift shows up within a week of publication.
+* Neutral, because one billed turn a week is spent with the owner's consent.
+* Bad, because the canary adds a scheduled job and a second `CODEX_HOME` that
+  someone has to keep logged in.
+* Bad, because W3's case is not tested here. Its trigger is recorded instead.
+
+### Confirmation
+
+1. `experimentalCapabilityRe` and the prose branches are gone once the dual-run
+   ends, and a search for `(?i)experimental` in the package's non-test code
+   finds nothing.
+2. A `-32600` to `initialize`, in the shape E3 records, restarts the engine
+   once without the opt-in. A `-32603` does not.
+3. During the dual-run, a planted disagreement (a `-32600` whose message lacks
+   "experimental") logs the disagreement Warn.
+4. Fixtures under `testdata/<version>/` are captured. The synthetic ones are
+   under `testdata/synthetic/`, with a README.
+5. An unknown notification, server request and item type each produce exactly
+   one Warn per generation, with no value in it.
+6. The canary, run against a scratch codex that lacks a pinned method, exits
+   non-zero and names it. Run against the pin, its free part passes.
+7. The first canary run reports 0.167.0's drift against the 0.166.0 pin.
+
+### Open questions for the Project Owner
+
+* **Q-A. Where the weekly canary runs.**
+  * **This Mac, under `launchd`, weekly (recommended).** It uses a dedicated
+    canary `CODEX_HOME` that the owner signs into once with `codex login`. It
+    is billed to the same plan as the owner's codex use. No credential is
+    copied, and the canary home lives outside the repository.
+  * **A scheduled GitHub Actions workflow,** with an OpenAI API key as a
+    repository secret, using `codex login --with-api-key`. It is billed to the
+    API, not the plan, and runs whether or not the Mac is on.
+  * **By hand,** `make codex-canary` once a week.
+* **Q-B. W3:** confirm "not now, with D43's trigger" (recommended), or plan the
+  extraction.
+
+The dual-run's window, "one codex release", is read here as "until the first
+codex re-pin after D39 lands has been accepted". The re-pin itself is a
+0226-style procedure with its own plan.
+
+### Relationship to other records
+
+* Supersedes in part 0163 D9 (the prose fallback). Answers 0163's open
+  question 2.
+* Builds on 0163 D3 and D19 (the drift gate and generated contract), and on
+  0226 D3 (the 0.166.0 pin).
+* This record's P1 and P17 still cite the 0.149.1 counts. The pin is 0.166.0
+  (E1). Those plan sections are history and are not rewritten.
+* GitHub issue #31 is the request. Its W1–W5 are answered by D39–D44 and Q-B.
+* The re-pin to 0.167.0 is
+  [0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md](0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md)
+  (proposed). If it lands before D39, it does not end D39's dual-run, and
+  Confirmation 7 then reports drift against the 0.167.0 pin. Its D3.4 lists
+  `conn.go`'s `capability` as a wire name with no schema source until D39
+  removes the read.

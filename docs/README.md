@@ -210,6 +210,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0108 | PLAN | Plan: Verify and pin Kilo known-good to 7.4.23 | [0108-PLAN-kilo-7.4.23-surface-parity.md](decisions/0108-PLAN-kilo-7.4.23-surface-parity.md) |
 | 0109 | MADR | Expand the Codex provider through capability-led app-server parity | [0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md](decisions/0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md) |
 | 0109 | PLAN | Plan: Implement capability-led Codex app-server parity | [0109-PLAN-expand-codex-provider-through-capability-led-app-server-parity.md](decisions/0109-PLAN-expand-codex-provider-through-capability-led-app-server-parity.md) |
+| 0109 | PLAN | Implement the 0109 amendment of 2026-11-07: retire the Codex provider's runtime guessing | [0109-PLAN-retire-codex-runtime-guessing.md](decisions/0109-PLAN-retire-codex-runtime-guessing.md) |
 | 0110 | MADR | Stop Goose keychain prompts from blocking headless launch | [0110-MADR-goose-keyring-prompts-block-headless-launch.md](decisions/0110-MADR-goose-keyring-prompts-block-headless-launch.md) |
 | 0110 | PLAN | Implement a Goose keyring-backend setting in mcremote configuration | [0110-PLAN-goose-keyring-prompts-block-headless-launch.md](decisions/0110-PLAN-goose-keyring-prompts-block-headless-launch.md) |
 | 0111 | MADR | Stabilize asynchronous receipt test teardown | [0111-MADR-stabilize-asynchronous-receipt-test-teardown.md](decisions/0111-MADR-stabilize-asynchronous-receipt-test-teardown.md) |
@@ -460,6 +461,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0234 | PLAN | Implement authenticating only an id the agent advertised, using the SDK's list | [0234-PLAN-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md](decisions/0234-PLAN-authenticate-only-an-id-the-agent-advertised-using-the-sdks-list.md) |
 | 0235 | MADR | Save the last live model catalog, and take grok's fallback from the SDK | [0235-MADR-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md](decisions/0235-MADR-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md) |
 | 0235 | PLAN | Implement saving the last live model catalog, and taking grok's fallback from the SDK | [0235-PLAN-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md](decisions/0235-PLAN-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md) |
+| 0236 | MADR | Re-pin codex to 0.167.0, and generate more of its contract from codex's own sources | [0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md](decisions/0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md) |
+| 0236 | PLAN | Implement re-pinning codex to 0.167.0, and generating more of its contract | [0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md](decisions/0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

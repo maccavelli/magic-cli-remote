@@ -1,0 +1,220 @@
+---
+status: in-progress
+date: 2026-11-07
+associated-madr: "0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md"
+---
+<!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
+
+# Implement re-pinning codex to 0.167.0, and generating more of its contract
+
+Associated MADR: [0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md](0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md)
+
+## Goal
+
+When this plan is done:
+
+* Codex's `KnownGoodVersion` and its embedded contract manifest both name 0.167.0, with a capture
+  of that release.
+* The manifest, at `schema_version` 2, carries four more generated facts:
+  * each client request's response type, read from codex's source;
+  * every enum's values;
+  * each notification's stability;
+  * a check that every name Magic decodes from the app-server has a source in the schema.
+* `thread/section/changed` is routed as a declared drop (Q1 A).
+* MCP approvals name the tool (Q2 A). Managed checkpoints stay deferred, and no experimental
+  surface is adopted (Q3 A).
+
+## Scope
+
+* **P1, the generator (D3):**
+  * `internal/provider/codex/contract_generate_test.go`, `contract.go` (the manifest types, the
+    validation at `:157`, `CompareSurfaces` at `:364`) and `contract_test.go`;
+  * `live_contract_test.go` (the enum comparison);
+  * a new `decoded_names_test.go`;
+  * `review.go:268-272` (F14);
+  * `scripts/codex-contract.ps1`, if it must pass a new input;
+  * `testdata/0.166.0/`, regenerated.
+* **P2, the re-pin (D1, D2):**
+  * `contract.go` (the three embed paths), `version.go` and `contract_test.go`;
+  * `routing.go`, plus a routing test for the two F5 shapes;
+  * `testdata/0.167.0/` (generated, new) and `testdata/0.166.0/` (deleted);
+  * `testdata/wire/0.167.0/` (new), and any test that selects frames by version.
+* **P3, adoption (D4):** `callbacks.go` and its tests, and the source-watch manifest's `_meta`
+  keys.
+* **P4, docs:**
+  * [docs/guides/ops-codex-contract.md](../guides/ops-codex-contract.md): the example command, the
+    figures, the notification-split section, and the drift-gate table's "CI" use, which nothing
+    runs (0109 amendment E10). If 0109's P0 has not fixed that first, this phase does, and
+    0109's P0 drops the item;
+  * `testdata/0.167.0/README.md`;
+  * the comment in `version.go`;
+  * `docs/README.md`'s index.
+* **Records:** this pair, its index rows, and the cross-references in the 0109 amendment and its
+  second PLAN.
+* **Not in scope:**
+  * the 0109 amendment's phases;
+  * a thread-list push (Q1 B, not chosen);
+  * `requiredHumanApproval` and every other experimental surface (Q3 A);
+  * Go type generation (MADR option C);
+  * `sandbox.filesystem_paths` (D6);
+  * the source trees under `~/gitrepos`, which are read and never written.
+
+## Constraints
+
+* **C1 — One commit per phase.** The agent stages; the owner commits with `git commit --no-edit`.
+* **C2 — Live runs only on the owner's word,** each named below:
+  * P2's capture turn: **approved**, owner 2026-11-07, "approved to probe/capture";
+  * the scratch-home probes, and `make live-codex-contract` (both modes, which spend no quota but
+    read the owner's real `CODEX_HOME`): **approved** by the same answer;
+  * `make live-codex`: not yet. It is asked for when P2 reaches it.
+* **C3 — Every new check is seen failing first,** on a scratch copy, never in the tree.
+* **C4 — Captures are read before they are committed.** Identifiers become placeholders. The
+  `config/read` answer is left out, as at 0.166.0 (0226-PLAN R3 Deviation 2). The guard's redact
+  preview runs on the tree before staging.
+* **C5 — No push without an explicit ask in the same turn.**
+* **C6 — The installed version is checked at each phase's start.** A binary that moved off
+  0.167.0 is a stop.
+* **C7 — The source tree is a scratch clone at `086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a`,**
+  made by `git clone --no-checkout --shared ~/gitrepos/codex <scratch>`, then fetching
+  `refs/tags/rust-v0.167.0` from `https://github.com/openai/codex.git` into the scratch clone
+  (MADR F1).
+
+## Implementation Steps
+
+### P1 — The generator, at the 0.166.0 pin (D3)
+
+1. **Response types from the source (D3.1).**
+   * The generator parses `client_request_definitions!` in
+     `codex-rs/app-server-protocol/src/protocol/common.rs` under `CODEX_SOURCE_TREE`. For each
+     entry it takes the method literal, the `params:` type and the `response:` type, with the
+     `v2::` or `v1::` prefix removed.
+   * Each response type must name a definition in the bundle; a missing one is fatal. Each bundle
+     client request must have a source entry; a missing one is fatal.
+   * The override map (`contract_generate_test.go:305-327`) and the name-guessing above it are
+     deleted.
+   * Seen failing on a scratch copy of `common.rs` with one entry removed.
+2. **Enum values (D3.2).**
+   * The manifest gains `enums`: a map from each definition name to its sorted string values.
+     A `oneOf` or `anyOf` whose every member is a string `enum` is flattened into one set.
+   * `CompareSurfaces` reports a removed value as breaking, and an added value as additive.
+   * Exact mode compares the maps.
+   * Seen failing on a scratch manifest with `writeStdin` removed from
+     `CommandExecutionApprovalKind`, which must be reported as breaking.
+3. **The notification split (D3.3).** Each `server_notifications` entry gains `stability`, taken
+   from the existing `#[experimental]` scan. The capture's printed totals must equal the counts in
+   the manifest.
+4. **`schema_version` 2.** The validation at `contract.go:157`, and `contract_test.go:12`, accept
+   only 2. Every other reader of the manifest moves in the same commit.
+5. **Decoded names (D3.4).** `decoded_names_test.go`:
+   * parses the package's non-test `.go` files with `go/parser`;
+   * collects the `json` tag name of every field of every struct type, including anonymous
+     structs inside functions;
+   * drops the types on an exclusion list. Each entry is keyed by file and type name, with a
+     one-line reason: an own output, `doctor --json`, the daemon's JSON, `auth.json`, or the
+     manifest;
+   * requires every remaining name to be in the manifest's recorded set of schema property names.
+     The manifest gains that set, generated from both bundles.
+
+   A short `knownOutsideSchema` list holds wire names that codex sends without a schema, each with
+   evidence. It starts with `capability` (`conn.go:98`), tied to 0109 D39. Seen failing on a
+   scratch copy with a planted field `json:"planted-name-3f9a"` in a decode struct.
+6. **The review fallback (F14).** A test feeds `reviewFallbackText` the `exitedReviewMode` item as
+   the schema defines it (`review` a string). Today's code passes it, so this test pins the
+   behaviour that stays. The object branch, `review.go:268-272`, is removed, and the decoded-name
+   check then passes without listing `body`.
+7. **Regenerate 0.166.0.** `pwsh ./scripts/codex-contract.ps1 -Version 0.166.0 -SourceCommit
+   6ff1e1ca3b30fc8b914720681fcf5fe62e95f856 -SourceTree <scratch at rust-v0.166.0>`. The diff to
+   `testdata/0.166.0/` may add only the new fields. Any change to an existing method,
+   classification or fixture is a stop.
+8. **Checks:**
+   * `go test -race ./internal/provider/codex/`, `make pre-add-check` and `make vet-tags`;
+   * `make live-codex-contract` (C2). On the 0.167.0 binary it must now also list
+     `CommandExecutionApprovalKind +humanCommand` as additive;
+   * `CODEX_CONTRACT_EXACT=1 make live-codex-contract` is expected to fail here, because the
+     binary is 0.167.0. That failure is recorded, not fixed.
+
+### P2 — Re-pin to 0.167.0 (D1, D2)
+
+1. `codex --version` must still print `codex-cli 0.167.0` (C6).
+2. **The contract:** `pwsh ./scripts/codex-contract.ps1 -Version 0.167.0 -SourceCommit
+   086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a -SourceTree <scratch, C7> -DryRun`, then without
+   `-DryRun`. Expected:
+   * stable 106/86/10 and experimental 180/86/11 (MADR F3);
+   * an empty `installed_delta`;
+   * one notification more than 0.166.0's split, and it is stable.
+3. The three embed directives name `testdata/0.167.0/`. `KnownGoodVersion = "0.167.0"`, with its
+   comment naming the new capture. `testdata/0.166.0/` is removed with `git rm -r`. Its README's
+   notes are carried forward where they still hold, each re-checked against 0.167.0.
+   `contract_test.go` asserts 0.167.0's version, digest, counts and commit.
+4. **Route `thread/section/changed` (Q1 A).**
+   * It joins the provider route table and the declared-drop case in
+     `handleProviderNotification`, with a comment naming this record.
+   * A test feeds both F5 shapes (a section id, and `null`) and requires the declared drop.
+   * The generator is re-run, because the classification is derived from `routing.go`.
+5. **The capture (live, C2).**
+   * One short turn, run as 0.166.0's was, with the initialize answer and the turn's frames,
+     into a scratch directory.
+   * The frames are read under C4, then committed as `testdata/wire/0.167.0/` with a `meta.json`
+     in the 0.166.0 one's form. That `meta.json` says what was replaced and what was left out.
+   * Any test that selects frames by version follows, selecting them by shape.
+6. **Checks:**
+   * `TestPinMatchesTheFixtureItCites` and the token-usage test, against 0.167.0;
+   * `go test -race ./...`, `make pre-add-check` and `make vet-tags`;
+   * `make live-codex-contract`, and `CODEX_CONTRACT_EXACT=1 make live-codex-contract`;
+   * `make live-codex` (C2).
+
+### P3 — Adoption (D4)
+
+* **MCP approvals name the tool (Q2 A):**
+  * `mcpServer/elicitation/request` decodes `_meta.tool_name`, `tool_title`, `connector_name`
+    and `tool_annotations.destructiveHint`.
+  * The sheet's detail reads "<connector or server>: <tool title> (<tool name>)". It adds "This
+    tool can change or delete data" when `destructiveHint` is true.
+  * Missing keys fall back to today's text.
+  * The key names join the source-watch manifest, scanned from
+    `codex-rs/protocol/src/mcp_approval_meta.rs` at the tag.
+  * A test with all four keys, and one with none, are seen failing on today's code (the first),
+    and passing (the second).
+* **Managed checkpoints (Q3 A):** nothing.
+* **Checks:** as P2's static checks. `make live-codex` again only if P3 changed the callback path,
+  and only on the owner's word.
+
+### P4 — Docs
+
+1. Update `ops-codex-contract.md`:
+   * the example command to 0.167.0 and its commit;
+   * the figures, giving 0.167.0's beside 0.166.0's;
+   * withdraw the "treat 'stable notification' as 'declared'" caveat (D3.3);
+   * describe the enum gate and the decoded-name check under "What the generator derives";
+   * replace "CI" in the drift-gate table with the hosts that actually run it.
+2. The `version.go` comment, and the 0.167.0 README, name this record.
+3. `python3 scripts/check_records.py --write-index`; `make check-records markdownlint-docs`.
+
+### P5 — Records
+
+* Each phase's execution record, with output quoted and deviations dated.
+* The guard's redact preview, run from the repo root before staging.
+* The guard over the outgoing range before the owner pushes.
+
+## Verification
+
+| # | Criterion | MADR |
+| :--- | :--- | :--- |
+| V1 | The regenerated 0.166.0 manifest differs from the committed one only by the new fields | Confirmation 1 |
+| V2 | The override map is gone, and every response type resolves from `common.rs` | D3.1 |
+| V3 | The enum, source-declaration and decoded-name checks were each seen failing on a scratch copy | Confirmation 2 |
+| V4 | `live-codex-contract` lists `humanCommand` as additive against the 0.166.0 pin | D3.2, F4 |
+| V5 | `KnownGoodVersion` and the manifest both say 0.167.0, and `testdata/0.166.0/` is gone | D1 |
+| V6 | Both gate modes pass against 0.167.0, and `make live-codex` passes | Confirmation 3 |
+| V7 | `thread/section/changed` is routed, and both F5 shapes are tested | D2, Confirmation 4 |
+| V8 | The MCP sheet names the tool, and the test failed first | D4, Confirmation 5 |
+| V9 | Race, lint, vet-tags, records and markdownlint pass, and the guard previews are clean | Confirmation 6 |
+
+## Rollout and Rollback
+
+* P1 changes no runtime behaviour except F14's dead branch, which the schema says cannot be taken.
+  Rolling it back is reverting its commit and regenerating at `schema_version` 1.
+* P2 is one commit. A version off its pin warns and never refuses, so reverting it returns the
+  0.166.0 pin without stopping a 0.167.0 binary from running.
+* P3 changes daemon text only (Q2 A). Reverting it restores the server-name-only sheet.
+* Nothing here changes the phone protocol (Q1 A, Q3 A).
