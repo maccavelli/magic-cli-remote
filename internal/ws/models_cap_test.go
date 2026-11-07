@@ -3,9 +3,11 @@ package ws
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
+	"github.com/maccavelli/magic-cli-remote/internal/picker/saved"
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
 )
 
@@ -29,6 +31,28 @@ func TestCapCatalogOptions(t *testing.T) {
 	}
 	if !body.Truncated {
 		t.Fatal("truncation was silent")
+	}
+}
+
+// TestSavedCatalogsKeepTheTransportCap: a saved catalog keeps no more rows
+// than a models.list reply can carry (MADR 0235 D1).
+func TestSavedCatalogsKeepTheTransportCap(t *testing.T) {
+	if saved.MaxOptions != maxCatalogOptions {
+		t.Fatalf("saved.MaxOptions = %d, want the transport cap %d", saved.MaxOptions, maxCatalogOptions)
+	}
+}
+
+// TestASavedCatalogIsSentAsSaved: the reply names a saved catalog's source,
+// which the phone labels "Saved catalog" (MADR 0235 D2).
+func TestASavedCatalogIsSentAsSaved(t *testing.T) {
+	body := protocol.ModelsResultFromCatalog("stub", picker.SingleCatalog(
+		picker.SourceSaved, []picker.Option{{ID: "a"}}, "a", true))
+	b, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"source":"saved"`) {
+		t.Fatalf("reply = %s, want \"source\":\"saved\"", b)
 	}
 }
 

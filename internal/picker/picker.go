@@ -31,6 +31,9 @@ const (
 	SourceStatic Source = "static"
 	// SourceMerged combines live and static (live wins on id collision).
 	SourceMerged Source = "merged"
+	// SourceSaved is the last live catalog this host's agent gave, saved on
+	// disk and served when the agent cannot answer (MADR 0235 D1, D2).
+	SourceSaved Source = "saved"
 )
 
 // Option is one selectable row in a picker.

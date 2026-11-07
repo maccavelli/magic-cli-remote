@@ -23,6 +23,7 @@ type Paths struct {
 	RuntimeDir        string // instance-keyed
 	AdminSocket       string
 	EngineRegistryDir string
+	CatalogDir        string // instance-keyed saved model catalogs (MADR 0235 D1)
 	TempBase          string
 	InstanceKey       string
 }
@@ -99,6 +100,7 @@ func Resolve(product Product, roots Roots, dataDirOverride string) (Paths, error
 	p.RuntimeDir = filepath.Join(p.RuntimeBase, key)
 	p.AdminSocket = filepath.Join(p.RuntimeDir, "admin.sock")
 	p.EngineRegistryDir = filepath.Join(p.StateDir, "instances", key, "engines")
+	p.CatalogDir = filepath.Join(p.CacheDir, "instances", key, "catalogs")
 	return p, nil
 }
 
@@ -120,6 +122,7 @@ func WithDataDir(p Paths, dataDir string) (Paths, error) {
 	p.RuntimeDir = filepath.Join(p.RuntimeBase, key)
 	p.AdminSocket = filepath.Join(p.RuntimeDir, "admin.sock")
 	p.EngineRegistryDir = filepath.Join(p.StateDir, "instances", key, "engines")
+	p.CatalogDir = filepath.Join(p.CacheDir, "instances", key, "catalogs")
 	return p, nil
 }
 

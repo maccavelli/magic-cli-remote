@@ -60,6 +60,30 @@ func TestResolveDefaults(t *testing.T) {
 	}
 }
 
+// TestCatalogDirIsPerInstance: saved model catalogs live in the cache
+// directory, under the instance key, so two daemons with different data
+// directories never share one (MADR 0235 D1).
+func TestCatalogDirIsPerInstance(t *testing.T) {
+	r := testRoots(t)
+	a, err := Resolve(ProductMcremote, r, filepath.Join(r.Home, "data-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := WithDataDir(a, filepath.Join(r.Home, "data-b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, p := range map[string]Paths{"Resolve": a, "WithDataDir": b} {
+		want := filepath.Join(p.CacheDir, "instances", p.InstanceKey, "catalogs")
+		if p.CatalogDir != want {
+			t.Errorf("%s: CatalogDir = %q, want %q", name, p.CatalogDir, want)
+		}
+	}
+	if a.CatalogDir == b.CatalogDir {
+		t.Errorf("two data directories share CatalogDir %q", a.CatalogDir)
+	}
+}
+
 func TestResolveDataDirOverride(t *testing.T) {
 	r := testRoots(t)
 	custom := filepath.Join(r.Home, "custom-data")
