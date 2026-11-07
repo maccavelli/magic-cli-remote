@@ -434,24 +434,43 @@ func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 		live, err = p.spec.ListModels(ctx, p.cfg)
 		if err != nil {
 			p.log.Debug("list models live failed; using static", slog.String("err", err.Error()))
-			return static, nil
+			return p.fallbackCatalog(static), nil
 		}
 	default:
 		harvested, ok := p.harvestCatalog(ctx)
 		if !ok {
-			return static, nil
+			return p.fallbackCatalog(static), nil
 		}
 		live = harvested
 	}
 
 	if len(live.Options) == 0 {
-		return static, nil
+		return p.fallbackCatalog(static), nil
 	}
 	// A live catalog is authoritative and must not be padded with the static
 	// floor. Static is the fallback for having no agent, not a supplement to
 	// having one. AllowCustom keeps an older install's ids typeable
-	// (MADR 0043 D7 / 0081).
+	// (MADR 0043 D7 / 0081). A saved catalog is this host's agent's own last
+	// answer: it stands where the static list would, and is never mixed into
+	// a live one (MADR 0235 D1).
 	return withCatalogDefault(live.Normalize(), p.cfg.Model), nil
+}
+
+// fallbackCatalog is what ListModels serves when the agent cannot answer: its
+// last live catalog on this host when one is saved, else static (MADR 0235
+// D1). A configured model still wins the default.
+func (p *Provider) fallbackCatalog(static picker.Catalog) picker.Catalog {
+	if c, ok := p.cfg.SavedCatalogs.Load(string(p.spec.ID)); ok {
+		return withCatalogDefault(c.Normalize(), p.cfg.Model)
+	}
+	return static
+}
+
+// saveCatalog keeps a live catalog the agent gave, for fallbackCatalog. The
+// store drops anything not live or empty, and never writes on this goroutine,
+// so a caller may hold a lock.
+func (p *Provider) saveCatalog(c picker.Catalog) {
+	p.cfg.SavedCatalogs.Save(string(p.spec.ID), p.EngineVersion(), c)
 }
 
 // withCatalogDefault makes a configured model authoritative for the picker's
@@ -1476,6 +1495,10 @@ func (p *Provider) applyInitializeResponse(s *session, initResp acp.InitializeRe
 	}
 
 	p.reportEngineVersion(&initResp, info.Version)
+	// After the version is known, so the saved file records it (MADR 0235 D1).
+	if info.Models != nil {
+		p.saveCatalog(*info.Models)
+	}
 
 	s.agentCaps = initResp.AgentCapabilities
 	s.log.Info("acp initialized",

@@ -72,7 +72,9 @@ func Descriptor() provider.Descriptor {
 		Section: func() config.ProviderSection { return defaultSection() },
 		Floor:   &provider.VersionFloor{Min: MinVersion, UpgradeURL: UpgradeURL},
 		New: func(b provider.Build) provider.Provider {
-			return NewACPWithLogger(b.Section.(*Section).providerConfig(), b.Log)
+			cfg := b.Section.(*Section).providerConfig()
+			cfg.SavedCatalogs = b.SavedCatalogs
+			return NewACPWithLogger(cfg, b.Log)
 		},
 	}
 }

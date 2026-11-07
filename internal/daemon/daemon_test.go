@@ -1,14 +1,19 @@
 package daemon
 
 import (
+	"context"
 	"crypto/tls"
+	"path/filepath"
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
+	"github.com/maccavelli/magic-cli-remote/internal/picker/saved"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 )
 
 func TestEventHubBroadcastNilServerNoPanic(t *testing.T) {
@@ -76,6 +81,47 @@ func TestBuildBaseCarriesTheRuntimeDirAndVersion(t *testing.T) {
 	b := buildBase(cfg, "9.9.9", nil)
 	if b.RuntimeDir != "/run/mcremote-under-test" || b.Version != "9.9.9" {
 		t.Fatalf("build base = %+v", b)
+	}
+}
+
+// TestRunBaseCarriesTheSavedCatalogs: the running daemon's providers get the
+// instance's saved-catalog store, and the inspecting base gets none
+// (MADR 0235 D1).
+func TestRunBaseCarriesTheSavedCatalogs(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Paths.CatalogDir = filepath.Join(t.TempDir(), "catalogs")
+	if runBase(cfg, "9.9.9", nil).SavedCatalogs == nil {
+		t.Error("runBase has no saved-catalog store")
+	}
+	if buildBase(cfg, "9.9.9", nil).SavedCatalogs != nil {
+		t.Error("buildBase, which doctor uses, has a saved-catalog store")
+	}
+}
+
+// TestInspectProvidersUsesNoSavedCatalog: mcremote doctor builds providers
+// without the store, so a saved catalog on disk is not what its grok lists,
+// and nothing it does can write one (MADR 0235 D1).
+func TestInspectProvidersUsesNoSavedCatalog(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "catalogs")
+	seed := saved.Open(dir, nil)
+	seed.Save("grok", "", picker.SingleCatalog(picker.SourceLive, []picker.Option{{ID: "saved-model"}}, "", true))
+	seed.Flush()
+
+	cfg := config.Defaults()
+	cfg.Paths.CatalogDir = dir
+	sec := grok.Descriptor().Section().(*grok.Section)
+	sec.Bin = filepath.Join(t.TempDir(), "no-grok")
+	cfg.Providers.Sections = config.ProviderSections{"grok": sec}
+	p, err := InspectProviders(cfg, "test", nil).Get(provider.IDGrok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.(provider.ModelCatalog).ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != picker.SourceStatic {
+		t.Fatalf("doctor's grok lists a %q catalog, want static: it read the saved one", got.Source)
 	}
 }
 

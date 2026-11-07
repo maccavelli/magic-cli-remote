@@ -1,6 +1,10 @@
 package acpagent
 
-import "time"
+import (
+	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/picker/saved"
+)
 
 // McpTransport identifies how an MCP server is reached.
 type McpTransport string
@@ -103,6 +107,10 @@ type Config struct {
 	// ClientVersion is the daemon's own version, sent to the agent as
 	// clientInfo.version at initialize (MADR 0184 D4). Empty sends "dev".
 	ClientVersion string
+	// SavedCatalogs keeps the agent's last live model catalog, served where
+	// the static list was when the agent cannot answer. Nil keeps none
+	// (MADR 0235 D1).
+	SavedCatalogs *saved.Store
 }
 
 // StreamCoalesceWindow reports the streaming-text coalescing window, defaulting

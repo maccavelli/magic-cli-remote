@@ -137,7 +137,9 @@ func Descriptor() provider.Descriptor {
 		},
 		New: func(b provider.Build) provider.Provider {
 			s := b.Section.(*Section)
-			gp := NewWithLogger(s.providerConfig(b.Version), b.Log)
+			cfg := s.providerConfig(b.Version)
+			cfg.SavedCatalogs = b.SavedCatalogs
+			gp := NewWithLogger(cfg, b.Log)
 			if b.Credentials == nil {
 				return gp
 			}

@@ -292,15 +292,14 @@ type modelListPage struct {
 // thread one — so codex supports pre-session model selection like every other
 // provider.
 func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
-	fallback := picker.SingleCatalog(picker.SourceStatic, nil, p.cfg.Model, true)
 	if _, err := p.ensureEngine(ctx); err != nil {
 		p.log.Warn("list models: engine unavailable", slog.String("err", err.Error()))
-		return fallback, nil
+		return p.fallbackCatalog(), nil
 	}
 	fr := p.framer()
 	if fr == nil {
 		p.log.Warn("list models: engine not running")
-		return fallback, nil
+		return p.fallbackCatalog(), nil
 	}
 	cat, recs, err := collectModels(ctx, fr.sendReadOnlyRequest, p.cfg.Model, p.log)
 	if err == nil && len(recs) > 0 {
@@ -308,7 +307,33 @@ func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 		p.models = recs
 		p.mu.Unlock()
 	}
-	return cat, err
+	return p.withSavedCatalog(cat), err
+}
+
+// withSavedCatalog keeps a live model list codex gave, and serves the saved
+// one in place of collectModels' own empty fallback (MADR 0235 D1).
+func (p *Provider) withSavedCatalog(cat picker.Catalog) picker.Catalog {
+	switch cat.Source {
+	case picker.SourceLive:
+		p.cfg.SavedCatalogs.Save(string(p.ID()), p.EngineVersion(), cat)
+	case picker.SourceStatic:
+		return p.fallbackCatalog()
+	}
+	return cat
+}
+
+// fallbackCatalog is what ListModels serves when codex cannot answer: its
+// last live list on this host when one is saved, else an empty list a model
+// can be typed into. The configured model still wins the default
+// (MADR 0235 D1).
+func (p *Provider) fallbackCatalog() picker.Catalog {
+	if c, ok := p.cfg.SavedCatalogs.Load(string(p.ID())); ok {
+		if p.cfg.Model != "" {
+			c.DefaultIDs = []string{p.cfg.Model}
+		}
+		return c.Normalize()
+	}
+	return picker.SingleCatalog(picker.SourceStatic, nil, p.cfg.Model, true)
 }
 
 func (p *Provider) cachedModels() []modelRecord {

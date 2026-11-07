@@ -99,7 +99,9 @@ func Descriptor() provider.Descriptor {
 		Name:    "kilo",
 		Section: func() config.ProviderSection { return defaultSection() },
 		New: func(b provider.Build) provider.Provider {
-			return NewHTTPWithLogger(b.Section.(*Section).providerConfig(), b.Log)
+			cfg := b.Section.(*Section).providerConfig()
+			cfg.SavedCatalogs = b.SavedCatalogs
+			return NewHTTPWithLogger(cfg, b.Log)
 		},
 	}
 }

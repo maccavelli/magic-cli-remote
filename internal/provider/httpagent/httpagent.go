@@ -26,6 +26,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
+	"github.com/maccavelli/magic-cli-remote/internal/picker/saved"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
@@ -66,6 +67,10 @@ type Config struct {
 	// defaultStreamCoalesce; an explicit 0 disables coalescing entirely
 	// (exact pre-0024 behaviour, one event per token).
 	StreamCoalesce *time.Duration
+	// SavedCatalogs keeps the engine's last live default model catalog,
+	// served where the static list was when the engine cannot answer. Nil
+	// keeps none (MADR 0235 D1).
+	SavedCatalogs *saved.Store
 }
 
 // StreamCoalesceWindow reports the streaming-text coalescing window, defaulting

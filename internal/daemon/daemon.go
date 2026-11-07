@@ -23,6 +23,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/debugserve"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker/saved"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
@@ -63,6 +64,15 @@ func InspectProviders(cfg config.Config, version string, log *slog.Logger) *prov
 // InspectProviders share it, so they cannot drift.
 func buildBase(cfg config.Config, version string, log *slog.Logger) provider.Build {
 	return provider.Build{Version: version, RuntimeDir: cfg.Paths.RuntimeDir, Log: log}
+}
+
+// runBase is buildBase with the instance's saved model catalogs, which only
+// the running daemon reads and writes: InspectProviders keeps buildBase, so
+// mcremote doctor touches none (MADR 0235 D1).
+func runBase(cfg config.Config, version string, log *slog.Logger) provider.Build {
+	b := buildBase(cfg, version, log)
+	b.SavedCatalogs = saved.Open(cfg.Paths.CatalogDir, log)
+	return b
 }
 
 // registerDescribed builds and registers each enabled provider of the
@@ -241,7 +251,14 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 
-	described := registerDescribed(reg, cfg, buildBase(cfg, opts.Version, log),
+	base := runBase(cfg, opts.Version, log)
+	if base.SavedCatalogs == nil {
+		log.Info("no catalog directory; model pickers have no saved catalogs")
+	}
+	// Deferred before the spares' shutdown, so it runs after it: a catalog
+	// saved just before the daemon stops still reaches the disk.
+	defer base.SavedCatalogs.Flush()
+	described := registerDescribed(reg, cfg, base,
 		func(id provider.ID) (*providerauth.Coordinator, func() int) {
 			if c := guard.coordinator(string(id)); c != nil {
 				return c, busyFor(id)

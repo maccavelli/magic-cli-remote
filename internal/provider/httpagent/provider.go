@@ -194,8 +194,11 @@ func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 		if err != nil {
 			p.log.Debug("list models: live unavailable; static catalog",
 				slog.String("err", err.Error()))
-			return static, nil
+			return p.fallbackModels(static), nil
 		}
+		// Before any merge, so what is saved is the engine's own list
+		// (MADR 0235 D1). The store drops an empty one.
+		p.cfg.SavedCatalogs.Save(string(p.ID()), p.EngineVersion(), live)
 		// Config is the daemon operator's pre-session policy. A live engine
 		// catalog supplies options and labels, but its own default must not
 		// make the picker claim a different model than Start will actually use.
@@ -213,6 +216,16 @@ func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 		merged := picker.MergeLiveStatic(live, static)
 		return withConfiguredDefault(merged, p.cfg.Model), nil
 	})
+}
+
+// fallbackModels is what ListModels serves when the engine cannot answer: its
+// last live default catalog on this host when one is saved, else static
+// (MADR 0235 D1). The configured model still wins the default.
+func (p *Provider) fallbackModels(static picker.Catalog) picker.Catalog {
+	if c, ok := p.cfg.SavedCatalogs.Load(string(p.ID())); ok {
+		return withConfiguredDefault(c.Normalize(), p.cfg.Model)
+	}
+	return static
 }
 
 // ListModelProviders implements [provider.ModelProviderCatalog].

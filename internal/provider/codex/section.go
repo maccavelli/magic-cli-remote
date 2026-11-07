@@ -316,6 +316,7 @@ func Descriptor() provider.Descriptor {
 		},
 		New: func(b provider.Build) provider.Provider {
 			conf := b.Section.(*Section).providerConfig(b.RuntimeDir)
+			conf.SavedCatalogs = b.SavedCatalogs
 			// The coordinated constructor differs only by carrying a credential
 			// coordinator; every other behaviour is identical, which keeps the
 			// activation a wiring change rather than a second code path.

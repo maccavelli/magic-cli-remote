@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/picker/saved"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
 
@@ -52,6 +53,10 @@ type Build struct {
 	// Busy reports how many of the provider's sessions are live, for a
 	// credential activation to ask; nil with no Credentials.
 	Busy func() int
+	// SavedCatalogs holds each provider's last live model catalog. It is nil
+	// when the daemon is only inspecting (mcremote doctor), so no saved
+	// catalog is read or written (MADR 0235 D1).
+	SavedCatalogs *saved.Store
 }
 
 // SectionSpec is d's section in the form config.Load takes.

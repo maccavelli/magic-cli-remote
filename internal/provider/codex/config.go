@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/picker/saved"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -73,6 +74,9 @@ type Config struct {
 	Environments                  []provider.ExecutionEnvironment
 	StandaloneProcessesEnabled    bool
 	StandaloneProcessEnvAllowlist []string
+	// SavedCatalogs keeps codex's last live model list, served when codex
+	// cannot answer. Nil keeps none (MADR 0235 D1).
+	SavedCatalogs *saved.Store
 }
 
 func (c Config) validated() (Config, error) {

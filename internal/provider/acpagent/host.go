@@ -313,6 +313,7 @@ func (s *session) SetModelCatalog(cat picker.Catalog) {
 	s.provider.catalogCache = cat
 	s.provider.catalogHas = true
 	s.provider.catalogMu.Unlock()
+	s.provider.saveCatalog(cat)
 }
 
 // AwaitPermission implements [Host].
