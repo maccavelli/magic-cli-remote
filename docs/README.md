@@ -346,7 +346,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0176 | MADR | MADR 0004: Phase 2 — Grok ACP provider | [0176-MADR-phase-2-grok-acp-provider.md](decisions/0176-MADR-phase-2-grok-acp-provider.md) |
 | 0177 | REPORT | Phase 3 Plan: Flutter Android Client Assessment & Scaffolding | [0177-REPORT-flutter-android-client-assessment.md](../apps/mobile/docs/reports/0177-REPORT-flutter-android-client-assessment.md) |
 | 0178 | REPORT | Magic CLI Remote — Mobile UX/UI Assessment & Research | [0178-REPORT-mobile-ux-assessment.md](../apps/mobile/docs/reports/0178-REPORT-mobile-ux-assessment.md) |
-| 0179 | MADR | Register gobble as a native ACP provider: a thin Spec over the shared adapter, two `_gobble/*` operations on gobble's `acpext` types, phone provider-auth, and no client files or terminals | [0179-MADR-gobble-native-acp-provider.md](decisions/0179-MADR-gobble-native-acp-provider.md) |
+| 0179 | MADR | Register gobble as a native ACP provider: a thin Spec on gobble v0.2.0 and acpext v0.1.0, phone auth through gobble's own CLI, and a credential-aware handshake | [0179-MADR-gobble-native-acp-provider.md](decisions/0179-MADR-gobble-native-acp-provider.md) |
 | 0179 | PLAN | Implement registering gobble as a native ACP provider | [0179-PLAN-gobble-native-acp-provider.md](decisions/0179-PLAN-gobble-native-acp-provider.md) |
 | 0179 | REPORT | gobble native ACP integration assessment | [0179-REPORT-gobble-native-acp-integration-assessment.md](../docs/reports/0179-REPORT-gobble-native-acp-integration-assessment.md) |
 | 0180 | MADR | Close 0175 leftovers and make docs gates fail the merge | [0180-MADR-check-records-is-a-preflight-and-ci-gate.md](decisions/0180-MADR-check-records-is-a-preflight-and-ci-gate.md) |
