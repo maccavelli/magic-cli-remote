@@ -176,9 +176,9 @@ All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
 | `MCRELAY_LIMITS_SPLICE_IDLE_SECONDS` | `limits.splice_idle_seconds` | Silence before ending splice (R15); `-1` disables |
 | `MCRELAY_LIMITS_SPLICE_MAX_SECONDS` | `limits.splice_max_seconds` | Max splice lifetime (R15); `-1` disables |
 
-Most of these are also listed as commented `Environment=` lines in
-[deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.user.service);
-`MCRELAY_LIMITS_MAX_CONNS` is not.
+Every one of these is also listed as a commented `Environment=` line in
+[deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.user.service).
+`TestDeployRelayUnitNamesEveryRelayVariable` keeps it that way.
 
 ### Examples
 

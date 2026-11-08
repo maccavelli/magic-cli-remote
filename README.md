@@ -1413,7 +1413,7 @@ See **[docs/guides/config-mcrelay.md](docs/guides/config-mcrelay.md)** for every
 | Method | Path |
 |--------|------|
 | **User service (preferred)** | `mcremote --setup-service` — embedded template (`internal/cli/service/mcremote.user.service.tmpl`) |
-| User unit example | [deploy/systemd/mcremote.user.service](deploy/systemd/mcremote.user.service) — mirrors embedded unit (`Restart=always`, hardening, config-driven listen) |
+| User unit example | [deploy/systemd/mcremote.user.service](deploy/systemd/mcremote.user.service) — mirrors the embedded unit (`Restart=always`, hardening, config-driven listen), except `Type=simple` where the template has `Type=notify` |
 | System-wide unit | [deploy/systemd/mcremote.service](deploy/systemd/mcremote.service) |
 | launchd agent (mcremote) | [deploy/launchd/com.magiccliremote.mcremote.plist](deploy/launchd/com.magiccliremote.mcremote.plist) |
 | launchd agent (mcrelay) | [deploy/launchd/com.magiccliremote.mcrelay.plist](deploy/launchd/com.magiccliremote.mcrelay.plist) |

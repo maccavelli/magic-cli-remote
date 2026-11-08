@@ -268,3 +268,20 @@ Scripts and logs are in the session scratchpad (`0240-p1-failfirst.log`, `p2_pla
   * The redact preview: 0 files.
 * **Staged together**, so `master` never carries a failing test: `deployunits_test.go`, the two deploy user units,
   and this plan.
+
+The owner committed and pushed P1 and P2, and approved P3: "committed, pushed, proceed".
+
+### P3 — 2026-11-08: the docs
+
+* **`ops-mcrelay.md`**, after the manual-unit line: "If you copied a manual unit before MADR 0240", with step 1's
+  three parts (the mcrelay 218 fix, by deleting the two lines or by `setup-service --force`; the `/cache` lines in
+  either unit; reload, restart and the check). One line says to use `mcremote` in place of `mcrelay` for that unit.
+* **`config-mcrelay.md`:** "Every one of these is also listed…", naming the test that keeps it true.
+* **`README.md`:** the Deploy row now reads "mirrors the embedded unit (…), except `Type=simple` where the template
+  has `Type=notify`".
+* **Checks:** `make check-records markdownlint-docs`. The first run failed with two MD004 errors, because the new
+  bullets used `*` and the guide uses `-`. After the fix: exit 0, 0 issues in 59 files. The redact preview: 0 files.
+* **Deviation, 2026-11-08: the journal check gains `--since "-5min"`.** Step 1 had
+  `journalctl --user -u mcrelay | grep 218`. On a host that hit the bug, the journal still holds the old 218 lines,
+  so that check would fail after a correct fix. The note runs the check over the last five minutes and says why.
+  This changes no decision and no fact in the MADR.

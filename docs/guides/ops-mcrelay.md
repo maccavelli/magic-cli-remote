@@ -82,6 +82,25 @@ loginctl enable-linger "$USER"   # keep running after logout (default from setup
 
 Manual unit: [deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.user.service).
 
+**If you copied a manual unit before
+[MADR 0240](../decisions/0240-MADR-make-the-shipped-user-units-match-the-templates-and-gate-them.md):**
+
+- **mcrelay:** the old copy set `PrivateDevices=true` and `RestrictNamespaces=true`, so the unit never starts. It
+  restarts in a loop with `status=218/CAPABILITIES`. Delete both lines from
+  `~/.config/systemd/user/mcrelay.service`, or replace the file with `mcrelay setup-service --force`.
+- **Either manual unit:** delete the `Environment=GOCACHE=/cache/go` and `Environment=GOTMPDIR=/cache/tmp` lines.
+  Agents inherit them, and their Go commands fail on a host where `/cache` is not writable.
+
+Then reload and restart, and check. For the mcremote unit, use `mcremote` in place of `mcrelay`. The `--since`
+window keeps journal lines from before the fix out of the check:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart mcrelay
+systemctl --user is-active mcrelay                # want: active
+journalctl --user -u mcrelay --since "-5min" | grep 218   # want: no output
+```
+
 An existing unit does **not** pick up template changes — 0091 hardening (slim
 `PATH`, `UMask=0077`, `RestrictAddressFamilies`), or the 0099 F4a removal of
 `PrivateDevices=`/`RestrictNamespaces=` that made the unit unstartable — until
