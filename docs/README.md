@@ -466,6 +466,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0237 | REPORT | Grok Build 1.0.77 surface vs the magic-cli-remote grok provider | [0237-REPORT-grok-1.0.77-surface-and-magic-provider.md](../docs/reports/0237-REPORT-grok-1.0.77-surface-and-magic-provider.md) |
 | 0238 | MADR | Tolerate server pushes that arrive before the auth reply | [0238-MADR-tolerate-pushes-before-the-auth-reply.md](decisions/0238-MADR-tolerate-pushes-before-the-auth-reply.md) |
 | 0238 | PLAN | Implement tolerating server pushes that arrive before the auth reply | [0238-PLAN-tolerate-pushes-before-the-auth-reply.md](decisions/0238-PLAN-tolerate-pushes-before-the-auth-reply.md) |
+| 0239 | MADR | Audit the open records and the guides against the tree, 2026-11 | [0239-MADR-audit-record-statuses-and-docs-accuracy-2026-11.md](decisions/0239-MADR-audit-record-statuses-and-docs-accuracy-2026-11.md) |
+| 0239 | PLAN | Implement the November 2026 audit of the open records and the guides | [0239-PLAN-audit-record-statuses-and-docs-accuracy-2026-11.md](decisions/0239-PLAN-audit-record-statuses-and-docs-accuracy-2026-11.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
