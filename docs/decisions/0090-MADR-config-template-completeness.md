@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-08-15
+status: accepted
+date: 2026-11-08
 decision-makers: [Project Owner]
 consulted: [Implementer]
 informed: [Operators installing mcremote via setup-service]
@@ -312,3 +312,12 @@ record.
 * 0073 already flagged `permission_mode: ""` and the `SetDefault`
   holes: `docs/0073-MADR-goose-prompt-hang-and-debug-pass.md` §6
   findings 3–4.
+
+## Status note — 2026-11-08
+
+~~`proposed`~~ `accepted`, inferred from shipped work, under 0200's rule as the owner confirmed it on 2026-11-08.
+D1 to D5 shipped with the template parity test (`internal/cli/service/template_parity_test.go`). D6, the viper
+`SetDefault` holes, shipped through 0201 D23 (`84011354`; `internal/config/load.go:310-318`, and
+`internal/config/env_limits_test.go`). The PLAN stays `in-progress` for two documentation leftovers.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).

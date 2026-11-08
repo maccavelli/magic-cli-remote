@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-09-05
+date: 2026-11-08
 associated-madr: "0143-MADR-ci-retries-once-and-records-every-retry.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD033 MD036 MD060 -->
@@ -511,3 +511,17 @@ reaches `master` without review.
 
 * [ ] Recount the failure rate 30 days after Phase 3
 * [ ] Record the result in the MADR as an amendment, whichever way it went
+
+## Status note — 2026-11-08
+
+Status kept: `in-progress`. The Task Checklist lags the code in two places:
+
+* `Go (linux/arm64)` already retries and records. It shares the `go-native` matrix's retry step with
+  `Go (windows/amd64)` (`.github/workflows/ci.yml:265`), as Phase 1's own checklist line says, and the ledger
+  holds a linux/arm64 row (`42442989254`).
+* The job the checklist calls `Go (test; build on tag)` is now named `Go (test)` (`ci.yml:43`).
+
+What remains: Phase 3 for `Go (test)` (a plain `go test -race`, `ci.yml:147`) and both Flutter jobs, and its
+green-run check; Phase 4's threshold query; Phase 5's re-measurement.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).

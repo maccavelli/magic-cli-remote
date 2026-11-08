@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-30
+date: 2026-11-08
 associated-madr: "0217-MADR-update-every-pin-to-its-current-release.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -2339,3 +2339,13 @@ v1.28.0"). `make check-libs` on it: exit 0, `acp-go-sdk2` "pinned v1.34.2, check
 checking v1.28.0", every check ok, "0 failing checks; scratch removed"
 (`p3g-make-check-libs.log` in the session scratchpad). It is the first `make check-libs` run to
 include `go-llmprovider-sdk` from the committed `check_libs.json` (Deviation 23).
+
+## Status note — 2026-11-08
+
+Status kept: `in-progress`. P3g, the last moving phase, landed as `18d3d443`. One step remains, as the acceptance
+text says: the owner's commit of the Linux test host's dotfiles change (`00-paths.sh` and the `mcremote`
+`path.conf` drop-in). The owner confirmed on 2026-11-08 that it is not committed yet. A5's words "No direct Go
+module is behind" predate D4's 2026-11-04 amendment, which limits moves to sibling libraries: `spf13/pflag` is
+held at v1.0.10 (v1.1.0 exists) under that amendment, so A5 reads as amended by D4.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).

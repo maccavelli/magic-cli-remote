@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-09-21
+date: 2026-11-08
 ---
 
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -1536,3 +1536,11 @@ go vet ./internal/provider/codex/                                          -> ex
 go test -count=1 ./internal/provider/codex/                                -> ok (27.4 s, before the reflow)
 go test -count=1 -run Contract ./internal/provider/codex/                  -> ok (after the reflow)
 ```
+
+## Status note — 2026-11-08
+
+Status kept: `in-progress`. Every phase and acceptance criterion is met, and the billed release 3 acceptance ran
+on 2026-09-21. The one remaining item is the manual phone pass in Rollout. The plan's codex pin has since moved
+twice, under 0226 and 0236 (0.167.0); that does not reopen this plan.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).

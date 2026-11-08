@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-10-23
+status: accepted
+date: 2026-11-08
 decision-makers: Project Owner
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -81,3 +81,11 @@ authored documentation.
 After implementation, verify the new Codex pointer is byte-identical to the
 skill template, the existing records and Markdown gates succeed, and a planted
 broken link in a scratch copy makes the records gate fail.
+
+## Status note — 2026-11-08
+
+~~`proposed`~~ `accepted`. The owner's approval is on record: its PLAN reads "Execution started 2026-10-23 after
+owner approval", and the work landed in `88d37d1c` (`.codex/rules`, and `.markdownlint-cli2.jsonc` excluding the
+asset metadata). The PLAN is `complete`.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).

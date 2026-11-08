@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-21
+date: 2026-11-08
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -1758,3 +1758,12 @@ Each line is added in the 0217 phase that closes it.
   1.27.3, Node 26.13.0 and Python 3.14.10 held on 3.14, which closes P12 step 3 and P14 step 4.
   Each host's Go tools are rebuilt with go1.27.3, and the old Go installs are removed. The hosts'
   git 2.55.0 stays this plan's D7 item.
+
+## Status note — 2026-11-08
+
+Status kept: `in-progress`. 0217 closed P6b, the Python line, P12 step 3 and P14 step 4 (the "0217 status note"
+above). What remains is this plan's own: D7's git on the Linux test host and the WSL distro, which 0217 hands back
+rather than takes over, and D3's Flutter lockstep, which waits on magic-git's own pair. A6's Flutter 3.47.5 is
+overtaken by 0217 D2 (3.47.9).
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).

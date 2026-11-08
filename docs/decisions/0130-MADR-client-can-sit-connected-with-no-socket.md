@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-02
+status: accepted
+date: 2026-11-08
 decision-makers: maccavelli
 consulted: —
 informed: —
@@ -272,3 +272,13 @@ path, which is a different failure and recovers correctly.
 Status stays `proposed` rather than `accepted`: the decision to investigate was
 executed, but the record proposes no change to the product, so there is nothing
 to accept.
+
+## Status note — 2026-11-08
+
+~~`proposed`~~ `accepted`, inferred, under 0200's rule as the owner confirmed it on 2026-11-08. The decision was
+option A, to instrument, reproduce and read the sequence before changing anything. Its PLAN is `complete`, and the
+amendment of 2026-09-02 records that the investigation was carried out (I1, I2, I4). The outcome was to park: the
+cause was not found and no fix shipped, as that amendment says. Accepting the record accepts the investigation it
+decided on, not a fix.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).

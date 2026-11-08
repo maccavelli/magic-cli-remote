@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-11-04
+status: accepted
+date: 2026-11-08
 decision-makers: Project Owner
 consulted: "this repository at f26549de (Go under internal/ and cmd/, Dart under apps/mobile/lib); gobble-cli at 1cc1616 and its v0.1.1 release, read from code; MADR 0179, 0184 and 0186 and their PLANs"
 informed: anyone who adds an agent CLI, changes internal/provider, internal/command, internal/session or internal/ws, or changes the phone's chat and settings screens
@@ -757,3 +757,12 @@ outcome, as on grok 0.2.114. So:
 * this supersedes the retention in
   [0050-MADR-grok-cli-surface-drift.md](0050-MADR-grok-cli-surface-drift.md) §4 ("retained because
   they are harmless and may become effective in a later grok").
+
+## Status note — 2026-11-08
+
+~~`proposed`~~ `accepted`, on the owner's answer of 2026-11-08 ("Accept it now"). The owner's "Proceed" was
+already on record, and the PLAN has run P1 to P8. The amendment's sentence "The record stays `proposed`" is kept as
+it was written; this note replaces it. The PLAN stays `in-progress`: P9 (the daemon and the phone act on
+capabilities) and P10 (one conformance suite) have not started.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).

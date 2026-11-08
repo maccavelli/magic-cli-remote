@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-11-08
 associated-madr: "0239-MADR-audit-record-statuses-and-docs-accuracy-2026-11.md"
 ---
@@ -139,5 +139,41 @@ When this plan is done:
 
 ## Execution record
 
-Not started. The owner answered the MADR's Q1 to Q3 on 2026-11-08 (normalize to `complete`; keep 0200's inferred
-acceptance rule; fix a guide to match the code). The plan waits for the owner's approval.
+The owner answered the MADR's Q1 to Q3 on 2026-11-08 (normalize to `complete`; keep 0200's inferred acceptance
+rule; fix a guide to match the code), and approved the plan: "committed, proceed" (records commit `cb68b744`).
+
+### P1 — 2026-11-08: the open records
+
+Scripts and logs are in the session scratchpad (`tidy_inventory.py`, `p1_triage_gather.py`, `p1_apply.py`,
+`p1_apply_0130.py`, `p1_check.py`, `p1_check_failfirst.py`, `p1-triage-evidence.md`).
+
+* **Start state (C1).** Clean tree. `master` was two commits ahead of `origin/master`: the owner's 0179 amendment
+  (`c87d22e4`) and this pair (`cb68b744`), both unpushed.
+* **Step 1, triage.** 53 open files: the MADR's 51 plus this pair. One read-only helper pass (C5) checked eighteen
+  records; its claims were spot-checked against the files (the report lists which). The rest were checked
+  directly.
+* **Step 2, the owner's batch,** answered 2026-11-08:
+  * 0208-MADR: "Accept it now".
+  * 0217-PLAN: the dotfiles commit is "Not yet" done.
+  * 0089-MADR: "D1 superseded by 0126".
+  * 0227: the owner asked for the test procedure. It was given (the PLAN's and MADR's manual check, in a fresh
+    session in each tool), and both records wait for the result.
+* **Step 3, the edits,** in 0200's form, eleven records:
+  * to `accepted`: 0211-MADR, 0090-MADR (inferred), 0208-MADR, 0130-MADR (inferred);
+  * to `complete`: 0203-PLAN;
+  * status kept, corrected by a note: 0089-MADR (D1 superseded in part), 0090-PLAN, 0143-PLAN, 0163-PLAN, 0169-PLAN,
+    0217-PLAN.
+* **Step 4, checks.**
+  * `p1_check.py` was seen failing first, on a scratch copy of both record trees with three planted breaks (a second
+    status line, a note's link removed, 0211-MADR set back to `proposed`). It reported all three, and exited 1. The
+    copy was removed.
+  * The same run also reported **0130**: its MADR was `proposed` while its PLAN was `complete`. That was a real case
+    the triage had filed as parked. 0130's decision was to investigate first, and the investigation ran, so it is
+    `accepted` (inferred) with a note that the outcome was to park.
+  * On the tree: `p1_check.py` exit 0 (11 edited records, 232 numbers, 0 failures); `make check-records` exit 0; the
+    report's markdown lint 0 issues; the redact preview would edit 0 files.
+* **Step 5.** The report was created with its P1 section, and the index regenerated. Staged for the owner's commit:
+  the eleven records, the report, `docs/README.md` and this plan.
+
+**Not done in P1:** 0227's two statuses, which wait for the owner's manual check. The 0205 tag ruleset and the idle
+proposals are findings in the report, not status changes.

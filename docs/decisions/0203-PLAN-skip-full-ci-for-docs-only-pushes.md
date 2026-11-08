@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-20
+status: complete
+date: 2026-11-08
 associated-madr: "0203-MADR-skip-full-ci-for-docs-only-pushes.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -559,3 +559,18 @@ docs.yml matches plan: True
 
 `go test -count=1 ./internal/updateclient/` and `./scripts/assert-flutter-pin.sh` exit 0, and
 the plan-text comparison of step 1 and 2 still exits 0. V1 is now met on the tree.
+
+## Status note — 2026-11-08
+
+~~`in-progress`~~ `complete`. P3's pushes, observed after the fact on `master`, meet the remaining checks:
+
+* **V3, a docs-only push:** `de29a288` ran one `Docs` run (`42490295468`) and no `CI` or ledger run.
+* **V3, a push with non-Markdown files:** `74ad525e` ran `CI` (`42492473312`) and `Docs` (`42492473035`), then the
+  `CI flake ledger` (`42493405077`, `workflow_run`).
+* **V4, a tag:** `v0.25.1` ran the full `CI` (`42493767398`) on `5b3533fc`, a docs-only commit whose own push ran
+  only `Docs` (`42493586160`).
+* **V5, the ledger:** scheduled runs succeed, for example `42393302902` (2026-11-07).
+
+P3 step 5's index regeneration is done by the audit's own commit.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).

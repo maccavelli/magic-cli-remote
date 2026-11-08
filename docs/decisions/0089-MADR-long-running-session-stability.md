@@ -1,6 +1,6 @@
 ---
 status: proposed
-date: 2026-08-15
+date: 2026-11-08
 decision-makers: [Project Owner]
 consulted: [Implementer]
 informed: [Operators of 8 GiB mesh hosts, Android phone clients]
@@ -421,3 +421,14 @@ it closes with `reason=read_deadline`. That is working as designed
   isolate it.
 * Not a swap-file implementation in-tree. Ops on 8 GiB hosts
   should add swap; the unit must still bound itself.
+
+## Status note — 2026-11-08
+
+Status kept: `proposed`. Two of its seven decisions ran (PLAN Phases 1 and 2); the others are not built.
+**D1 is superseded in part** by [0126-MADR-android-client-debugging-pass-findings.md](../../apps/mobile/docs/decisions/0126-MADR-android-client-debugging-pass-findings.md) F3, on the owner's answer of 2026-11-08. D1 would re-declare `WAKE_LOCK`
+and hold a partial wake lock while a session runs. 0126, accepted, removed `WAKE_LOCK` from the shipped manifest
+and added a manifest surface check (`84876c6b`). Today `AndroidManifest.xml` strips the permission
+(`tools:node="remove"`) and the foreground service sets `allowWakeLock: false`. A later record that wants a wake
+lock has to revisit 0126 first.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).

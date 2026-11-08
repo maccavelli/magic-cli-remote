@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-18
+date: 2026-11-08
 associated-madr: "0090-MADR-config-template-completeness.md"
 owner: [Implementer]
 target-milestone: [Template sync + fitness test with the MADR; SetDefault follow-up after review]
@@ -190,3 +190,16 @@ Omitted on purpose (MADR D3): `providers.opencode.transport`,
 Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
 
 `in-progress`, now spelled as the other records spell it. Accurate: Phases 1–2 landed (`internal/cli/service/template_parity_test.go`). Phase 3 waits for the MADR's review, as its own text says.
+
+## Status note — 2026-11-08
+
+Status kept: `in-progress`, with what remains restated. Phase 3's tasks 3.1 and 3.2 landed through 0201 D23
+(`84011354`; `internal/config/load.go:310-318`). Task 4.2 no longer applies: `KiloProviderConfig` was removed by
+0208 P8 (`e2d6493b`). Two documentation items remain:
+
+* task 3.3, the `MCREMOTE_LIMITS_*` rows in `docs/guides/config.md`'s environment table;
+* task 4.1, the stale kilo version in `README.md`.
+
+Both are in scope for the 0239 audit's guide phases. This plan closes when they land.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).

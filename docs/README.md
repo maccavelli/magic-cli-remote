@@ -468,6 +468,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0238 | PLAN | Implement tolerating server pushes that arrive before the auth reply | [0238-PLAN-tolerate-pushes-before-the-auth-reply.md](decisions/0238-PLAN-tolerate-pushes-before-the-auth-reply.md) |
 | 0239 | MADR | Audit the open records and the guides against the tree, 2026-11 | [0239-MADR-audit-record-statuses-and-docs-accuracy-2026-11.md](decisions/0239-MADR-audit-record-statuses-and-docs-accuracy-2026-11.md) |
 | 0239 | PLAN | Implement the November 2026 audit of the open records and the guides | [0239-PLAN-audit-record-statuses-and-docs-accuracy-2026-11.md](decisions/0239-PLAN-audit-record-statuses-and-docs-accuracy-2026-11.md) |
+| 0239 | REPORT | Record status and docs accuracy audit, 2026-11 | [0239-REPORT-record-status-and-docs-accuracy-audit.md](../docs/reports/0239-REPORT-record-status-and-docs-accuracy-audit.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
