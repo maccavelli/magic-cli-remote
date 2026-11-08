@@ -2332,3 +2332,10 @@ Scripts and logs are in the session scratchpad (`p3g_step1.py` to `p3g_step4.py`
 * No live agent run. No value Magic sends changes (F3h).
 
 **Files for this commit:** `go.mod`, `go.sum`, `check_libs.json`, this PLAN and the 0217 MADR.
+
+**Committed** as `18d3d443` ("chore(deps): update acp-go-sdk2 to v1.34.2 and go-llmprovider-sdk to
+v1.28.0"). `make check-libs` on it: exit 0, `acp-go-sdk2` "pinned v1.34.2, checking v1.34.2",
+`go-selfupdate-lib` "pinned v1.24.0, checking v1.24.0", `go-llmprovider-sdk` "pinned v1.28.0,
+checking v1.28.0", every check ok, "0 failing checks; scratch removed"
+(`p3g-make-check-libs.log` in the session scratchpad). It is the first `make check-libs` run to
+include `go-llmprovider-sdk` from the committed `check_libs.json` (Deviation 23).
