@@ -501,3 +501,60 @@ On macOS, then, the digest cannot tell releases apart: version equality is the o
    * showing the MCP elicitation's `message` (P3 step 1).
 
    Each is named in the MADR or in this record, and none blocks the pin.
+
+### Deviation 3, 2026-11-07 (after P5) — `make staticcheck` fails on P1's live-only helper. The owner decided: "Fix first under 0236"
+
+- **Found** at
+  [0217-PLAN-update-every-pin-to-its-current-release.md](0217-PLAN-update-every-pin-to-its-current-release.md)
+  P3g step 3, and on `master`'s CI. Run `42418403757`, on `6279ad00`, failed only in "Go (test):
+  Staticcheck (pinned; GOOS linux, darwin, windows)". On each GOOS:
+
+  ```text
+  internal/provider/codex/contract_generate_test.go:496:6: func fixtureResponseTypes is unused (U1000)
+  ```
+
+  A scratch clone of `b47b9012`, which has neither of P3g's pins, fails the same way. So the
+  failure is this plan's, not the pin's.
+- **Cause.** P1 (`f261d73c`) added `fixtureResponseTypes` to `contract_generate_test.go`, which
+  has no build tag. Its only caller is `live_contract_test.go:53`, which builds only under
+  `//go:build live_codex_contract`. staticcheck runs without tags, so in the build it checks, the
+  helper is never called.
+- **Why the phases did not catch it.** `make staticcheck` is not among this plan's gates (the
+  MADR's Confirmation 6 and V9). CI runs it (`ci.yml:177`), and CI ran only after the push.
+- **Options put to the owner:**
+  * fix first under this plan (chosen);
+  * stage the pin first and fix afterwards;
+  * fold the fix into 0217's P3g.
+
+  A `//lint:ignore` was not offered, because it would only hide the dead code from the check.
+- **The fix.** Move `fixtureResponseTypes` and its comment, unchanged, from
+  `contract_generate_test.go` to `live_contract_test.go`, its only caller, under the same tag. In
+  `generatedFixtures`' comment, the name `fixtureResponseTypes` stays. It still names where the live
+  gate's types come from. Its own commit, before 0217's P3g.
+- **Checks:**
+  * `make staticcheck` exit 0 on the three GOOS;
+  * `go vet -tags live_codex_contract ./internal/provider/codex/`, which proves the live build
+    still compiles;
+  * `make pre-add-check` on both files;
+  * `go test -race -count=1 ./internal/provider/codex/`.
+
+  The failing case is the one already seen above, `make staticcheck` on `b47b9012`, so no new
+  check is added.
+- **Executed, 2026-11-07.** `git grep '^func fixtureResponseTypes'` finds one definition, at
+  `live_contract_test.go:141`. The checks, on the working tree (which also held 0217's P3g pins):
+
+  | Check | Result |
+  | :--- | :--- |
+  | `make staticcheck` | exit 0 on linux, darwin and windows; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" |
+  | `go vet -tags live_codex_contract ./internal/provider/codex/` | exit 0 |
+  | `go vet ./internal/provider/codex/` | exit 0 |
+  | `make pre-add-check` on the two files | exit 0, "2 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go test -race -count=1 ./internal/provider/codex/` | `ok`, 33.6 s |
+
+  `make staticcheck` was also run on this commit's exact content: a scratch clone of `b47b9012`,
+  with `acp-go-sdk2 v1.34.0`, plus the two test files. It exited 0, and the clone was removed.
+- **Files for this commit:** `contract_generate_test.go`, `live_contract_test.go` and this PLAN.
+  No source change. `make live-codex` is not re-run. Its test only gains the same function, now in
+  its own file.
+- **Not done here:** adding `make staticcheck` to this plan's gates after the fact. 0217's
+  library pins already run it (P3f, P3g).

@@ -135,3 +135,15 @@ func TestLiveContractNoModelTurn(t *testing.T) {
 		t.Log("using caller-configured CODEX_HOME")
 	}
 }
+
+// fixtureResponseTypes recovers the pinned response types from a manifest's
+// fixtures, for the live gate.
+func fixtureResponseTypes(fixtures []ContractFixture) map[string]string {
+	out := make(map[string]string, len(fixtures))
+	for _, fixture := range fixtures {
+		if fixture.Kind != WireNotification {
+			out[fixtureKey(fixture.Kind, fixture.Method)] = fixture.ResponseSchema
+		}
+	}
+	return out
+}

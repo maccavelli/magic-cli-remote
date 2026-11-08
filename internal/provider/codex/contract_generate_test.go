@@ -491,18 +491,6 @@ func fixtureKey(kind WireKind, method string) string {
 	return string(kind) + "\x00" + method
 }
 
-// fixtureResponseTypes recovers the pinned response types from a manifest's
-// fixtures, for the live gate.
-func fixtureResponseTypes(fixtures []ContractFixture) map[string]string {
-	out := make(map[string]string, len(fixtures))
-	for _, fixture := range fixtures {
-		if fixture.Kind != WireNotification {
-			out[fixtureKey(fixture.Kind, fixture.Method)] = fixture.ResponseSchema
-		}
-	}
-	return out
-}
-
 // checkSourceResponseTypes fails the capture unless every client and server
 // request the export declares has a declaration in codex's source, naming a type
 // the export defines. It replaces a guess from the params name plus a
