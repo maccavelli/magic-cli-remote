@@ -55,7 +55,7 @@ built from the same specification the server enforces with
 ```json
 "caps": {
   "protocol": 2,
-  "read_deadline_ms": 60000,
+  "read_deadline_ms": 120000,
   "ping_interval_ms": 10000,
   "ws_ping_resets_deadline": true,
   "resume": {"window_ms": 120000},

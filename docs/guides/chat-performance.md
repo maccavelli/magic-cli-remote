@@ -32,8 +32,8 @@ see [mobile-profiling.md](../../apps/mobile/docs/guides/mobile-profiling.md) (`m
 | Rebuild isolation | Chat shell uses Riverpod `.select` on status / plan / commands / pending / hasItems; only the transcript pane watches `items` during stream chunks |
 | Row fold memo | Skip the full `buildTranscriptRows` when the change is resolvable from the tail alone: the last item's text grew, the newest tool's status/output changed, or one item was appended (a tool extends the trailing group, anything else becomes a new row). A 6-tool OpenCode burst folds **0** times, was 12 ([MADR 0042](../../apps/mobile/docs/decisions/0042-MADR-android-app-remediation.md) D3) |
 | Markdown widget cache | Assistant markdown keeps the parsed subtree; re-parses only when shown text changes |
-| Markdown throttle | 120 / 200 / 320 ms at 4k / 16k chars while short-stream path is active |
-| Long-stream MD | Above `kMaxStreamingMarkdownChars` (4k) while streaming: plain/mono text (buffer closers applied as plain); full `MarkdownBody` once finalized |
+| Markdown throttle | At most one re-parse per frame while streaming; above `kStreamMdTier1Chars` (4k) at least 120 ms apart, above `kStreamMdTier2Chars` (16k) at least 200 ms |
+| One markdown engine | Stream and finalize both render `MarkdownBody`; there is no plain-text path for long replies ([mobile MADR 0056](../../apps/mobile/docs/decisions/0056-MADR-mcremote-android-protocol-stack-audit.md), M-9…M-12, Phase 7) |
 | Style sheet cache | Per-brightness `MarkdownStyleSheet` reused across re-renders |
 | Streaming marker buffer | `bufferStreamingMarkdown` **closes** unclosed `**` / `` ` `` / fences (show content, not hide) while streaming |
 | Host stream coalescing | Daemon holds assistant/thought text ~**80 ms** (`stream_coalesce_ms` on grok, codex and kilo; fixed for OpenCode) so the phone receives ~12 updates/s instead of one frame per token; first chunk and end-of-turn tail are never delayed ([MADR 0024](../decisions/0024-MADR-stream-coalescing.md)) |
@@ -43,7 +43,7 @@ see [mobile-profiling.md](../../apps/mobile/docs/guides/mobile-profiling.md) (`m
 | Streaming list | Growable list ownership within a batch: last-index replace without full `List.from` per chunk |
 | Selectable text | Off while streaming; on when the turn finalizes (long-press copy always available) |
 | List element reuse | `findChildIndexCallback` maps `ValueKey(seq)` / group keys under `reverse: true`. The index is maintained **incrementally**: an append adds its own key rather than rebuilding the map, and the memo reports which happened. Reporting "keys unchanged" while adding a key left the index stale and remounted every row appended since the last full rebuild — re-parse cost grew 1, 2, 3, … per append (audit 0041 H1) |
-| History hydrate | `session.history` with `limit: 800` (`historyMaxPage`); **auto-page** while `truncated`; apply in batches of 40 events with frame yields |
+| History hydrate | `session.history` with `limit: 200` (`kHistoryFetchLimit`); **auto-page** while `truncated`, at most `kHistoryMaxPages` (32) pages per walk; apply in batches of 40 events (`kHistoryApplyBatchSize`) with frame yields |
 | Local cache | Last 150 items / 12 sessions in SharedPreferences (process-death polish; host still wins) |
 | Streaming caret | Blinking edge pulse on live assistant bubble |
 | Show more | Finalized assistant replies &gt; 6k chars clamp with expand control |
@@ -52,16 +52,20 @@ see [mobile-profiling.md](../../apps/mobile/docs/guides/mobile-profiling.md) (`m
 
 | Constant | Default | Role |
 |---|---|---|
-| `kMaxTranscriptItems` | 800 | Client FIFO item count cap |
-| Host `historyBufferCap` | 800 | Daemon event ring |
-| Host `historyMaxPage` / client history `limit` | 800 | One history fetch page (client pages until complete) |
+| `kMaxTranscriptItems` | 4_000 | Client FIFO item count cap |
+| Host `historyBudgetBytes` | 32 MiB | Daemon retention per session, by bytes (advertised as `caps.history_budget_bytes`) |
+| Host `historyMaxPage` | 800 | The largest `session.history` page a client may ask for |
+| `kHistoryFetchLimit` | 200 | The page the client asks for (it pages until complete) |
+| `kHistoryMaxPages` | 32 | Pages per backward walk, so a daemon that never advances cannot spin the client |
 | `kMaxItemTextChars` | 100_000 | Hard store clip per assistant/thought/tool detail (`… [truncated]`) |
 | `kMaxExpandedDetailChars` | 8_000 | Expanded tool/thought UI before internal scroll + copy |
-| `kMaxStreamingMarkdownChars` | 4_000 | Full MD while streaming below; plain path above |
+| `kStreamMdTier1Chars` / `kStreamMdTier2Chars` | 4_000 / 16_000 | Streaming re-parse throttle tiers (120 ms / 200 ms) |
 | `kAssistantShowMoreChars` | 6_000 | Finalized assistant "Show more" clamp |
 
-Client item cap (800) can exceed the host ring (500): phone may retain more from a live session than cold history can fully rebuild. Prefer explicit `limit: 500` on history so wire pages match the
-ring.
+The two budgets are independent ([MADR 0138](../decisions/0138-MADR-overhaul-provider-surfaces-and-turn-path.md)).
+The host keeps up to 32 MiB per session, roughly 21,000 events, and the client keeps 4,000 items, so the phone is
+the tighter cap. The client's page of 200 is deliberately far below the host's 800: a page is a screen's worth plus
+lookahead, and asking for 800 made the host re-encode a shrinking slice many times over (MADR 0138 F14).
 
 ## Graphics
 
@@ -70,7 +74,7 @@ ring.
 - Empty-state starfield is off the non-empty chat path.
 - **`ChatScrollActivity` / `ChatScrollActivitySensor`**: shimmer + status pulse pause while the transcript is dragging/flinging.
 - Running tools use a **static** `Icons.autorenew` (no per-row `CircularProgressIndicator`); the app-bar chip remains the live “working” cue.
-- Expanded tool/thought detail: max height ~240, internal scroll, **Copy** action.
+- Expanded tool/thought detail: max height 200, internal scroll, **Copy** action.
 
 ## Non-goals
 
@@ -92,5 +96,6 @@ ring.
 6. Kill app mid-session, reopen — history still via host (no regression).
 7. Reconnect during stream — resync + composer not stuck running.
 
-Use Flutter DevTools Performance: frame build times, rebuild counts on the transcript pane vs shell, GC during stream. Note batch window (**32 ms**) and markdown path (short vs long-stream) when
-interpreting parse cost.
+Use Flutter DevTools Performance: frame build times, rebuild counts on the transcript pane vs shell, GC during stream.
+Note batch window (**32 ms**) and the markdown throttle tier (below 4k, above 4k, above 16k chars) when interpreting
+parse cost.

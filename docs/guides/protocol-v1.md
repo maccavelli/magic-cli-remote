@@ -126,8 +126,8 @@ pin, relay, socket, or health-check mutation.
 - Server pushes (`event`) may omit `id`.
 - **`v` must be `1`.** Other values yield `bad_version`.
 - **Idempotent mutations (MADR 0056 H-2b):** for `session.create`,
-  `session.prompt`, `session.close`, `session.delete`, `session.rename`, and
-  `session.fork`, the daemon keys a short-lived ledger by
+  `session.prompt`, `session.close`, `session.delete`, `session.rename`,
+  `session.fork`, and `session.set_collaboration_mode`, the daemon keys a short-lived ledger by
   `(device_id, request id)`. A second request with the same `id` while the first
   is in flight waits for it; after success, a retry **replays the same response
   frame** and does not re-run the provider. Clients that time out should retry
@@ -144,24 +144,28 @@ Documented retroactively (0068 P0 / A1 T5) — this section describes the
 behaviour v1 daemons and clients have always had:
 
 - **Read deadline.** After auth, the daemon closes a connection that sends
-  no data frame for 60 s (`internal/ws/server.go`). Before auth there is an
-  absolute 30 s window to send `auth` or `pair.claim`.
+  no data frame for `limits.ws_read_deadline_seconds` (default 120 s, at
+  least 15). Before auth there is an absolute 30 s window to send `auth` or
+  `pair.claim`.
 - **Only data frames reset the deadline.** WebSocket-level ping/pong control
   frames do **not** reset it (they are consumed inside the read loop). The
   app-level `{"type":"ping"}` message is the liveness contract; the shipped
   clients send it every 10 s (MADR 0063). The daemon never sends pings.
-- **No connection replacement.** Multiple authenticated sockets for the same
-  device coexist; events fan out to all of them. Capacity is a flat pool
-  (`max_ws_clients`, default 8) and only unauthenticated sockets are evicted
-  at capacity.
+- **Connection replacement.** A successful `auth` closes the device's older
+  authenticated sockets with close code **4001 `replaced`**, on v1 as on v2
+  ([protocol-v2.md](protocol-v2.md), P2). A client receiving 4001 must not
+  auto-reconnect. Not applied when device tokens are off. Capacity is a flat
+  pool (`max_ws_clients`, default 8) and only unauthenticated sockets are
+  evicted at capacity.
 - **Reconnect = full re-auth.** There is no session resumption; a
   reconnecting client re-authenticates and reconciles via `session.list`,
   `session.history {since_seq}` and `session.pending_asks`. The history ring
   is bounded by **bytes** per session (32 MiB), not by an event count, and
   evicts lowest-value content first — telemetry and tool output before the
   conversation, and a `user_message` only when nothing else is left
-  (MADR 0138 Phase 2). A `since_seq` older than the ring returns silently
-  truncated results (v2 adds gap signalling).
+  (MADR 0138 Phase 2). Every `session.history_result` carries `first_seq`
+  and `latest_seq`, so a `since_seq` below `first_seq` is visible as
+  truncation.
 
 ## Authentication
 
@@ -196,7 +200,7 @@ daemons omit them, and clients must fall back to their own defaults
 { "v": 1, "type": "auth_error", "id": "1", "payload": { "message": "...", "code": "invalid_token" } }
 ```
 
-`auth_error` codes: `invalid_token`, `auth_failed`, and — when the client-key
+`auth_error` codes: `invalid_token`, `auth_failed`, `already_authed`, and — when the client-key
 allowlist is enforced (see [Client identity](#client-identity-client-key-allowlist)) —
 `client_key_required` (no client certificate was presented) and
 `client_key_mismatch` (the presented key is not the one enrolled for this
@@ -235,7 +239,8 @@ Client **must store** `token` for reconnects.
 
 `pair_error` codes: `invalid_code`, `expired`, `rate_limited`, `already_authed` (socket
 already authenticated), `unavailable` (pairing not configured on this daemon),
-`bad_payload` (undecodable payload), `create_failed` (device store write failed),
+`bad_payload` (undecodable payload), `bad_version` (no mutually supported protocol
+version; the pair code is not consumed), `create_failed` (device store write failed),
 `client_key_required` (enforcement is on but the socket presented no client
 certificate — see [Client identity](#client-identity-client-key-allowlist)).
 
@@ -379,13 +384,14 @@ denies transport access rather than merely a bearer secret.
   `models.list`.
 - `thinking_level`: optional reasoning/thinking effort for this session (e.g.
   `low`, `high`). Empty means the provider default. Codex sends it as
-  `turn/start.effort` and can change it mid-session via `/thinking`; grok
-  applies it only as `--reasoning-effort` at spawn. OpenCode ignores
-  it (no selectable ladder). Prefer values from each model's `thinking_levels`
-  on `models.list` (MADR 0052).
-- `agent`: optional OpenCode agent name (e.g. `build`, `plan`) sent on each
-  `prompt_async`. Empty uses the engine default. Prefer values from
-  `agents.list`. Ignored by non-OpenCode providers.
+  `turn/start.effort` and can change it mid-session via `/thinking`. The ACP
+  providers (grok, OpenCode) send it in `session/new` `_meta` and record what
+  the agent applied (MADR 0106); both change it mid-session via `/thinking`,
+  OpenCode only while the current model has variants. Prefer values from each
+  model's `thinking_levels` on `models.list` (MADR 0052).
+- `agent`: optional Kilo agent name (e.g. `build`, `plan`), validated against
+  the engine's agents and sent with each prompt. Empty uses the engine
+  default. Prefer values from `agents.list`. Ignored by the other providers.
 - `agent_session_id`: when set, the provider uses ACP `session/load` to resume
 - `session_id`: optional fixed mcremote id when reconnecting a persisted record
 
@@ -630,8 +636,13 @@ it works before any session exists.
 }
 ```
 
-At most 100 projects, sorted by `name` then `id`. `worktree` is always
-absolute; `name` falls back to the worktree's base name, never the full path.
+`worktree` is always absolute; `name` falls back to the worktree's base name,
+never the full path.
+
+**No provider implements discovery today.** OpenCode moved to ACP, which has no
+project catalog, so it answers `unsupported`. Kilo has the catalog interface
+but no engine route behind it, so it answers `projects_list_failed`. The
+contract stands for a provider that implements it.
 
 Selecting an entry **copies `worktree` into the ordinary `cwd` field** of
 `session.create`. It does not bypass the daemon's pinned-CWD validation, and no
@@ -641,9 +652,9 @@ and a provider without project discovery answers `unsupported`.
 Error codes: `bad_payload`, `unknown_provider`, `provider_unavailable`,
 `unsupported`, `projects_list_failed`.
 
-### `agents.list` (OpenCode agent picker catalog)
+### `agents.list` (Kilo agent picker catalog)
 
-Same shared picker schema as `models.list`, for OpenCode top-level agent names
+Same shared picker schema as `models.list`, for Kilo top-level agent names
 (`build`, `plan`, and configured visible `primary`/`all` agents) from the
 engine `GET /agent` route. Subagents and hidden engine agents are not exposed:
 they cannot receive a user turn.
@@ -651,7 +662,7 @@ they cannot receive a user turn.
 **Request:**
 
 ```json
-{ "provider": "opencode" }
+{ "provider": "kilo" }
 ```
 
 **Reply** `agents.list_result` — same fields as `models.list_result`. Options
@@ -659,8 +670,8 @@ are grouped by startable mode (`primary`, `all`) and set `allow_custom: false`.
 A raw `session.create.agent` is also validated on the daemon and returns
 `bad_agent` when unknown, hidden, or a subagent.
 
-Providers without an agent catalog return an empty list with
-`allow_custom: true`. Non-OpenCode providers typically have no options.
+Providers without an agent catalog, which today is every provider but Kilo,
+return an empty list with `allow_custom: true`.
 
 Error codes: `bad_payload` (missing `provider`), `unknown_provider`.
 
@@ -671,8 +682,9 @@ Error codes: `bad_payload` (missing `provider`), `unknown_provider`.
 ```
 
 Same shared picker schema as `models.list`. The canonical commands below come
-first (`group: "remote"`), followed by the provider's own catalog — OpenCode maps
-engine `GET /command` (`init`, `review`, …). `session_id` is optional: with a live
+first (`group: "remote"`), followed by the provider's own catalog where it has
+one — Kilo maps engine `GET /command`; the ACP providers advertise theirs on the
+session's `available_commands` instead. `session_id` is optional: with a live
 session the canonical entries are enabled by what that session can actually run;
 without it only the ones that work on every session of the provider are enabled,
 and the rest carry the reason in their description. Session create also emits
@@ -692,7 +704,7 @@ same on every provider; how each command is satisfied is not:
 | `/plan [off]` | switch to the agent's plan mode; `/plan off` returns to its default mode |
 | `/mode [id]` | list the agent's modes, or switch to one |
 | `/model [name]` | show or switch the model — in place where the provider can, otherwise by restarting the agent |
-| `/thinking [level]` | show or switch the reasoning/thinking effort — next-turn on codex; spawn-only on grok (returns a “new sessions” notice); absent for opencode |
+| `/thinking [level]` | show or switch the reasoning/thinking effort — next-turn on codex; mid-session on grok; on OpenCode only while the current model has variants |
 | `/context` | context-window usage for this session |
 | `/compact` | summarise the conversation to reclaim context |
 | `/clear` (`/reset`) | clear the conversation and restart the agent |
@@ -713,11 +725,12 @@ Per-provider mechanisms as of this revision:
 |---|---|---|
 | `/help` `/clear` `/new` `/sessions` | daemon | daemon |
 | `/plan` `/mode` | session mode (`session/set_mode`) | session mode (primary agent) |
-| `/model` | restart with the new model | `POST /api/session/{id}/model`, in place |
+| `/model` | in place (`session/set_model`) | in place (the ACP model config option) |
+| `/thinking` | in place (`session/set_model` `_meta.reasoningEffort`, MADR 0106) | the effort config option, while the model has variants |
 | `/context` | forwarded as `/session-info` | daemon, from tracked usage |
-| `/compact` | **unavailable** — grok compacts only in its TUI | `POST /session/{id}/summarize` |
-| `/goal` | forwarded to grok's `/goal` | **unavailable** |
-| `/diff` `/undo` `/redo` | **unavailable** over ACP | engine revert/diff routes |
+| `/compact` | forwarded to grok's `/compact` | forwarded to OpenCode's `/compact` |
+| `/goal` | forwarded to grok's `/goal` | forwarded to OpenCode's `/goal` |
+| `/diff` `/undo` `/redo` | **unavailable** over ACP | the control plane (0214 PLAN P6d, P6e) |
 
 Availability is per session, and clients do not have to derive it: the daemon
 sends the resolved list as a `remote_commands` event (below). A command an agent
@@ -891,7 +904,8 @@ mid-conversation can rebuild the transcript.
   (`tool_call_update`, `thought_chunk`), then content, and anchors
   (`user_message`, `turn_complete`, permission decisions) only when nothing
   else remains. The newest event is never evicted (MADR 0138 Phase 2).
-- **Durable transcript (Phase D):** the same 800-event tail is also written under
+- **Durable transcript (Phase D):** the retained history, bounded by the same
+  32 MiB budget, is also written under
   `data_dir/sessions/<id>/history.json` (0600, same uid as the daemon). After a
   session closes or the daemon restarts, `session.history` still returns that
   disk slice for listed (non-deleted) sessions. `session.delete` purges the
@@ -975,6 +989,21 @@ document. Adding a code fails the build until it is listed here.
 Codes are a stable contract — branch on them, not on `message`, which is
 human-readable and may change.
 
+Codes that belong to one operation are described with it rather than here:
+
+- [Client → server](#client--server): `instance_busy`, `invalid_command`,
+  `share_disabled`, `shell_disabled`;
+- [Direct shell](#direct-shell): `session_shell_failed`;
+- [Session sharing](#session-sharing): `session_share_failed`;
+- [Authoring a skill](#authoring-a-skill): `session_refresh_skills_failed`;
+- [Workspace inspection](#workspace-inspection): `invalid_path`, `path_escape`,
+  `path_symlink`, `binary_content`, `result_too_large`, `invalid_query`,
+  `workspace_failed`;
+- [`question.respond`](#questionrespond-multi-question-forms): `question_invalid`;
+- [`collaboration_mode` event](#collaboration_mode-event-codex-plandefault):
+  `collaboration_mode_unsupported`, `collaboration_mode_invalid`,
+  `set_collaboration_mode_failed`.
+
 **Envelope and routing** — possible on any request:
 
 | code | When |
@@ -1015,7 +1044,7 @@ below on any session-scoped request:
 | `session_cancel_timeout` | `session.cancel` did not finish within the daemon's bound (10 s). The cancel was issued and may still complete; the connection keeps serving. Re-read the session's state rather than assuming either outcome (MADR 0201 D10). |
 | `turn_busy` | A turn is already active — see the table above. Not a generic failure; do not retry blindly. |
 | `bad_agent` | The agent name is unknown, hidden, or a subagent that cannot be started top-level. |
-| `permission_denied` | An OS-level permission denial (EPERM/EACCES): file modes, a provider sandbox policy, or macOS privacy protection (TCC) blocked the daemon or an agent process (MADR 0069). Not retryable without operator action — a mode change, chmod, or a privacy grant. |
+| `permission_denied` | An OS-level permission denial (EPERM/EACCES): file modes, a provider sandbox policy, or macOS privacy protection (TCC) blocked the daemon or an agent process (MADR 0069). Not retryable without operator action — a mode change, chmod, or a privacy grant. Also sent by the Codex surface operations when the connection did not negotiate Codex surface version 1, or when the device may not use the named session ([protocol-v2.md](protocol-v2.md)). |
 | `persist_failed` | A security-critical durable write failed (create owner stamp or first-touch ownership claim). Fail closed; the mutation did not succeed (MADR 0056 H-4). |
 | `session_list_failed` | The durable session store could not be enumerated. The list is incomplete; do not prune local transcripts. |
 | `deadline_exceeded` | An async operation hit its server-side deadline and was cancelled (MADR 0056 H-2). Reconcile via `session.list` / history; do not assume success. |
@@ -1036,7 +1065,7 @@ timed out, exceeded its bound, or returned no valid schema-v1 report.
 
 **Pre-warm control** — `providers.set_prewarm` (MADR 0089 D7). Also emits
 `unsupported` (the daemon has no pre-warm controller) and `unknown_provider`
-(an id outside the five agents):
+(an id outside the four agents):
 
 | code | When |
 |---|---|
@@ -1063,9 +1092,18 @@ is refused with `unsupported` and is never sent an auth frame.
 | `provider.clear_credential` | phone → daemon | `{provider_id, upstream_id}` |
 | `provider.set_active_upstream` | phone → daemon | `{provider_id, upstream_id}` |
 | `provider.start_auth` | phone → daemon | `{provider_id, upstream_id, method_id, inputs{}, confirm_destructive?}` |
-| `oauth.device_flow` | daemon → phone | `{flow_id, verification_uri, user_code, expires_in, interval}` |
-| `oauth.device_flow_result` | daemon → phone | `{flow_id, ok, error?, error_kind?}` |
+| `oauth.device_flow` | daemon → phone | `{flow_id, provider_id, upstream_id?, verification_uri, user_code, expires_in?, interval?}` |
+| `oauth.device_flow_update` | daemon → phone | `{flow_id, state}` — a non-terminal change, today only `ready_to_activate`: the credential validated, and publication waits for the provider to go idle (MADR 0074 D28). Best effort; never a completion or a failure |
+| `oauth.device_flow_result` | daemon → phone | `{flow_id, ok, error?, error_kind?, state?, retryable?, backup_state?, recovery_available?}` |
 | `oauth.cancel` | phone → daemon | `{flow_id}` |
+
+The fields after `error_kind` on `oauth.device_flow_result` come from providers on
+the owned, transactional path (MADR 0074 D27). `state` is one of `completed`,
+`cancelled`, `expired`, `failed`, `conflict`, `ready_to_activate`,
+`recovery_required` or `unsupported_backend`; `retryable` is true for
+`cancelled`, `expired`, `conflict` and `failed`. A provider still on the legacy
+path sends only `ok`, `error` and `error_kind`. Older clients read `ok` and
+ignore the rest.
 
 `provider.auth_catalog` is paged (100 default, 200 max) because the catalog is
 ~185 vendors for the OpenCode-family agents while the status block is a
@@ -1085,9 +1123,11 @@ requested flow destroys the existing credential before it can succeed and the
 client did not set `confirm_destructive` (today only codex device auth, which
 deletes `~/.codex/auth.json` the moment it starts). `credential_failed` — the
 write or clear failed; deliberately distinct from `auth_failed`, which is about
-the phone's own device auth. `keyring_managed` — the agent keeps its secrets
-in the host's OS keyring, which the daemon does not write (MADR 0074 D18);
-resolve on the host, not by retrying. `method_unsupported` — the chosen auth
+the phone's own device auth. `keyring_managed` — registered for an agent that
+keeps its secrets in the host's OS keyring, which the daemon does not write
+(MADR 0074 D18). No path sends it as an error code today: such a method arrives
+with `available: false` and `reason: keyring_managed` instead. Resolve on the
+host, not by retrying. `method_unsupported` — the chosen auth
 method cannot be driven from the phone for this agent; pick another method.
 `invalid_key` — the submitted credential failed validation before any write
 (empty or oversized). `engine_unavailable` — the agent's engine did not
@@ -1104,7 +1144,11 @@ the peer and logged), `invalid_token`, `client_key_required`,
 
 **`pair_error` frames:** `invalid_code`, `expired`, `rate_limited`,
 `already_authed`, `unavailable` (pairing not configured on this daemon),
-`create_failed` (device-store write failed), `client_key_required`.
+`bad_payload`, `bad_version`, `create_failed` (device-store write failed),
+`client_key_required`.
+
+`unavailable` is also sent on `error` frames by the Codex surface operations
+when the codex provider is not available.
 
 ### `question.respond` (multi-question forms)
 
@@ -1273,7 +1317,8 @@ wrapped in a `session` key). `session.list_result` carries an array of them.
   results so a target can recognise a session offered specifically to it.
 - **Revocation:** `mcremote pair revoke` updates the device store and, when the
   daemon is running, kicks live WebSocket clients for that device via the local
-  admin socket (`$data_dir/admin.sock`).
+  admin socket (`<runtime_dir>/admin.sock`, not under `data_dir`; see
+  [config.md](config.md#locations)).
 
 ### Domain event fields
 
@@ -1370,7 +1415,7 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   codex's `codexToolStatus` (`internal/provider/codex/items.go`) handles
   the codex v2 enum (`inProgress` → `running`, `declined` → `failed`).
 
-  **Snapshot semantics & detail clipping.** `tool_call_update.text` carries a **snapshot** of tool output/detail (clipped daemon-side at `maxToolOutputChars = 8000`), not an incremental delta. Clients
+  **Snapshot semantics & detail clipping.** `tool_call_update.text` carries a **snapshot** of tool output/detail (clipped daemon-side at `output.MaxToolShown = 8000`), not an incremental delta. Clients
 replace the card detail with non-empty incoming text snapshots.
 
   **Delivery vs Ordering guarantees (MADR 0034 §2.3).**
@@ -1793,18 +1838,15 @@ full update for a compacted tool part replaces it by native id.
    ]}}
 ```
 
-`kind` is `image` or `audio`. `data` is canonical base64 — non-canonical
-padding or a URL-safe alphabet is rejected, because what the daemon measured
-and what the agent receives must be the same bytes. `filename` is **optional**
-and must be a bare basename: any path separator, NUL, control character, `.`
-or `..` is refused rather than sanitised, and it is bounded at 256 bytes.
-`mime_type` must match the family implied by `kind` and is bounded at 128
-bytes; parameters such as `; charset=` are not accepted.
+`kind` is `image` or `audio`, `data` is base64, and `filename` is optional (a
+bare basename). The daemon does not validate `filename`, the MIME family or the
+base64 today; it passes each block to the provider. The serialized request must
+fit the 1 MiB inbound frame cap.
 
-A prompt is rejected as a whole when a block is malformed, when the active
-model does not advertise that input, or when the serialized request exceeds
-the 1 MiB frame budget. Rejecting is deliberate: silently dropping a block
-would leave the agent a prompt referring to an attachment it never received.
+A provider forwards the kinds it can send. On the ACP providers, an image or
+audio block the agent did not advertise is **dropped** with a warning in the
+daemon log, and the prompt goes ahead without it. Offer an attachment only when
+`session_capabilities` says the session takes it.
 
 Whether a client may offer image or audio comes from the `session_capabilities`
 event, which the daemon re-emits at create, at resume, after `/model`, and once
@@ -2348,8 +2390,8 @@ reason**, so a client can explain rather than silently omit:
   "remote_commands": [
     { "name": "help", "description": "List the commands available in this session", "available": true },
     { "name": "plan", "hint": "[off]", "description": "Plan without editing; /plan off returns to the default mode", "available": true },
-    { "name": "compact", "description": "Summarise the conversation to reclaim context", "available": false,
-      "reason": "grok compacts only in its own terminal UI — over the remote /compact returns nothing" }
+    { "name": "diff", "description": "Show the file changes made in this session", "available": false,
+      "reason": "grok exposes no diff over ACP — ask the agent to show its changes" }
   ]
 }
 ```

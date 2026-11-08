@@ -194,7 +194,7 @@ discipline [`docs/guides/protocol-v1.md`](protocol-v1.md)/
 
 All three read `data_dir` the same way every other `mcremote` command
 does (`--data-dir`, else config, else the XDG default) — see
-[`docs/guides/config.md`](config.md#locations-xdg).
+[`docs/guides/config.md`](config.md#locations).
 
 ## Reading a chain from the phone (MADR 0078)
 

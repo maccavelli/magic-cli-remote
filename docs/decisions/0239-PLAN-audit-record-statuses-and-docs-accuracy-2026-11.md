@@ -317,3 +317,40 @@ That was committed and pushed by the owner.
 
 **Not done in P4:** 0090-PLAN's last item, task 4.1 (the README's kilo version), was done in P3. 0090-PLAN can close
 in P7, after its note is updated.
+
+### P5 — 2026-11-08: protocol and client guides
+
+* **Start state (C1).** Clean tree; `master` equal to `origin/master`, after the owner's commits for P4 and for
+  0240, which resolved P4's finding.
+* **Step 1, the method.** P3's checker and resolver over the four guides: 225 unresolved, and the one known dead
+  anchor (`receipts.md:197`). Three more scratch scripts (C3), each seen failing first on a planted input:
+  * `msgtypes.py` resolved the checker's 217 dotted "key" hits as wire strings (planted `session.frobnicate_result`
+    caught);
+  * `undocumented_types.py` listed wire constants neither guide mentions (planted name caught; one real one,
+    `oauth.device_flow_update`);
+  * `errcodes.py` compared `ErrorCodes()` with the reference section (planted code caught; 18 real ones).
+
+  `receipts.md`, `chat-performance.md` and `protocol-v2.md` were read in full against the code. One read-only helper
+  (C5) read `protocol-v1.md` in full and reported 17 findings. Each was checked against the cited lines before any
+  edit. One was extended: the helper had `session_cancel_timeout` as declared but unregistered, and it is also sent
+  (`internal/ws/server.go:2126`).
+* **Step 1, corrections.** Four guides changed. `protocol-v1.md` took 27 edits, scripted with each anchor asserted
+  once. The other three took 10. The report's P5 section lists each with its evidence. The largest are:
+  * OpenCode's move to ACP, which left the project, agent and command catalogs, the `thinking_level` field and both
+    slash-command tables describing 1.x HTTP routes;
+  * the error-code reference, which now names every registered code;
+  * `chat-performance.md`'s caps, which predated MADR 0138 and mobile MADR 0056.
+* **Doc-versus-code (Q3):** prompt attachments. The guide described validation the code does not do. It now
+  describes the code, and the report lists it for the owner.
+* **Checks.**
+  * The checker: 230 after, every one in the classes above. The five new hits are wire names the edits added, and
+    `msgtypes.py` resolves them.
+  * `undocumented_types.py`: 0 of 100.
+  * `errcodes.py` over the reference section: 0 of 88 missing.
+  * `anchors.py`: 0 dead. It was seen catching a planted dead same-file anchor, since P5 adds same-file links. The
+    first plant did not apply, because that anchor occurs twice; the second did.
+  * `make check-records`: exit 0.
+  * `make markdownlint-docs`: 0 issues, after two fixes: one line in `chat-performance.md` rewrapped (MD013), and the report's new bullets switched from `*` to `-` (MD004).
+  * The Docs workflow's two Go tests: ok.
+  * The redact preview: 0 files.
+* **Staged:** the four guides, the report's P5 section, and this plan.

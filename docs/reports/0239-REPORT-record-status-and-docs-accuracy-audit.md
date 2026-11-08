@@ -292,3 +292,96 @@ something the code does not do. None looks like the code being wrong.
 - **Unverified, left as written:** `ops-hardware-validation.md` F6's "expect ≤60 s" lingering bound (a device pass's
   expected result; it may share the old 60 s deadline), and `ops-codex-contract.md`'s "an identical 164 methods",
   which may be an older capture's count.
+
+## P5 — protocol and client guides
+
+`protocol-v1.md`, `protocol-v2.md`, `receipts.md`, `chat-performance.md`.
+
+### Method
+
+- **The reference checker:** 225 unresolved before. 217 of them were dotted names the checker reads as config keys,
+  which in these guides are wire types and payload paths. A second script (`msgtypes.py`) resolved each one as a
+  string literal in non-test Go or Dart source. It was seen failing first on a planted `session.frobnicate_result`.
+  Two were left over: `header.payload.signature` (the JWS notation) and `providers.opencode.allow_remote_share`,
+  which the guide says was removed. The other eight were prose (`mcremote session`) or marked history
+  (`codex 0.145.0`, OpenCode's `ToolStateCompleted`). `internal/receipt.Store` exists (`store.go:31`).
+- **The reverse direction:** a script (`undocumented_types.py`) listed every `Type*` wire constant in
+  `internal/protocol` that neither protocol guide mentions. It was seen failing first on a planted name. One of 100
+  was missing: `oauth.device_flow_update`.
+- **The error codes:** a script (`errcodes.py`) compared `ErrorCodes()` with the reference section. It was seen
+  failing first on a planted code. 18 of 88 registered codes were outside the reference that claims to list every
+  code.
+- **The read-through:** `receipts.md`, `chat-performance.md` and `protocol-v2.md` were read in full against the code.
+  `protocol-v1.md` (2,584 lines) was read in full by one read-only helper (C5), and each of its 17 findings was
+  checked against the cited lines before any edit.
+- **The anchors:** the known dead `receipts.md:197` anchor. The resolver was seen catching a planted dead same-file
+  anchor, since P5 adds same-file links.
+
+### Corrections, `protocol-v1.md`
+
+| Was | Now | Evidence |
+| --- | --- | --- |
+| read deadline 60 s | `limits.ws_read_deadline_seconds`, default 120 s, at least 15 | `internal/config/config.go:568, 595` |
+| "No connection replacement" on v1 | every successful `auth` closes the device's older sockets with 4001 `replaced`, unless device tokens are off | `internal/ws/server.go:1440, 1444-1482` |
+| a `since_seq` below the ring is silently truncated on v1 | every `session.history_result` carries `first_seq`/`latest_seq` | `internal/ws/server.go:1928-1932` |
+| the durable transcript is "the same 800-event tail" | bounded by the same 32 MiB budget | `internal/session/store.go:302, 352-356` |
+| admin socket at `$data_dir/admin.sock` | `<runtime_dir>/admin.sock`, as `config.md` says | `internal/appdirs/paths.go:99-101` |
+| clipped at `maxToolOutputChars = 8000` | `output.MaxToolShown = 8000` | `internal/provider/output/output.go:26` |
+| six idempotent mutations | adds `session.set_collaboration_mode` | `internal/ws/server.go:1149-1155` |
+| `keyring_managed` as an error code | registered, never sent as a code; it arrives as a method `reason` | `internal/protocol/messages.go:783`; no emit site |
+| `unknown_provider`: "outside the five agents" | four | `internal/config/prewarm_write.go:28` |
+| `auth_error` and `pair_error` lists | add `already_authed`; add `bad_version` and `bad_payload` | `internal/ws/server.go:1283, 1291-1293, 3568` |
+| `permission_denied`, `unavailable`: one meaning each | also the Codex-surface refusal, and the missing-codex-provider answer | `internal/ws/codex_handlers.go:123, 135, 166` |
+| the reference "lists every code" | names the 18 codes described with their operations, with links | `errcodes.py`: 88 of 88 after |
+| `projects.list` returns at most 100 projects, sorted | no provider implements discovery today: OpenCode answers `unsupported`, Kilo `projects_list_failed` | `internal/provider/httpagent/provider.go:339-351`; no `ListProjectsLive` implementation |
+| `agents.list` and `session.create.agent` are OpenCode's | Kilo's: only Kilo implements the catalog and validates the agent | `internal/provider/kilo/catalog_live.go:16`, `kilo/mode.go:95-105`; acpagent never reads the agent |
+| `commands.list`: "OpenCode maps engine `GET /command`" | Kilo does; the ACP providers advertise theirs on `available_commands` | `internal/provider/kilo/command.go:27`; `internal/ws/server.go:3370` |
+| `thinking_level`: grok at spawn only, OpenCode ignores it | the ACP providers send it in `session/new` `_meta` and change it mid-session | `internal/provider/acpagent/acpagent.go:1067-1079`; MADR 0106 |
+| slash commands: grok `/model` restarts, `/compact` unavailable, `/thinking` spawn-only; OpenCode `/model` by HTTP, `/goal` unavailable, `/thinking` absent | grok and OpenCode `/model` in place; `/compact` and `/goal` forwarded; `/thinking` mid-session (OpenCode while the model has variants); the `remote_commands` example uses grok's `/diff` | `internal/provider/grok/commandtable.go:13-45`; `internal/provider/opencode/commandtable.go:16-42` |
+| the OAuth table | adds `oauth.device_flow_update`, `provider_id` and `upstream_id?` on `oauth.device_flow`, and the owned path's `state`, `retryable`, `backup_state`, `recovery_available` on the result | `internal/protocol/messages.go:915-963`; `internal/ws/provider_auth_owned.go:103-150` |
+
+The helper also checked these clean: envelope and frame caps, auth and pairing apart from the lists above, the
+session lifecycle numbers, history paging, tool-output bounds, workspace and shell bounds, provider-auth catalog
+paging, the catalog cache, the Codex caps, receipts, `devices.list`, `session.rename`, the self-signed certificate,
+`/healthz` and `/v1/hello`.
+
+### Corrections, the other three guides
+
+| File | Was | Now | Evidence |
+| --- | --- | --- | --- |
+| `receipts.md` | link to `config.md#locations-xdg` | `config.md#locations` | `config.md` heading `## Locations` |
+| `chat-performance.md` | `kMaxTranscriptItems` 800 | 4,000 | `apps/mobile/lib/data/chat/chat_models.dart:67` |
+| `chat-performance.md` | host `historyBufferCap` 800-event ring | `historyBudgetBytes`, 32 MiB per session | `internal/session/manager.go:52` (MADR 0138) |
+| `chat-performance.md` | client history `limit: 800` | `kHistoryFetchLimit` 200, at most `kHistoryMaxPages` 32 per walk | `chat_models.dart:75, 80` |
+| `chat-performance.md` | "client cap (800) can exceed the host ring (500)"; prefer `limit: 500` | the two budgets are independent; the phone is the tighter cap | `chat_models.dart:60-73`; `manager.go:41-52` |
+| `chat-performance.md` | long-stream plain-text path above `kMaxStreamingMarkdownChars` | one `MarkdownBody` engine for stream and finalize | `apps/mobile/lib/features/chat/chat_bubble.dart:1121-1125`; mobile MADR 0056, Phase 7 |
+| `chat-performance.md` | throttle "120 / 200 / 320 ms" | per frame; 120 ms above 4k, 200 ms above 16k | `chat_bubble.dart:1033-1037`; `chat_models.dart:101-102` |
+| `chat-performance.md` | expanded detail max height ~240 | 200 | `chat_bubble.dart:1627` |
+| `protocol-v2.md` | caps example `read_deadline_ms: 60000` | 120000, the default | `internal/config/config.go:568` |
+
+`receipts.md` was otherwise checked against `internal/receipt`, `internal/cli/receipts.go`, the `receipts` cap and the
+phone's screen, and is accurate. The rest of `protocol-v2.md` matches: the frame cap, ping cadence, resume window,
+`history_ring` and `history_budget_bytes`, TCP keepalive, close codes 4001 and 1013, the Codex surface limits and
+timeouts, the relay's first-envelope deadline and sweep, and the client's 60 s clamp.
+
+### Doc-versus-code differences (Q3)
+
+- **Prompt attachments** (`protocol-v1.md`). The guide said the daemon rejects non-canonical base64, an unsafe
+  `filename`, a mismatched MIME family and oversized fields, and rejects a whole prompt whose block the model does not
+  take, because "silently dropping a block would leave the agent a prompt referring to an attachment it never
+  received". No code validates any of it: `Filename` is only copied (`internal/ws/server.go:2037`). On the ACP path,
+  a block the agent did not advertise is dropped with a warning (`internal/provider/acpagent/session.go:598-627`).
+  The guide now says what the code does. Whether the daemon should validate is the owner's call (below).
+- **Project discovery, the agent catalog and the command catalog** described OpenCode's 1.x HTTP routes. OpenCode
+  now runs over ACP (0208), and the guide now names Kilo, the one provider with those routes.
+
+### Findings for the owner, from P5
+
+- **Attachment validation is documented as a safety property and is absent.** The old text gave a reason for
+  rejecting rather than dropping. Today an ACP provider drops an unadvertised block, and no field is validated. A
+  decision record would settle whether to restore the documented behaviour.
+- **`session_cancel_timeout` is declared in `internal/protocol/errors.go:49` and sent
+  (`internal/ws/server.go:2126`), but missing from `ErrorCodes()`.** The registry the guide's tests check against
+  does not contain it, so neither test can notice if its documentation goes. Code, not this audit's.
+- **Unverified, left as written:** `chat-performance.md`'s "Host dedup" row (`usage_update` only on change,
+  `session_status: running` only on transition). No dedup site was found by search, and none was ruled out.
