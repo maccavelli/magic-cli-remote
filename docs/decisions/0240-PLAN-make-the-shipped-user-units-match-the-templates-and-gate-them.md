@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-11-08
 associated-madr: "0240-MADR-make-the-shipped-user-units-match-the-templates-and-gate-them.md"
 ---
@@ -208,3 +208,63 @@ accepted on those answers.
 * `0099-MADR-installer-service-state-verification.md` gains a dated note under F4a, pointing here.
 * `check_records.py --write-index`; `make check-records`; the redact preview.
 * **Staged** for the owner's commit: this pair, the 0099 MADR, `docs/README.md`. P1 starts on the owner's word.
+
+P0 was committed by the owner, who approved the plan: "committed, proceed".
+
+### P1 and P2 — 2026-11-08: the tests, then the units
+
+Scripts and logs are in the session scratchpad (`0240-p1-failfirst.log`, `p2_planted.py`, `p2_verify_units.py`,
+`p2_verify_remote.py`, `0240-race.log`, `0240-staticcheck.log`, `0240-vettags.log`).
+
+* **Start state (C1).** Clean tree. `master` was two commits ahead of `origin/master` (the owner's 0239 P4 and this
+  pair's records), unpushed.
+* **P1, the tests.** `internal/cli/service/deployunits_test.go`, `//go:build unix` like `setup_test.go`, since Windows
+  installs a Task Scheduler task instead (MADR 0116 D12):
+  * `unitDirectives`, the parser;
+  * `repoRoot`, which walks up to `go.mod`;
+  * `allowedUnitDifferences`, with `Type` and `TimeoutStartSec`, each with its reason;
+  * `bannedUserUnitDirectives`;
+  * `TestDeployUserUnitsMatchTheTemplates`, one subtest per product: keys, literal values against the raw template,
+    the F4a ban on both the deploy file and the rendered template, and the `/cache/` ban;
+  * `TestDeployRelayUnitNamesEveryRelayVariable`: 36 names found, with a floor of 30.
+* **P1, seen failing on today's files:** `go test -count=1 -run TestDeploy ./internal/cli/service/`, exit 1, with
+  exactly the failures step 5 expected and no others:
+  * mcrelay, 12: `GOCACHE`, `GOTMPDIR`, `PrivateDevices` and `RestrictNamespaces` only in the deploy file; `LOGNAME`,
+    `USER`, `XDG_RUNTIME_DIR` and `XDG_STATE_HOME` only in the template; both F4a bans ("sets PrivateDevices: it makes
+    a systemd user unit unstartable on every host (218/CAPABILITIES; 0099-MADR-… F4a)"); both `/cache/` bans;
+  * mcremote, 8: the same, less the F4a pair;
+  * the relay test, 1: "does not name MCRELAY_LIMITS_MAX_CONNS".
+
+  No literal value differed, so the directives the two files share already agreed.
+* **P2, the units,** as steps 1 and 2 say:
+  * mcrelay: the two directives and their "safe here" comment are gone, and the exclusion comment is the template's
+    0099 F4a block, with a line saying this copy kept them until 0240;
+  * both units: the `/cache` lines are gone; `USER=%u`, `LOGNAME=%u`, `XDG_STATE_HOME=%h/.local/state` and
+    `XDG_RUNTIME_DIR=%t` are added; a `Type=simple` comment names 0054 S8 and 0207 D22;
+  * mcrelay: `# Environment=MCRELAY_LIMITS_MAX_CONNS=1024` is added, with the default from `config-mcrelay.md`.
+* **P2, checks:**
+  * `go test -count=1 -run TestDeploy`: both pass.
+  * **Seen failing on planted breaks** (`p2_planted.py`, in a scratch clone of HEAD with the working tree's three
+    files): unplanted, exit 0. Then each break, exit 1, with its own message:
+
+    | Break | Message |
+    | :--- | :--- |
+    | `PrivateDevices=true` back in mcrelay | "sets PrivateDevices: it makes a systemd user unit unstartable on every host" |
+    | `GOCACHE=/cache/go` back in mcremote | "points under /cache/, which is not a standard path" |
+    | `KillMode=control-group` in mcrelay | `KillMode = ["control-group"], but mcrelay.user.service.tmpl has ["mixed"]` |
+    | `ProtectHostname=true` added to mcrelay | "sets [Service] ProtectHostname, which mcrelay.user.service.tmpl does not" |
+    | the `MAX_CONNS` line removed | "does not name MCRELAY_LIMITS_MAX_CONNS" |
+
+    The clone was removed and checked gone.
+  * `make pre-add-check FILES=internal/cli/service/deployunits_test.go`: "1 file(s) clean".
+  * `go test -count=1 ./internal/cli/service/`: ok.
+  * `make race`: exit 0, 49 `ok` lines, no FAIL, panic or race line.
+  * `make staticcheck` and `make vet-tags`: exit 0.
+  * `make verify-units` is skipped on this Mac (no `systemd-analyze`). So its check ran on the Linux test host
+    (systemd 259), on all four deploy units, from a scratch directory: each `systemd-analyze verify` exit 0. The only
+    warnings came from the host's own `xfs_scrub` units. The directory was removed and checked gone. The first
+    attempt passed the remote script inline, and ssh mangled it; nothing ran on the host, and the script was sent as
+    a file instead.
+  * The redact preview: 0 files.
+* **Staged together**, so `master` never carries a failing test: `deployunits_test.go`, the two deploy user units,
+  and this plan.

@@ -32,6 +32,8 @@ StartLimitIntervalSec=300
 StartLimitBurst=30
 
 [Service]
+# Type=simple, not the template's notify: it works with every release (0054 S8,
+# 0207 D22). setup-service installs Type=notify with TimeoutStartSec=240.
 Type=simple
 WorkingDirectory=%h
 
@@ -53,12 +55,14 @@ KillSignal=SIGTERM
 
 # --- session / XDG ---
 Environment=HOME=%h
+Environment=USER=%u
+Environment=LOGNAME=%u
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
-Environment=GOCACHE=/cache/go
-Environment=GOTMPDIR=/cache/tmp
 Environment=XDG_CONFIG_HOME=%h/.config
 Environment=XDG_DATA_HOME=%h/.local/share
+Environment=XDG_STATE_HOME=%h/.local/state
 Environment=XDG_CACHE_HOME=%h/.cache
+Environment=XDG_RUNTIME_DIR=%t
 
 # --- optional MCRELAY_* overrides (uncomment / set as needed) ---
 # Config path (also: --config on ExecStart)
@@ -104,6 +108,7 @@ Environment=XDG_CACHE_HOME=%h/.cache
 # Environment=MCRELAY_LIMITS_MAX_PHONES_PER_HOST=8
 # Environment=MCRELAY_LIMITS_MAX_MESSAGE_BYTES=10485760
 # Environment=MCRELAY_LIMITS_MAX_CONCURRENT_JOIN=64
+# Environment=MCRELAY_LIMITS_MAX_CONNS=1024
 # Environment=MCRELAY_LIMITS_ACCEPT_PER_MINUTE=120
 # Environment=MCRELAY_LIMITS_JOIN_PER_MINUTE=30
 # Environment=MCRELAY_LIMITS_REGISTER_PER_MINUTE=20
@@ -127,17 +132,23 @@ RestrictRealtime=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 SystemCallArchitectures=native
-# mcrelay does not exec coding CLIs, so these are safe here.
-PrivateDevices=true
-RestrictNamespaces=true
 # 0091 D4: probed 2026-08-15 — bind + /healthz + register/join/splice
 # succeeded under both of these on a systemd --user unit (CGO_ENABLED=0).
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 MemoryDenyWriteExecute=true
-# ProtectClock/ProtectKernelModules/ProtectKernelLogs are deliberately absent:
-# they imply capability-bounding-set changes a user manager cannot perform in
-# container-restricted hosts (218/CAPABILITIES crash loop). ProtectHostname
-# needs a UTS namespace, also commonly prohibited there.
+# PrivateDevices, RestrictNamespaces, ProtectClock, ProtectKernelModules and
+# ProtectKernelLogs are deliberately absent: they imply capability-bounding-set
+# changes a user manager cannot perform (218/CAPABILITIES crash loop).
+# ProtectHostname needs a UTS namespace, also commonly prohibited.
+#
+# MADR 0099 F4a — PrivateDevices and RestrictNamespaces made this unit
+# unstartable in user scope on EVERY host, not merely container-restricted
+# ones: reproduced on a stock Ubuntu 26.04 EC2 instance, where systemd reported
+#     mcrelay.service: Failed to drop capabilities: Operation not permitted
+#     Failed at step CAPABILITIES ... status=218/CAPABILITIES
+# in a permanent Restart=always loop. Removing BOTH was necessary and
+# sufficient; neither alone cleared it. This copy kept them until MADR 0240.
+# Do not reintroduce them on the reasoning that they are safe here.
 # ProtectHome/ProtectSystem would hide $HOME ACME cache and config.
 UMask=0077
 LimitNOFILE=65536

@@ -33,6 +33,8 @@ StartLimitIntervalSec=300
 StartLimitBurst=30
 
 [Service]
+# Type=simple, not the template's notify: it works with every release (0054 S8,
+# 0207 D22). setup-service installs Type=notify with TimeoutStartSec=240.
 Type=simple
 # Resolve relative paths and provider default_cwd against a stable home workspace.
 WorkingDirectory=%h
@@ -55,12 +57,14 @@ KillSignal=SIGTERM
 
 # --- environment (user session + caches) ---
 Environment=HOME=%h
+Environment=USER=%u
+Environment=LOGNAME=%u
 Environment=PATH=%h/.local/bin:%h/.grok/bin:%h/.opencode/bin:%h/go/bin:%h/.local/go/bin:/usr/local/bin:/usr/bin:/bin
-Environment=GOCACHE=/cache/go
-Environment=GOTMPDIR=/cache/tmp
 Environment=XDG_CONFIG_HOME=%h/.config
 Environment=XDG_DATA_HOME=%h/.local/share
+Environment=XDG_STATE_HOME=%h/.local/state
 Environment=XDG_CACHE_HOME=%h/.cache
+Environment=XDG_RUNTIME_DIR=%t
 
 # --- optional MCREMOTE_* overrides (uncomment / set as needed) ---
 # Environment=MCREMOTE_CONFIG=%h/.config/mcremote/config.yaml
