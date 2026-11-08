@@ -1,5 +1,5 @@
 ---
-status: completed
+status: complete
 date: 2026-08-15
 associated-madr: "0091-MADR-mcrelay-daemon-hardening.md"
 owner: [Implementer]

@@ -92,6 +92,9 @@ guide work small enough to review.
     to this audit's report.
 * **D2. The `completed` spelling** (32 PLANs). The one word changes to `complete`, with no note, as a mechanical
   commit of its own (Q1, the owner's answer). It closes nothing and opens nothing; it lets a query on status be exact.
+  *Amended 2026-11-08 (PLAN P2 Deviation 1): 31 PLANs, not 32. 0122-PLAN is a goose-only record, whose status line
+  [0160-MADR-remove-goose-cli-support.md](0160-MADR-remove-goose-cli-support.md) D9 freezes ("PLAN status lines stay
+  as they are"). The owner chose to leave it as `completed`.*
 * **D3. The 149 records without front matter** stay as they are, unless D1 changes one (0200's rule). Normalising
   them would touch 149 closed records for no reader's benefit.
 * **D4. Unnumbered docs, checked against the tree.** For each doc:

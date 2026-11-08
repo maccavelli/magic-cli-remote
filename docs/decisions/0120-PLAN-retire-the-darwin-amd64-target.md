@@ -1,5 +1,5 @@
 ---
-status: completed
+status: complete
 date: 2026-08-28
 associated-madr: "0120-MADR-retire-the-darwin-amd64-target.md"
 ---

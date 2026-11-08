@@ -1,5 +1,5 @@
 ---
-status: completed
+status: complete
 date: 2026-09-28
 associated-madr: "0172-MADR-settings-reconnect-now-centers-under-mesh-relay.md"
 ---

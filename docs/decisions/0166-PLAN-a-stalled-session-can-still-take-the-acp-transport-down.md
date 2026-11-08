@@ -1,5 +1,5 @@
 ---
-status: completed
+status: complete
 date: 2026-09-22
 ---
 

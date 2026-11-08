@@ -7,7 +7,7 @@ Started 2026-11-08, at `master` `cb68b744`. This report records what the audit o
 found and corrected. It decides nothing: each correction cites its evidence in the record it changed, and here.
 Its sections are filled phase by phase, as
 [0239-PLAN-audit-record-statuses-and-docs-accuracy-2026-11.md](../decisions/0239-PLAN-audit-record-statuses-and-docs-accuracy-2026-11.md)
-runs. This version covers P1, the open records.
+runs. This version covers P1, the open records, and P2, the `completed` spelling.
 
 ## Rules
 
@@ -92,3 +92,13 @@ Each reads accurately against the tree:
   `docs.yml` already carries a home-path step. Its portable disclosure check and parity test are not built.
 - **0227's configuration landed in an unrelated commit,** `254279ac` ("feat(opencode): add control plane and fixture
   host-tag guard"), not under 0227's own.
+
+## P2 — the `completed` spelling
+
+On the owner's answer to Q1 ("Normalize to complete"), the front-matter line `status: completed` became `status:
+complete` in 31 PLANs, with no note: 0087, 0088, 0091, 0098, 0115, 0118, 0119, 0120, 0124, 0142, 0147–0156, 0160,
+0161, 0162, 0164, 0165, 0166, 0168, 0171, 0172, 0173 and 0182. No status changed meaning.
+
+**Left as `completed`:** `0122-PLAN-deterministic-goose-file-log-tail-attach.md`.
+[0160-MADR-remove-goose-cli-support.md](../decisions/0160-MADR-remove-goose-cli-support.md) D9 freezes the status
+lines of goose-only PLANs, and the owner chose to keep it that way (PLAN P2 Deviation 1).

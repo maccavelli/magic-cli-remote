@@ -1,5 +1,5 @@
 ---
-status: completed
+status: complete
 date: 2026-08-28
 associated-madr: "0119-MADR-codex-tests-fail-on-the-linux-arm64-lane.md"
 ---

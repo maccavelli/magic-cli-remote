@@ -1,5 +1,5 @@
 ---
-status: completed
+status: complete
 date: 2026-08-18
 madr: "0098-MADR-ephemeral-cloud-install-verification.md"
 owner: Project Owner

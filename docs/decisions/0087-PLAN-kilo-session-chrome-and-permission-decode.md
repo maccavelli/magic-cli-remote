@@ -1,5 +1,5 @@
 ---
-status: completed
+status: complete
 date: 2026-08-14
 associated-madr: "0087-MADR-kilo-session-chrome-and-permission-decode.md"
 owner: Implementer

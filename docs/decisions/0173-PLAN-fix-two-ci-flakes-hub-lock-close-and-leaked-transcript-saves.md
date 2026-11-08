@@ -1,5 +1,5 @@
 ---
-status: completed
+status: complete
 date: 2026-09-28
 associated-madr: "0173-MADR-fix-two-ci-flakes-hub-lock-close-and-leaked-transcript-saves.md"
 ---

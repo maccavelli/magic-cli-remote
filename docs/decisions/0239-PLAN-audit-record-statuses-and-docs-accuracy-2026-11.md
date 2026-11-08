@@ -177,3 +177,26 @@ Scripts and logs are in the session scratchpad (`tidy_inventory.py`, `p1_triage_
 
 **Not done in P1:** 0227's two statuses, which wait for the owner's manual check. The 0205 tag ruleset and the idle
 proposals are findings in the report, not status changes.
+
+P1 was committed by the owner ("committed, proceed").
+
+### P2 Deviation 1, 2026-11-08 — one of the 32 is a goose-only PLAN that 0160 D9 freezes. The owner decided: "Undo 0122, keep 31"
+
+**Found** after step 1's script had run, before anything was staged. One of the 32 `completed` PLANs is
+`0122-PLAN-deterministic-goose-file-log-tail-attach.md`. 0160 D9 lists 0122 among the goose-only PLANs that get a
+banner line "and change nothing else (PLAN status lines stay as they are: a PLAN's status records whether it ran,
+and these did)". The script had changed its status line.
+
+**Decided:** the one-word edit to 0122-PLAN was reverted by the inverse edit, so its file matches the commit again
+(`git diff --stat` shows nothing for it). P2 changes 31 PLANs. The MADR's D2 carries the corrected count. The other
+goose-only PLANs named by D9 (0025, 0030, 0110) have no front matter and were never matched.
+
+### P2 — 2026-11-08: the `completed` spelling
+
+* **Start state (C1).** Clean tree; `master` three commits ahead of `origin/master` (0179's amendment, this pair, and
+  P1), unpushed.
+* **Step 1.** `p2_spelling.py` changed `status: completed` to `status: complete` in each front-matter block, asserting
+  one match per file. All 32 matches had the same form. After Deviation 1, 31 files are changed.
+* **Checks.** `git diff --stat`: 31 files, one line each. `git diff -U0` shows exactly 31 `-status: completed` and 31
+  `+status: complete` lines, and nothing else. `make check-records` and the redact preview, as below.
+* **Staged:** the 31 PLANs, the MADR's D2 note, this plan, and the report's P2 section.

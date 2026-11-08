@@ -1,5 +1,5 @@
 ---
-status: completed
+status: complete
 date: 2026-08-29
 associated-madr: "0124-MADR-transcript-cache-path-separator.md"
 ---

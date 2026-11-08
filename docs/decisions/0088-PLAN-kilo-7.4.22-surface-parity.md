@@ -1,5 +1,5 @@
 ---
-status: completed
+status: complete
 date: 2026-08-15
 associated-madr: "0088-MADR-kilo-7.4.22-surface-parity.md"
 owner: Implementer

@@ -1,5 +1,5 @@
 ---
-status: completed
+status: complete
 date: 2026-09-12
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
