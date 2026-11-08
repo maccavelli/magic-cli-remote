@@ -7,7 +7,7 @@ plane when the phone is off-mesh), or loopback/LAN for development.
 
 | Binary | Role |
 |--------|------|
-| **`mcremote`** | Host daemon: providers, sessions, TLS, pairing, protocol v1 |
+| **`mcremote`** | Host daemon: providers, sessions, TLS, pairing, protocol v1/v2 |
 | **`mcrelay`** | Optional public-edge join router: host register + phone join + opaque WS splice |
 
 Documentation index: [docs/README.md](docs/README.md).
@@ -116,8 +116,10 @@ Releases are immutable `vX.Y.Z` tags and binaries are stamped with the tag
 an explicit rollback; `--force` is only for a local `make` build or a
 same-version reinstall. Each command recycles only its own unit, if one exists.
 An agent in a phone session can run `mcremote update --yes` too: on systemd,
-launchd and Task Scheduler it hands itself off to the service manager; under
-runit, s6 and OpenRC it refuses and leaves the service running (MADR 0210).
+launchd and Task Scheduler it hands itself off to the service manager, and
+under runit, s6 and OpenRC to a detached process. Under OpenRC, when the update
+shares the service's cgroup, it refuses instead and leaves the service running
+(MADR 0210, 0212).
 
 Binaries published before v0.16.0 carry the superseded `BASE.N` build serial
 (e.g. `0.13.9.1`); an installed one still updates forward, because v0.16.0
@@ -286,13 +288,15 @@ and [docs/decisions/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/d
 - **Go 1.27.3** (module pins `go 1.27.3`)
 - **Linux** (primary), **macOS**, or **Windows 10 1809+** (`amd64`, Tier 2)
 - Optional mesh: Headscale + Tailscale clients ([docs/guides/headscale.md](docs/guides/headscale.md))
-- For `setup-service`: Linux **systemd --user**, macOS **launchd** user
-  LaunchAgent, or Windows **Task Scheduler** at-logon task (no sudo, no
-  elevation, on any of the three)
+- For `setup-service`: Linux **systemd --user**, **runit**, **s6** or
+  **OpenRC 0.60+** user services, macOS **launchd** user LaunchAgent, or
+  Windows **Task Scheduler** at-logon task (no sudo and no elevation on any of
+  them)
 - Provider binaries on `PATH` as needed: `grok`, `opencode`, `codex`,
   `kilo` (enabled providers missing a binary are listed as not ready; daemon
   still starts)
-- Flutter companion: **Flutter 3.47.x** / **Dart ≥ 3.13.2** (CI pins Flutter **3.47.2**)
+- Flutter companion: **Flutter 3.47.x** (CI pins Flutter **3.47.9**); `apps/mobile/pubspec.yaml`
+  requires Dart `^3.12.2`
 
 ---
 
@@ -347,10 +351,11 @@ patch tag rather than a new serial under an old tag, which is what makes
 release assets immutable and verifiable. Historical MADRs 0065, 0100 and 0103
 describe the superseded scheme and are kept as history.
 
-Override: `make build VERSION=1.2.3`.
+Override: `make build VERSION=v1.2.3 BUILD_KIND=release` (without `BUILD_KIND`
+the build stays `local`, which the updater refuses to replace without `--force`).
 
 All long flags use a **double dash** (`--help`, `--config`, `--listen-host`,
-`--setup-service`, …). Short `-h` is help only.
+`--setup-service`, …). Short `-h` is help; `update` also takes `-y` for `--yes`.
 
 ---
 
@@ -370,8 +375,9 @@ daemon. It does **not** copy the binary — install first with `make install`.
 On a Linux host with none of these (`systemctl` with no reachable user
 manager, OpenRC older than 0.60, or no service manager), `setup-service`
 writes nothing, prints how to run the daemon yourself, and exits 0. After
-starting the service it waits up to `MCREMOTE_SVC_WAIT_SECS` seconds (default
-`15`) to confirm it is running. See
+starting the service it waits up to 60 s (75 s on runit, s6 and OpenRC) to
+confirm it is running, or `MCREMOTE_SVC_WAIT_SECS` seconds when that is set,
+which must be above the 10 s settle window. See
 [docs/guides/config.md](docs/guides/config.md#mcremote-setup-service--mcremote---setup-service).
 
 Design notes: [docs/decisions/0058-MADR-macos-launchd-service-hardening.md](docs/decisions/0058-MADR-macos-launchd-service-hardening.md).
@@ -601,8 +607,8 @@ mcremote pair prune --stale 2160h             # unused for ≥ 90 days
 Short-code QR encodes
 `mcremote://pair?host=wss://…&code=…&fp=…&mode=…` (no permanent secret in the
 QR). Long-token QR still supports `…&token=mcr_…`. Host defaults to the ACME
-domain in `letsencrypt` mode, else Tailscale IPv4 / `pair.advertise_host` /
-loopback. After a successful claim/connect the app stores the durable `mcr_…`
+domain in `letsencrypt` mode, else `pair.advertise_host`, else an explicit
+`listen.host`, else the Tailscale IPv4, else loopback. After a successful claim/connect the app stores the durable `mcr_…`
 token for reconnect — re-pair only if you revoke.
 
 Tokens are stored as **SHA-256** hashes under
@@ -631,6 +637,8 @@ mcremote engines [--reap]
 mcremote paths [--json] [--data-dir DIR]
 mcremote receipts list [--device ID] | verify --device ID | show --device ID --permission ID
 mcremote auth-recovery status [provider] | choose <provider> <live|current|previous|logged-out>
+mcremote doctor
+mcremote update [--check] [--version vX.Y.Z] [--yes|-y] [--force] [--dry-run] [--json] [--channel NAME]
 mcremote version
 mcremote completion bash|zsh|fish|powershell
 ```
@@ -646,6 +654,8 @@ mcremote completion bash|zsh|fish|powershell
 | `engines` | List agent engine processes (ACP agents, OpenCode's control plane, `kilo serve`, `codex app-server`), each with its provider, and whether their owning daemon is alive (`--reap` to stop orphans) |
 | `paths` | Print the resolved XDG layout — config, data, state, cache, runtime, admin socket, engine registry, log dir (`--json` for machine-readable). Read-only: creates nothing |
 | `receipts list` / `verify` / `show` | Inspect and verify signed permission-decision receipts (opt-in, see [Signed receipts](#signed-receipts)) |
+| `doctor` | Diagnose host-level problems the daemon cannot fix itself: the service, macOS privacy, engines |
+| `update` | Install the newest release, or an exact one with `--version`; `--check` only reports. See [Upgrading later](#upgrading-later) |
 | `version` / `--version` | Print version |
 | `completion` | Shell completion scripts |
 
@@ -724,6 +734,7 @@ works without a subcommand.
 | `--refresh` | | Re-render the installed definition from this binary's template, keeping its baked options |
 | `--json` | | With `--refresh`, print the result as JSON |
 | `--uninstall` | | Remove every `mcremote` and `mcrelay` service that runs a program from this binary's folder |
+| `--from-installer` | | Run by the release installer: set the service up on a first install, or refresh and restart a definition this binary's folder owns. With `--uninstall`, remove only mcremote's own definitions |
 
 Environment: `MCREMOTE_NO_LINGER=1` and `MCREMOTE_FORCE_SERVICE=1` act as
 `--no-linger` and `--force`; `MCREMOTE_WITH_RELAY_SERVICE=1` also sets up
@@ -883,8 +894,9 @@ the full defaults table and env map.
 | `providers.codex` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds` (default `900`), `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `approval_policy`, `sandbox_mode`, `allow_full_access`, `sandbox_broken_policy`, `transport`, `listen_address`, `ws_auth_mode`, `reconnect_attempts`, `environments`, `standalone_processes_enabled`, `standalone_process_env_allowlist` |
 | `providers.kilo` | `enabled` (default `true`), `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree` (default `false`), `pure` |
 | `headscale` | `control_url` |
-| `relay` | `url`, `host_id`, `secret`, `insecure_skip_verify` |
-| `limits` | `max_ws_clients`, `max_live_sessions` |
+| `relay` | `url`, `host_id`, `secret`, `insecure_skip_verify`, `max_frame_bytes` |
+| `limits` | `max_ws_clients`, `max_live_sessions`, `ws_read_deadline_seconds`, `ws_resume_window_seconds`, `tcp_keepalive.{disable,idle_seconds,interval_seconds,count}` |
+| `receipts` | `enabled`, `allow_patterns`, `deny_patterns`, `handoffs` ([docs/guides/receipts.md](docs/guides/receipts.md)) |
 
 ### Stream coalescing
 
@@ -1019,8 +1031,8 @@ app (MADR 0044 / 0049), distinct from config `always_approve`.
 | Setting | Description |
 |---------|-------------|
 | `args` | Override the default argv; empty uses `--no-auto-update agent --no-leader stdio` (plus `-m MODEL` / `--reasoning-effort` when set — accepted globals, ACP no-ops on 1.0.5) |
-| `model` | Model override applied as session/new\|load `_meta.modelId` (empty = grok's default; live 1.0.5 floor is `grok-4.6`, `grok-4.5`) |
-| `reasoning_effort` | `low` \| `medium` \| `high` \| `xhigh` applied as `_meta.reasoningEffort` when set. Also emitted as `--reasoning-effort` (ACP no-op on 1.0.5). The live model advertises the set (`xhigh` is grok-4.6 only) |
+| `model` | Model override applied as session/new\|load `_meta.modelId` (empty = grok's default). The picker lists grok's live catalog, else the last one saved on this host, else go-llmprovider-sdk's grok list ([MADR 0235](docs/decisions/0235-MADR-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md)) |
+| `reasoning_effort` | `low` \| `medium` \| `high` \| `xhigh` applied as `_meta.reasoningEffort` when set. Also emitted as `--reasoning-effort` (ACP no-op on 1.0.5). Each live model advertises the levels it accepts |
 | `permission_mode` | Default **`default`**. Valid: `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`. Process-wide / launch-scoped |
 | `sandbox` | OS-level sandbox profile (`--sandbox`): `off`, `workspace`, `devbox`, `read-only`, `strict`, or a custom name from `~/.grok/sandbox.toml` |
 | `no_subagents` | Disables subagent spawning when true |
@@ -1086,8 +1098,10 @@ providers:
 | `prewarm` | `false` | Keep one spare `opencode acp` ready. A cold start took 6.7 s to about 45 s in the 0214 gates (MADR 0214 A6) |
 | `allow_remote_shell` | `false` | See [Remote shell policy](#remote-shell-policy-off-by-default) |
 
-The 1.x keys `pure`, `session_tree` and `stream_coalesce_ms` are ignored with a
-warning naming each one; delete them ([0214 PLAN](docs/decisions/0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) P7).
+The 1.x keys `pure`, `session_tree` and `stream_coalesce_ms`, `allow_remote_share`
+and the old `transport` are not keys any more: a config that still sets one fails
+to load and names it ([0214 PLAN](docs/decisions/0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) P7,
+[0208 MADR](docs/decisions/0208-MADR-make-the-provider-layer-agent-neutral.md) D6).
 
 ---
 
@@ -1168,11 +1182,11 @@ Design: [MADR 0028](docs/decisions/0028-MADR-codex-provider.md),
 
 Kilo CLI (kilo.ai, an OpenCode fork with its own Gateway, agents, and model
 aliases) is driven through one shared `kilo serve` engine — HTTP + SSE, same
-architecture as OpenCode but a distinct dialect (MADR 0075). **Disabled by
-default** (`providers.kilo.enabled: false`) until acceptance; enable per host.
+architecture as OpenCode but a distinct dialect (MADR 0075). Enabled by default
+(`providers.kilo.enabled: true`); set it to `false` to turn kilo off on a host.
 
 Install: `npm i -g @kilocode/cli` or `brew install Kilo-Org/tap/kilo`.
-Known-good CLI: **kilo 7.4.20** (wire shapes live-tested via `-tags live_kilo`).
+Known-good CLI: **kilo 7.8.18** (wire shapes live-tested via `-tags live_kilo`).
 
 ```json
 { "v":1, "type":"session.create", "id":"2",
@@ -1187,9 +1201,10 @@ default is Gateway-auth-state-dependent (`kilo-auto/free` logged out,
 `kilo-auto/balanced` with a Gateway session), so leaving `model` empty follows
 whatever the host's `kilo auth` state provides.
 
-Credentials are **host-side only** (`kilo auth login`, Gateway session, or env
-keys such as `OPENROUTER_API_KEY`) until the MADR 0074 phone-auth phases land.
-`session_tree` stays `false` until child-event fixtures prove tree demux on
+From the phone you can add an API key for any upstream kilo can configure, or
+start a device sign-in that the kilo engine runs (MADR 0074). Host-side
+credentials still work: `kilo auth login`, a Gateway session, or env keys such
+as `OPENROUTER_API_KEY`. `session_tree` stays `false` until child-event fixtures prove tree demux on
 this fork (MADR 0075 Q7).
 
 Design: [docs/decisions/0075-MADR-kilo-cli-provider.md](docs/decisions/0075-MADR-kilo-cli-provider.md).
@@ -1355,14 +1370,15 @@ mcrelay serve [--listen-host HOST] [--listen-port PORT] [--data-dir DIR]
                [--allow HOST_ID:SECRET] [--allow-legacy-tunnel-secret]
                [--trusted-proxy CIDR] ...
 mcrelay paths [--json] [--data-dir DIR]
-mcrelay setup-service | mcrelay version | mcrelay completion …
+mcrelay setup-service | mcrelay update | mcrelay version | mcrelay completion …
 ```
 
 | Command | Purpose |
 |---------|---------|
 | `serve` | Run the relay daemon |
 | `paths` | Print resolved XDG layout (read-only) |
-| `setup-service` | Install background service (Linux systemd / macOS launchd) |
+| `setup-service` | Install background service (Linux systemd, runit, s6 or OpenRC / macOS launchd / Windows task) |
+| `update` | Install the newest release, or an exact one with `--version`; the same flags as `mcremote update` |
 | `version` | Print version |
 | `completion` | Shell completion scripts |
 
@@ -1439,7 +1455,7 @@ open ios/Runner.xcworkspace  # iOS: build/run from Xcode against a simulator
 ```
 
 Use host `10.0.2.2:7531` from the Android emulator (the daemon must listen on
-`0.0.0.0` — an explicit dev-only opt-out of the `tailscale` default). Full app
+`0.0.0.0` — an explicit dev-only change from the `127.0.0.1` default). Full app
 docs: [apps/mobile/README.md](apps/mobile/README.md).
 
 **Product capabilities (current):**
@@ -1463,7 +1479,7 @@ Local APK (debug-signed for sideload):
 ```
 
 Release signing for CI/canonical tags:
-[docs/guides/ops-android-signing.md](apps/mobile/docs/guides/ops-android-signing.md).
+[apps/mobile/docs/guides/ops-android-signing.md](apps/mobile/docs/guides/ops-android-signing.md).
 
 ---
 
@@ -1486,15 +1502,19 @@ Three workflows run there
 
 | Job | When | What it does |
 |-----|------|--------------|
-| `go` | always | gofmt, `go mod tidy` cleanliness, vet, race tests, version-allocator tests, systemd unit validation, build-tag policy. **On tag:** builds **mcremote** + **mcrelay** for **linux/amd64, linux/arm64, darwin/arm64, windows/amd64** and uploads them |
-| `flutter` | always | `dart format` check, Flutter analyze, Flutter test (Flutter **3.47.2** pinned) |
-| `android-apk` | **tag only** | arm64 **release** APK (signing rules in workflow + ops-android-signing); asserted by `scripts/assert-flutter-release-apk.sh`. PRs/branches: build with `make apk` locally |
-| `release` | tag only | Downloads the APK and Go binaries and attaches them to the GitHub Release |
+| `go` | always | records check, markdownlint, gofmt, `go mod tidy` cleanliness, govulncheck, vet (also under every build tag), race and cgo-free tests, systemd unit validation, build-tag policy, staticcheck (linux, darwin, windows), and the `install-binary.sh` tests |
+| `go-native` | always | the Go tests natively on **linux/arm64**, **windows/amd64** and **darwin/arm64**, each retried once and recorded in the flake ledger |
+| `live-supervisors` | always | the runit and s6 service backends against live supervisors |
+| `flutter` | always | `dart format` check, Flutter analyze, Flutter test (Flutter **3.47.9** pinned) |
+| `flutter-windows` | always | Flutter test on Windows |
+| `android-apk` | tag or manual dispatch | arm64 **release** APK (signing rules in workflow + ops-android-signing); asserted by `scripts/assert-flutter-release-apk.sh`. PRs/branches: build with `make apk` locally |
+| `build` | tag or manual dispatch | go-selfupdate-lib's reusable workflow builds **mcremote** + **mcrelay** for **linux/amd64, linux/arm64, darwin/arm64, windows/amd64**, checks each binary's identity on its own platform, writes `SHA256SUMS` and the installers, and stages the APK. A dispatch is a rehearsal |
+| `publish` | tag only | go-selfupdate-lib's reusable workflow: validates the staged set, creates a draft release, attests every asset, publishes it, and waits for it to be immutable |
 
-**Build tags are per-OS and CI enforces it:** Linux binaries build with
-`netgo,osusergo` (pure-Go DNS and passwd resolution). Darwin builds carry **no**
-tags (`CGO_ENABLED=0` already gets there). `make verify-build-metadata` checks
-both.
+**Build tags:** local `make` builds use `netgo,osusergo` on Linux (pure-Go DNS
+and passwd resolution) and no tags on Darwin or Windows; `make
+verify-build-metadata` checks them. Release binaries are built cgo-free with
+no tags by go-selfupdate-lib's `build` workflow.
 
 **Node.js:** CI pins **Node.js 26 LTS** via `actions/setup-node`, `.node-version` and
 `.nvmrc`. JavaScript actions themselves run on Node 24 (`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`).
@@ -1514,8 +1534,8 @@ Developer ID and no notarization. Gatekeeper only intervenes when the file
 carries a quarantine attribute, which a **browser** download sets:
 
 ```bash
-xattr -d com.apple.quarantine ./mcremote-darwin-arm64-*
-chmod +x ./mcremote-darwin-arm64-*
+xattr -d com.apple.quarantine ./mcremote-darwin-arm64
+chmod +x ./mcremote-darwin-arm64
 ```
 
 `gh release download` does **not** set the attribute, so the step is unnecessary
@@ -1533,6 +1553,11 @@ produces a local file that was never quarantined. Rationale:
 ./scripts/smoke-protocol.sh -token 'mcr_…' -provider fake
 ```
 
+`auth.require_client_key` defaults to `true`, so either run this daemon with it
+off (`MCREMOTE_AUTH_REQUIRE_CLIENT_KEY=false`) or pass `-client-cert` and
+`-client-key`. `-provider fake` needs `providers.fake.enabled: true`, which is
+off by default.
+
 ---
 
 ## Development
@@ -1542,7 +1567,7 @@ make test          # go test ./...
 make race          # race detector
 make vet
 make fmt           # gofmt (not gofumpt)
-make lint          # golangci-lint
+make lint          # golint
 make staticcheck
 make vulncheck     # govulncheck
 make tidy
@@ -1558,22 +1583,19 @@ make verify-units            # systemd unit directives
 make pre-add-check           # gofmt + golint + govulncheck (the staging rule)
 
 # Before moving a library pin (network; needs a ../go-shared checkout; not in CI)
-make check-libs              # latest acp-go-sdk2 and go-selfupdate-lib tags against HEAD
+make check-libs              # latest acp-go-sdk2, go-selfupdate-lib and go-llmprovider-sdk tags against HEAD
 
-# Live provider suites (require the real CLI on PATH + network; not in CI)
+# Live provider suites (require the real CLI on PATH + network; spend quota; not in CI)
+make live-grok
 make live-opencode
-# → go test -tags live_opencode ./internal/provider/opencode/
 make live-codex
-# → go test -tags live_codex ./internal/provider/codex/
-# Additional live tags (no make shorthand yet):
-#   go test -tags live_grok  ./internal/provider/grok/  -count=1 -timeout 600s -v
-#   go test -tags live_kilo  ./internal/provider/kilo/  -count=1 -timeout 600s -v
+make live-kilo
 
 # Android runtime profiling (physical device / emulator + DevTools)
 make profile-devices
 make profile                 # flutter run --profile
 make profile-apk             # arm64 profile APK
-# → docs/guides/mobile-profiling.md
+# → apps/mobile/docs/guides/mobile-profiling.md
 ```
 
 ### Repository layout
@@ -1584,10 +1606,14 @@ internal/
   cli/          # cobra commands, setup-service templates
   config/       # YAML + env + defaults
   daemon/       # serve lifecycle, TLS ensure
-  ws/           # protocol-v1 WebSocket server
+  ws/           # protocol v1/v2 WebSocket server
+  protocol/     # wire types and version negotiation
   session/      # session manager
   provider/     # grok, opencode, codex, kilo, fake, ACP helpers
   auth/         # devices, pair codes, tokens
+  certs/        # TLS: self-signed, ACME DNS-01
+  receipt/      # signed permission-decision receipts
+  updateclient/ # self-update through go-selfupdate-lib
   relay/        # mcrelay server
   relayhost/    # mcremote → mcrelay client
   appdirs/      # XDG paths
@@ -1597,7 +1623,7 @@ apps/mobile/                # Flutter companion
 configs/                    # example YAML
 deploy/                     # systemd + launchd unit examples
 docs/                       # MADRs, plans, ops, protocol, config
-scripts/                    # build, install, smoke, precheck, hooks
+scripts/                    # build, install, smoke, precheck, records and CI checks
 ```
 
 ### Code standards
@@ -1622,9 +1648,9 @@ Language/style guides live under `docs/guides/standards/`.
 | [docs/guides/ops-mcrelay.md](docs/guides/ops-mcrelay.md) | mcrelay ops: systemd/launchd, LE, secret rotation, smoke |
 | [docs/guides/headscale.md](docs/guides/headscale.md) | Mesh grants & pairing |
 | [docs/guides/iam-route53-acme.md](docs/guides/iam-route53-acme.md) | Route 53 IAM for ACME DNS-01 |
-| [docs/guides/ops-android-signing.md](apps/mobile/docs/guides/ops-android-signing.md) | Release APK keystore / CI secrets |
+| [apps/mobile/docs/guides/ops-android-signing.md](apps/mobile/docs/guides/ops-android-signing.md) | Release APK keystore / CI secrets |
 | [apps/mobile/README.md](apps/mobile/README.md) | Flutter companion runbook |
-| [docs/guides/mobile-profiling.md](apps/mobile/docs/guides/mobile-profiling.md) | Android profile mode / DevTools |
+| [apps/mobile/docs/guides/mobile-profiling.md](apps/mobile/docs/guides/mobile-profiling.md) | Android profile mode / DevTools |
 | [docs/guides/chat-performance.md](docs/guides/chat-performance.md) | Mobile chat scroll/stream notes |
 
 ### Architecture & key decisions
@@ -1635,7 +1661,7 @@ Language/style guides live under `docs/guides/standards/`.
 | [docs/decisions/0003-MADR-phase1-decisions.md](docs/decisions/0003-MADR-phase1-decisions.md) | Phase 1 locked decisions |
 | [docs/decisions/0176-MADR-phase-2-grok-acp-provider.md](docs/decisions/0176-MADR-phase-2-grok-acp-provider.md) | Phase 2 Grok ACP |
 | [docs/decisions/0015-MADR-mcrelay-transport-security.md](docs/decisions/0015-MADR-mcrelay-transport-security.md) | mcrelay outbound relay (E2E TLS splice) |
-| [docs/decisions/0020-MADR-opencode-session-tree.md](docs/decisions/0020-MADR-opencode-session-tree.md) | OpenCode multi-agent session tree |
+| [docs/decisions/0020-MADR-opencode-session-tree.md](docs/decisions/0020-MADR-opencode-session-tree.md) | OpenCode multi-agent session tree (the 1.x HTTP provider, replaced for OpenCode by 0214) |
 | [docs/decisions/0023-MADR-canonical-slash-commands.md](docs/decisions/0023-MADR-canonical-slash-commands.md) | Canonical slash commands |
 | [docs/decisions/0024-MADR-stream-coalescing.md](docs/decisions/0024-MADR-stream-coalescing.md) | Stream text coalescing |
 | [docs/decisions/0160-MADR-remove-goose-cli-support.md](docs/decisions/0160-MADR-remove-goose-cli-support.md) | Goose provider removed (supersedes 0025) |
@@ -1650,11 +1676,11 @@ Language/style guides live under `docs/guides/standards/`.
 | [docs/decisions/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/decisions/0061-MADR-relay-pair-advertise-and-path-selection.md) | Relay pair advertise |
 | [docs/decisions/0062-MADR-phone-transport-selection.md](docs/decisions/0062-MADR-phone-transport-selection.md) | Phone transport selection |
 | [docs/decisions/0063-MADR-connection-liveness-truth.md](docs/decisions/0063-MADR-connection-liveness-truth.md) | Connection liveness |
-| [docs/decisions/0065-MADR-update-automation.md](docs/decisions/0065-MADR-update-automation.md) | Update automation |
-| [docs/decisions/0067-MADR-ios-port.md](apps/mobile/docs/decisions/0067-MADR-ios-port.md) | iOS port of the mobile companion (software-complete; hardware validation parked) |
+| [docs/decisions/0065-MADR-update-automation.md](docs/decisions/0065-MADR-update-automation.md) | Update automation (superseded for the host update path; the phone's in-app update stands) |
+| [apps/mobile/docs/decisions/0067-MADR-ios-port.md](apps/mobile/docs/decisions/0067-MADR-ios-port.md) | iOS port of the mobile companion (software-complete; hardware validation parked) |
 | [docs/decisions/0068-MADR-protocol-v2-reconnect-resilient-transport.md](docs/decisions/0068-MADR-protocol-v2-reconnect-resilient-transport.md) | Protocol v2: negotiation, liveness, resume, gap signalling (shipped) |
 | [docs/decisions/0069-MADR-macos-permissions-and-sandbox-parity.md](docs/decisions/0069-MADR-macos-permissions-and-sandbox-parity.md) | macOS permissions / sandbox parity (TCC, full-access mode) |
-| [docs/decisions/0074-MADR-remote-provider-auth-from-phone.md](docs/decisions/0074-MADR-remote-provider-auth-from-phone.md) | Remote provider auth from phone (proposed; not yet implemented) |
+| [docs/decisions/0074-MADR-remote-provider-auth-from-phone.md](docs/decisions/0074-MADR-remote-provider-auth-from-phone.md) | Remote provider auth from phone (implemented; P22's live acceptance run outstanding) |
 | [docs/decisions/0075-MADR-kilo-cli-provider.md](docs/decisions/0075-MADR-kilo-cli-provider.md) | Kilo CLI provider |
 | [docs/decisions/0077-MADR-signed-receipts-permission-handoffs.md](docs/decisions/0077-MADR-signed-receipts-permission-handoffs.md) | Signed receipts for permission decisions |
 

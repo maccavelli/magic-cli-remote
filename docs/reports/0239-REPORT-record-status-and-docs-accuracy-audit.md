@@ -7,7 +7,7 @@ Started 2026-11-08, at `master` `cb68b744`. This report records what the audit o
 found and corrected. It decides nothing: each correction cites its evidence in the record it changed, and here.
 Its sections are filled phase by phase, as
 [0239-PLAN-audit-record-statuses-and-docs-accuracy-2026-11.md](../decisions/0239-PLAN-audit-record-statuses-and-docs-accuracy-2026-11.md)
-runs. This version covers P1, the open records, and P2, the `completed` spelling.
+runs. This version covers P1, the open records; P2, the `completed` spelling; and P3, the entry points.
 
 ## Rules
 
@@ -102,3 +102,103 @@ complete` in 31 PLANs, with no note: 0087, 0088, 0091, 0098, 0115, 0118, 0119, 0
 **Left as `completed`:** `0122-PLAN-deterministic-goose-file-log-tail-attach.md`.
 [0160-MADR-remove-goose-cli-support.md](../decisions/0160-MADR-remove-goose-cli-support.md) D9 freezes the status
 lines of goose-only PLANs, and the owner chose to keep it that way (PLAN P2 Deviation 1).
+
+## P3 — the entry points
+
+`README.md`, `docs/README.md`, `docs/architecture.md`, `apps/mobile/docs/README.md` and
+`apps/mobile/docs/architecture.md`.
+
+### Method
+
+- **The reference checker** (`docref.py`, scratchpad) extracts eight kinds of reference and resolves each against the
+  tree: a repository path, a `make` target, an `mcremote`/`mcrelay` subcommand, a `--flag`, a dotted config key, an
+  `MCREMOTE_*`/`MCRELAY_*` variable, a backticked Go identifier, and a tool version against its pin. It was seen
+  failing on one planted bad reference of each kind.
+- **The anchor resolver** (`anchors.py`) checks every relative link's `#anchor` against GitHub's heading slugs. It was
+  seen failing on a planted dead same-file anchor and a planted dead cross-file anchor. `make check-records` already
+  checks each link's file (PLAN P3 Deviation 1).
+- Each unresolved reference was read in context. Then each doc was read through against the code, for the README
+  with one read-only helper pass whose claims were spot-checked against the files before any edit.
+
+### Checker results
+
+87 unresolved references before the edits, 85 after. Each remaining one is in a class that is not an error:
+
+- **Protocol message types** read as config keys: `session.create`, `models.list`, `pair.claim` and 20 more, each
+  confirmed in `internal/protocol`.
+- **English after a binary's name:** "mcrelay does", "mcrelay supports" and similar.
+- **Record titles in the generated index:** "grok 1.0.3", "Flutter 3.47.2", "make docs".
+- **Installer options** (`--no-hooks`, `MCREMOTE_NO_HOOKS`, `MCREMOTE_INSTALL_DIR`): defined in go-selfupdate-lib's
+  installer template at the pinned commit, not in this repository.
+- **Variables viper derives from a key** (`MCREMOTE_AUTH_ALLOWED_ORIGINS`, `MCREMOTE_PROVIDERS_GROK_SANDBOX`): each key
+  exists.
+- **History stated as history:** "measured on grok 1.0.3", "`scripts/next-build-version.sh` are gone".
+
+The anchor resolver found one dead anchor in the whole doc set, `docs/guides/receipts.md:197` to
+`config.md#locations-xdg`, which P5 fixes.
+
+### Corrections, `README.md`
+
+Each states what the code does today. The evidence column names the code that decided it.
+
+| Section | Was | Now | Evidence |
+| --- | --- | --- | --- |
+| Binaries | mcremote: "protocol v1" | "protocol v1/v2" | `internal/protocol/messages.go` |
+| Upgrading later | agent-run update under runit, s6, OpenRC "refuses" | hands off to a detached process; OpenRC refuses only when the update shares the service's cgroup | `internal/updateclient/client.go:245-277, 355-360` |
+| Requirements | setup-service: systemd, launchd, Task Scheduler | adds runit, s6 and OpenRC 0.60+ | `internal/cli/service/detect.go`; the README's own table |
+| Requirements | "Dart ≥ 3.13.2 (CI pins Flutter 3.47.2)" | CI pins 3.47.9; `pubspec.yaml` requires Dart `^3.12.2` | `ci.yml:33`; `apps/mobile/pubspec.yaml:12` |
+| Quick start | `make build VERSION=1.2.3` | `VERSION=v1.2.3 BUILD_KIND=release`; without `BUILD_KIND` the build is `local` | `Makefile:10, 49` |
+| Quick start | "Short `-h` is help only" | `update` also takes `-y` | go-selfupdate-lib `selfupdate/cli/flags.go:78` |
+| Service installation | waits `MCREMOTE_SVC_WAIT_SECS` "(default 15)" | 60 s, 75 s on runit/s6/OpenRC; the variable must exceed the 10 s settle window | `internal/cli/service/settle.go:28-60` |
+| Device pairing | host order "Tailscale / advertise_host / loopback" | ACME domain, `pair.advertise_host`, explicit `listen.host`, Tailscale IPv4, loopback | `internal/cli/pair.go:540-558, 622-633` |
+| CLI reference | no `doctor` or `update` | both added, synopsis and table | `internal/cli/root.go:83-84` |
+| setup-service flags | no `--from-installer` | row added | `internal/cli/setup_service.go:102-109` |
+| YAML surface | `relay` without `max_frame_bytes`; `limits` with 2 of 8 keys; no `receipts` row | all three completed | `internal/config/config.go:72-157` |
+| Provider: Grok | `model`: "live 1.0.5 floor is grok-4.6, grok-4.5" | live catalog, else the saved one, else go-llmprovider-sdk's list | `internal/provider/grok/grok.go:21-41`; 0235 |
+| Provider: Grok | "`xhigh` is grok-4.6 only" | each live model advertises its levels | the live catalog decides |
+| Provider: OpenCode | 1.x keys "ignored with a warning" | a config that sets one fails to load and names it | `internal/provider/opencode/section.go:11-14` |
+| Provider: Kilo | "Disabled by default … until acceptance" | enabled by default | `internal/provider/kilo/section.go:45` |
+| Provider: Kilo | "kilo 7.4.20" | "kilo 7.8.18" | `internal/provider/kilo/version.go:25` |
+| Provider: Kilo | credentials "host-side only until … 0074" | the phone adds a key or starts an engine-run device sign-in | `internal/provider/kilo/auth.go`, `device_auth.go` |
+| mcrelay CLI | no `update`; setup-service "systemd / launchd" | `update` added; the same backends as mcremote | `internal/relay/cli.go:80-84` |
+| Mobile companion | emulator: "opt-out of the `tailscale` default" | the default is `127.0.0.1` | `internal/config/config.go:544` |
+| Mobile companion, Documentation | link text `docs/guides/ops-android-signing.md`, `docs/guides/mobile-profiling.md`, `docs/decisions/0067-MADR-ios-port.md` | the `apps/mobile/docs/…` paths the links point to | the link targets |
+| CI / CD | job table: `go`, `flutter`, `android-apk`, `release` | `go`, `go-native`, `live-supervisors`, `flutter`, `flutter-windows`, `android-apk`, `build`, `publish`; no `release` | `ci.yml:42-783` |
+| CI / CD | `go` job: "version-allocator tests"; builds binaries on a tag | its real steps; go-selfupdate-lib's `build` job makes the binaries | `ci.yml:42-186, 750-759` |
+| CI / CD | "Flutter 3.47.2"; `android-apk` "tag only" | 3.47.9; tag or manual dispatch | `ci.yml:33, 465` |
+| CI / CD | build tags "CI enforces" for binaries | local `make` builds carry them; release binaries are cgo-free with no tags | `scripts/verify-build-metadata.sh`; the `build` workflow |
+| macOS binary | `./mcremote-darwin-arm64-*` | `./mcremote-darwin-arm64` | go-selfupdate-lib's canonical asset names |
+| Headless smoke | the snippet as written | adds that `auth.require_client_key` defaults to `true`, and `fake` is off by default | `internal/config/config.go:557`; `scripts/smoke-protocol/main.go:51` |
+| Development | `make lint  # golangci-lint` | `# golint` | `Makefile:607-608` |
+| Development | check-libs: two libraries | three, with go-llmprovider-sdk | `check_libs.json` |
+| Development | grok and kilo: "no make shorthand yet" | `make live-grok`, `make live-kilo` | `Makefile:381, 394` |
+| Repository layout | `ws/` "protocol-v1"; no `protocol/`, `certs/`, `receipt/`, `updateclient/`; `scripts/` "hooks" | v1/v2; the four packages added; "records and CI checks" | the tree |
+| Architecture & key decisions | 0074 "(proposed; not yet implemented)" | implemented; P22's live run outstanding | 0074's status line |
+| Architecture & key decisions | 0065 and 0020 with no note | 0065 superseded for the host update path; 0020 is the 1.x provider 0214 replaced | their status lines; 0214's Related records |
+
+### Corrections, other entry points
+
+| File | Was | Now | Evidence |
+| --- | --- | --- | --- |
+| `apps/mobile/docs/architecture.md` | "Flutter pin: **3.47.5**" | 3.47.9, CI's `FLUTTER_VERSION` | `ci.yml:33` |
+
+`docs/architecture.md`, `docs/README.md` and `apps/mobile/docs/README.md` were checked and are unchanged: the receipts
+path, the Windows Known Folders, the packages named, the endpoints and the "I want to…" rows all match the tree.
+
+### Doc-versus-code differences (Q3)
+
+Places where the doc described behaviour the code does not have, rewritten to the code:
+
+- the kilo provider's default (`enabled: true`, not `false`);
+- the OpenCode 1.x keys (refused, not ignored with a warning);
+- the agent-run update under runit, s6 and OpenRC (hands off, not refuses);
+- the setup-service start wait (60 s or 75 s, not 15 s);
+- the pair-QR host order;
+- the CI job set and what each job builds.
+
+None looks like the code being the one that is wrong; each matches a later record (0208 P8, 0212, 0207 D42, 0203,
+0054).
+
+### Not covered by P3
+
+The unnumbered docs added by PLAN P3 Deviation 2 (the coding standards and `apps/mobile/README.md`) are P4's and P6's.

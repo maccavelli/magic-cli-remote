@@ -25,7 +25,9 @@ When this plan is done:
 * **Records:** the 51 open MADRs and PLANs the MADR lists, in `docs/decisions/` and `apps/mobile/docs/decisions/`;
   the 32 `completed` PLANs (P2 only).
 * **Unnumbered docs:** `README.md`; `docs/README.md`, `docs/architecture.md`, `docs/guides/*.md`;
-  `apps/mobile/docs/README.md`, `architecture.md`, `guides/*.md`.
+  `apps/mobile/docs/README.md`, `architecture.md`, `guides/*.md`. *Widened by P3 Deviation 2:*
+  `docs/guides/standards/go/*.md` (P4), `apps/mobile/docs/guides/standards/mobile/*.md` and `apps/mobile/README.md`
+  (P6).
 * **New:** `docs/reports/0239-REPORT-record-status-and-docs-accuracy-audit.md`; this pair.
 * **Out of scope (D8):** any source, test, config or workflow file; `AGENTS.md`, `.claude/rules/`, `.grok/rules/`,
   `.opencode/rules.md`, whose factual errors are listed for the owner; the 149 records without front matter, except
@@ -75,7 +77,8 @@ When this plan is done:
    config keys, environment variables, backticked Go identifiers, record links and versions. Seen failing on a scratch
    copy of one doc with one planted bad reference of each kind.
 2. **The link resolver** (C3): every relative link in the unnumbered docs resolves to an existing file and, where it
-   names one, an existing heading anchor. Seen failing on a planted dead link and a planted dead anchor.
+   names one, an existing heading anchor. Seen failing on a planted dead link and a planted dead anchor. *Narrowed
+   by P3 Deviation 1 to anchors: file existence is already `make check-records`' job.*
 3. **Corrections,** from the checker's unresolved list, read in context, and a read-through against the records
    changed since each doc's last edit. `architecture.md` keeps no history. Where a doc describes behaviour the code
    does not have, the doc is rewritten to what the code does, and the report's doc-versus-code list gains the place,
@@ -200,3 +203,59 @@ goose-only PLANs named by D9 (0025, 0030, 0110) have no front matter and were ne
 * **Checks.** `git diff --stat`: 31 files, one line each. `git diff -U0` shows exactly 31 `-status: completed` and 31
   `+status: complete` lines, and nothing else. `make check-records` and the redact preview, as below.
 * **Staged:** the 31 PLANs, the MADR's D2 note, this plan, and the report's P2 section.
+
+P2 was committed by the owner ("committed, proceed").
+
+### P3 Deviation 1, 2026-11-08 — `make check-records` already checks the guides' links. The owner decided: "Anchors only"
+
+**Found** at P3's start, reading `scripts/check_records.py` before writing the resolver. Its `--check-all` mode checks
+that every relative link resolves to a file in `docs/guides/**`, `docs/README.md`, `docs/architecture.md`, the root
+`README.md`, and the mobile tree's README, architecture and guides. `make check-records` runs that mode
+(`Makefile:287-288`). It does not check a `#anchor`. The MADR's Context said nothing checked a guide's links, and D6
+planned a resolver for files and anchors.
+
+**Decided:** the MADR's sentence is corrected in place (struck through, with the dated correction), and D6 is
+amended. Step 2's resolver checks only heading anchors.
+
+### P3 Deviation 2, 2026-11-08 — seventeen docs the inventory missed. The owner decided: "Add all 17"
+
+**Found** during P3: the mobile README links `guides/standards/mobile/`, and `make markdownlint-docs` lists
+`apps/mobile/README.md`. The inventory had globbed one directory level, so it missed the nested coding standards,
+`docs/guides/standards/go/*.md` (9 files) and `apps/mobile/docs/guides/standards/mobile/*.md` (7), 803 lines in all,
+and the Flutter runbook, `apps/mobile/README.md`.
+
+**Decided:** all seventeen join the audit. The Go standards join P4; the mobile standards and the runbook join P6.
+The MADR's inventory and this plan's Scope carry the change.
+
+### P3 — 2026-11-08: the entry points
+
+Scripts and logs are in the session scratchpad (`docref.py`, `docref_failfirst.py`, `anchors.py`,
+`anchors_failfirst.py`, `p3_context.py`, `p3-docref.txt`, `p3-docref-after.txt`).
+
+* **Start state (C1).** Clean tree; `master` four commits ahead of `origin/master`, unpushed.
+* **Step 1, the reference checker.** `docref.py` resolves eight kinds: a repository path, a `make` target, a CLI
+  subcommand, a `--flag`, a config key, an `MCREMOTE_*`/`MCRELAY_*` variable, a Go identifier, and a tool version
+  against its pin. **Seen failing:** on a scratch copy of `docs/architecture.md` with one planted bad reference of each
+  kind, it reported all eight (15 findings against 7 unplanted). The copy was removed.
+* **Step 2, the anchor resolver.** `anchors.py` checks each relative link's `#anchor` against GitHub's heading slugs
+  (Deviation 1). **Seen failing:** on scratch copies of two guides, it reported a planted dead same-file anchor and a
+  planted dead cross-file anchor, and passed a live control anchor. The copies were removed. Over every unnumbered doc
+  it found one dead anchor, `receipts.md:197` `config.md#locations-xdg`, which P5 fixes.
+* **Step 3, corrections.**
+  * The checker reported 87 references in the five files. Each was read in context: 23 are protocol message types
+    (confirmed against `internal/protocol`), and the rest are English after "mcrelay", record titles in the
+    generated index, history, or installer options defined in go-selfupdate-lib's template.
+  * The real ones, and a read-through of the README against the code (one read-only helper pass for lines 1–747 and
+    1213–1668, C5, spot-checked), gave the corrections the report lists: 32 rows for `README.md`, 1 for
+    `apps/mobile/docs/architecture.md`.
+  * `docs/architecture.md`, `docs/README.md` and `apps/mobile/docs/README.md` checked out and are unchanged.
+  * After the edits the checker reports 85, every one in the classes above.
+* **Step 4, the index.** No record title changed, so `--write-index` is a no-op. The "I want to…" rows resolve, and
+  their anchors are live.
+* **Step 5, checks.**
+  * `anchors.py` on the five files: 0 dead.
+  * `make check-records`: exit 0.
+  * `make markdownlint-docs`: 0 issues.
+  * `go test ./internal/protocol/` and `TestTrackedFilesUseOnlyPlaceholderHomes`, the Docs workflow's Go tests: ok.
+  * The redact preview: 0 files.
+* **Staged:** `README.md`, `apps/mobile/docs/architecture.md`, the MADR and this plan, and the report's P3 section.

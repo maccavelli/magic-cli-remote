@@ -16,8 +16,8 @@ renders the live turn.
 | Linux desktop | Local UI and protocol testing without an emulator. |
 | iOS | Simulator builds. Same Dart codebase; platform plugins differ. |
 
-Flutter pin: **3.47.5** / Dart matching CI `FLUTTER_VERSION` in
-`.github/workflows/ci.yml`. `flutter pub get` must not change `pubspec.lock`.
+Flutter pin: **3.47.9**, CI's `FLUTTER_VERSION` in `.github/workflows/ci.yml`,
+with the Dart it ships. `flutter pub get` must not change `pubspec.lock`.
 
 ## Connection
 
