@@ -4,7 +4,7 @@ version: "3.12.2-v3"
 last_updated: "2026-07-28"
 component: "architecture"
 state_management: "flutter_riverpod ^3.3.2"
-router: "go_router ^17.3.0"
+router: "go_router ^18.0.0"
 ---
 
 # Mobile Architecture and State Standards

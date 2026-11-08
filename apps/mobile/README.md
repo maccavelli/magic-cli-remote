@@ -7,8 +7,10 @@ Documentation: [docs/README.md](docs/README.md).
 
 ## Features
 
-- Connect via **Enter code** (8-char, 5 min), QR scan, or long-lived token
-- Session list / create with provider picker (**grok**, **opencode**, **codex**, **fake** — as the daemon reports ready)
+- Connect via **Enter code** (8-char, 5 min), QR scan, a pasted pair URI, or long-lived token. A self-signed
+  daemon (the default) needs the QR or the pair URI, which carry its certificate fingerprint; a typed code
+  or bare token works only with a publicly trusted certificate
+- Session list / create with provider picker (**grok**, **opencode**, **codex**, **kilo**, **fake** — as the daemon reports ready)
 - Model catalog, model-provider scope, thinking levels, and session modes (including auto-approve / dangerous modes when offered)
 - Live chat stream (thoughts, tools, assistant text, questions)
 - **In-session transcript** survives navigating away from chat, with daemon-history replay and a bounded best-effort phone cache
@@ -27,9 +29,9 @@ Documentation: [docs/README.md](docs/README.md).
   - Android emulator / physical device on Headscale
 - Running `mcremote` daemon (see repo root)
 
-## Run (Linux desktop — recommended here)
+## Run (Linux desktop)
 
-This machine currently has **no Android emulator**. The project includes a **Linux desktop** target for local UI + protocol testing:
+The project includes a **Linux desktop** target for local UI + protocol testing without an emulator or device:
 
 ```bash
 # terminal 1 — daemon (loopback is fine for desktop)
@@ -45,7 +47,7 @@ flutter run -d linux
 
 In the app: **Enter code** / **Scan QR**, or host **`127.0.0.1:7531`** + long token under Advanced.
 
-If `flutter run -d linux` fails with a display error on a headless AWS box, you need either:
+If `flutter run -d linux` fails with a display error on a headless machine, you need either:
 
 - an X11/Wayland display / VNC / RDP session, or  
 - `Xvfb :99 &` then `export DISPLAY=:99`, or  
@@ -71,7 +73,7 @@ On the host:
 make build
 ./bin/mcremote serve --listen-host 0.0.0.0 --listen-port 7531
 ./bin/mcremote pair code --name android --qr
-# Enter code or scan QR in app
+# in the app: paste the printed Pair URI, or scan the QR
 ```
 
 > Emulator reaches the host via **`10.0.2.2`**. Daemon must listen on `0.0.0.0` (or the host LAN IP), not only `127.0.0.1`.
@@ -87,15 +89,18 @@ flutter run
 In the app:
 
 - Host: `10.0.2.2:7531`
-- Token: **Scan QR** or paste `mcr_…`
+- Pair: **Paste URI / code / token** with the `Pair URI:` line, or **Scan QR**. Both carry the certificate
+  fingerprint; a bare `mcr_…` token or a typed code does not
 - Connect → New session → chat
+
+Emulator details, including the virtual-camera QR route: [ops-android-emulator.md](docs/guides/ops-android-emulator.md).
 
 ## Physical device (Headscale)
 
 1. Phone joins the same Headscale tailnet as the host  
 2. Host: `mcremote serve` bound to tailnet IP or `0.0.0.0` with grants for TCP **7531**  
 3. App host field: MagicDNS name or tailnet IP, e.g. `devbox:7531`  
-4. Scan pair QR (or paste device token)  
+4. Scan the pair QR (or paste its pair URI)  
 
 See [docs/guides/headscale.md](../../docs/guides/headscale.md).
 
@@ -122,7 +127,8 @@ stopping can still lose an unflushed local tail.
 |----------|--------|
 | **Android** | Product target (release APK on `v*` tags) |
 | **Linux desktop** | Dev convenience (same UI, localhost daemon) |
-| iOS / Web | Not enabled |
+| **iOS** | Implemented, verified on the Simulator only; no device testing yet ([MADR 0067](docs/decisions/0067-MADR-ios-port.md)) |
+| Web | Not enabled |
 
 ## Project layout
 
@@ -131,13 +137,14 @@ lib/
   data/protocol/   # envelope + event models
   data/ws/         # McremoteClient
   data/local/      # secure settings
-  features/        # connect, sessions, chat
+  features/        # connect, sessions, chat, settings
   state/           # Riverpod providers
+  theme/           # Celestial design system
 ```
 
-## Build APK (this host)
+## Build APK
 
-Android SDK is already installed at `$HOME/Android/Sdk`. On low-RAM machines use:
+Needs the Android SDK. On low-RAM machines use:
 
 ```bash
 # from repo root
@@ -150,7 +157,9 @@ Outputs:
 - `apps/mobile/build/app/outputs/flutter-apk/app-release.apk`
 - `dist/magic-cli-remote-latest-arm64.apk` (copy for sideload)
 
-Signed with **debug keys** for now (easy sideload). Install:
+A local build is signed with the debug key unless `android/key.properties` exists; tagged releases are signed
+with the upload key ([ops-android-signing.md](docs/guides/ops-android-signing.md)). A debug-signed APK cannot
+update an installed release. Install:
 
 ```bash
 adb install -r dist/magic-cli-remote-latest-arm64.apk

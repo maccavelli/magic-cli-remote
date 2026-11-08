@@ -24,7 +24,7 @@ Official references:
 
 ## Prerequisites
 
-1. Flutter **3.47.2** / Dart **3.13.2**, the CI pin (`FLUTTER_VERSION` in
+1. Flutter **3.47.9** / Dart **3.13.7**, the CI pin (`FLUTTER_VERSION` in
    `.github/workflows/ci.yml`); check with `flutter --version`.
 2. An Android device or emulator visible to Flutter:
 
@@ -41,7 +41,7 @@ Official references:
    | Physical / Headscale | tailnet IP or `0.0.0.0` + grants | MagicDNS / mesh IP |
    | mcrelay | host registers to relay | pair URI with `relay` |
 
-   See [apps/mobile/README.md](standards/mobile/README.md) and [headscale.md](../../../../docs/guides/headscale.md).
+   See [apps/mobile/README.md](../../README.md) and [headscale.md](../../../../docs/guides/headscale.md).
 
 4. Optional: pair code ready (`mcremote pair code --name phone --qr`).
 
@@ -169,7 +169,7 @@ See Flutter’s [Measuring your app’s size](https://docs.flutter.dev/perf/app-
 
 ## Related
 
-- [apps/mobile/README.md](standards/mobile/README.md) — run, pair, APK sideload  
+- [apps/mobile/README.md](../../README.md) — run, pair, APK sideload  
 - [chat-performance.md](../../../../docs/guides/chat-performance.md) — chat architecture knobs  
 - [0018-MADR-mobile-chat-performance-action-plan.md](../decisions/0018-MADR-mobile-chat-performance-action-plan.md)  
 - Root Makefile: `profile`, `profile-apk`, `profile-devices`, `apk`  

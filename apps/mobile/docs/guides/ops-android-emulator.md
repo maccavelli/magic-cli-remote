@@ -70,7 +70,10 @@ Two constraints shape this, and neither is a bug:
   fingerprint."* That is MADR 0046/0074 working as designed — treat it as a
   passed security check, not an obstacle to route around.
 
-So the QR is the only way in, and it must reach the virtual camera:
+The simplest way in is **Paste URI / code / token** with the `Pair URI:` line that
+`mcremote pair code` prints: the URI carries the fingerprint, as the QR does.
+Use the QR route below to exercise the scanner itself; the QR must reach the
+virtual camera:
 
 ```sh
 SDK=/opt/homebrew/share/android-commandlinetools

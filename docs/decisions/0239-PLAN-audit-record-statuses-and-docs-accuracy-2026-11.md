@@ -354,3 +354,35 @@ in P7, after its note is updated.
   * The Docs workflow's two Go tests: ok.
   * The redact preview: 0 files.
 * **Staged:** the four guides, the report's P5 section, and this plan.
+
+The owner committed P5 and approved P6: "committed, proceed".
+
+### P6 — 2026-11-08: the mobile tree's guides
+
+* **Start state (C1).** Clean tree. `master` was one commit ahead of `origin/master`: the owner's P5 commit, not yet
+  pushed.
+* **Scope:** `apps/mobile/README.md`, the four guides, and the seven mobile standards, as P3 Deviation 2 widened it.
+* **Step 1, the method.** P3's checker and resolver: 21 unresolved, all in the classes the report lists, and no dead
+  anchor. All twelve files were read in full against `apps/mobile`, its build files, `ci.yml` and the daemon. No
+  helper was used; the set is 1,134 lines. A scratch script (`p6_claims.py`, C3) checked 28 of the standards'
+  concrete claims. It was seen failing first on a planted dependency, and all 28 match.
+* **Step 1, corrections.** Six files changed: 16 scripted edits, each anchor asserted once, and one more for the APK
+  job's trigger. The report's P6 section lists each with its evidence. The largest are:
+  * pairing: a self-signed daemon needs the QR or the pasted pair URI, and the emulator guide's "the QR is the only
+    way in" was wrong;
+  * iOS, which the README called "Not enabled";
+  * release signing, which the README called debug-only;
+  * the stale Flutter pin and two mislabelled links in `mobile-profiling.md`.
+* **Deviation, 2026-11-08 (own error, corrected before staging):** the first draft of the report called
+  `ops-android-signing.md` unchanged while its own text named the APK job "tag-and-dispatch". The guide said
+  "tag-only", and `ci.yml:465` runs the job on a tag or a manual dispatch. The guide was corrected, and the report's
+  table gained the row.
+* **Finding** (D8): `standards/mobile/architecture.md` prescribes `AsyncNotifier` with `AsyncValue.guard()`, which
+  no code uses. It is a rule, so it is left for the owner.
+* **Checks.**
+  * The checker: 21 after, unchanged and classified.
+  * `anchors.py`: 0 dead.
+  * `make check-records`: exit 0. It also covers the new links.
+  * `make markdownlint-docs`: 0 issues, after removing a doubled blank line at the end of the report (MD012).
+  * The redact preview: 0 files.
+* **Staged:** the six mobile docs, the report's P6 section, and this plan.

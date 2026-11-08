@@ -385,3 +385,47 @@ timeouts, the relay's first-envelope deadline and sweep, and the client's 60 s c
   does not contain it, so neither test can notice if its documentation goes. Code, not this audit's.
 - **Unverified, left as written:** `chat-performance.md`'s "Host dedup" row (`usage_update` only on change,
   `session_status: running` only on transition). No dedup site was found by search, and none was ruled out.
+
+## P6 — the mobile tree's guides
+
+`apps/mobile/README.md`, `apps/mobile/docs/guides/*.md` (four guides) and
+`apps/mobile/docs/guides/standards/mobile/*.md` (seven standards).
+
+### Method
+
+- **The reference checker:** 21 unresolved, all in the earlier classes: filenames read as keys (`poster.png`,
+  `build.gradle.kts`), Dart and Riverpod API names (`ref.watch`, `context.mounted`), Flutter and SDK flags
+  (`--analyze-size`, `--jdk-dir`), a build output path, and prose. The application id
+  `com.maccavelli.magic_cli_remote` matches `android/app/build.gradle.kts:46, 58`. Anchors: none dead.
+- **The read-through:** all twelve files in full, against `apps/mobile`, its build files, `ci.yml` and the daemon.
+- **The standards' concrete claims:** a script (`p6_claims.py`) checked 28 of them: build versions, manifest flags,
+  entitlements, and named files and symbols. It was seen failing first on a planted dependency. All 28 match,
+  including the absence of `UIBackgroundModes`.
+
+### Corrections
+
+| File | Was | Now | Evidence |
+| --- | --- | --- | --- |
+| `apps/mobile/README.md` | providers grok, opencode, codex, fake | adds kilo | `internal/provider/registered/registered.go:20-26` |
+| `apps/mobile/README.md` | connect by code, QR or token, with no condition | a self-signed daemon needs the QR or the pasted pair URI, which carry the fingerprint; a typed code or bare token works only with a publicly trusted certificate | `apps/mobile/lib/features/connect/connect_screen.dart:604-611, 872-905`; `lib/data/ws/mcremote_client.dart:359-376`; `internal/pairuri/pairuri.go:125` |
+| `apps/mobile/README.md` | emulator: "Token: Scan QR or paste `mcr_…`" | paste the `Pair URI:` line, or scan; a bare token carries no fingerprint | the same; `internal/cli/pair.go:167` |
+| `apps/mobile/README.md` | "iOS / Web: Not enabled" | iOS implemented, verified on the Simulator only | mobile `0067-MADR-ios-port.md` status; `ops-ios-signing.md` |
+| `apps/mobile/README.md` | "Signed with debug keys for now" | debug key unless `key.properties` exists; tagged releases signed with the upload key | `android/app/build.gradle.kts:13-31`; `ci.yml` "Provision release signing" |
+| `apps/mobile/README.md` | "This machine currently has no Android emulator"; "Android SDK is already installed at `$HOME/Android/Sdk`"; "a headless AWS box" | general wording | one host's state, written as the guide's |
+| `apps/mobile/README.md` | layout without `theme/` | adds `theme/`, and `settings` under `features/` | `apps/mobile/lib/` |
+| `ops-android-emulator.md` | "the QR is the only way in" | pasting the pair URI also carries the fingerprint; the QR route tests the scanner | `connect_screen.dart:872-905` (the paste button dates from `0bb7cf87`, before the guide) |
+| `mobile-profiling.md` | Flutter 3.47.2 / Dart 3.13.2 | 3.47.9 / 3.13.7, the CI pin | `ci.yml:33`; `flutter --version` |
+| `mobile-profiling.md` | two links labelled `apps/mobile/README.md` that pointed at `standards/mobile/README.md` | `../../README.md` | the link targets |
+| `standards/mobile/architecture.md` | `go_router ^17.3.0` | `^18.0.0` | `apps/mobile/pubspec.yaml:19` |
+| `ops-android-signing.md` | the APK job is "tag-only" | on a tag or a manual dispatch | `ci.yml:465` |
+
+The rest of `ops-android-signing.md` matches: the four secrets, both step names, the pinned-digest variable, the
+canonical-repo check, the gitignore lines and the app's strings. `ops-ios-signing.md` is unchanged. `android.md`'s "until service-owned connection (MADR 0056 H-5b)" stands: 0056 still
+defers H-5b.
+
+### Findings for the owner, from P6
+
+- **A rule the code does not follow:** `standards/mobile/architecture.md` says to use `Notifier` / `AsyncNotifier`
+  with `AsyncValue.guard()` for async state. Nothing in `apps/mobile/lib` uses `AsyncNotifier` or
+  `AsyncValue.guard`. A standard is a rule, not a description, so it is left as written; whether to keep the rule is
+  the owner's call.

@@ -8,7 +8,7 @@ the verified developer account. See also
 [ops-hardware-validation.md](../../../../docs/guides/ops-hardware-validation.md) Part D.
 
 The CI side is already wired (`.github/workflows/ci.yml`, **android-apk job,
-tag-only** — PRs and branch pushes do not build the APK; use `make apk`
+on a tag or a manual dispatch** — PRs and branch pushes do not build the APK; use `make apk`
 locally). On the **canonical repo** a tag build fails until the four secrets
 below exist, provisions `key.properties` from them, and asserts post-build
 that the APK is signed by the upload key — with an optional pinned
