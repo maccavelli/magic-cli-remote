@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-08
 associated-madr: "0238-MADR-tolerate-pushes-before-the-auth-reply.md"
 ---
@@ -182,3 +182,11 @@ Scripts and logs are in the session scratchpad (`flake_widen.py`, `sweep_auth_or
   CI cover it.
 
 **Files for this commit:** `internal/ws/resume_test.go`, `docs/guides/protocol-v1.md`, this PLAN.
+
+**Committed** as `74ad525e` ("test(ws): read past pushes to the auth_ok reply in authV2") and
+pushed with `9fe04642`. CI run `42492473312` on `74ad525e`: success. Every job passed: Go test,
+Go linux/arm64, Go darwin/arm64, Go windows/amd64, Flutter analyze & test, Flutter test on Windows,
+and the runit/s6 live supervisors. The release jobs were skipped, as on any untagged push.
+`internal/ws` reported `ok` in each Go job, including the linux/arm64 job where the flake was
+recorded, and the log has no retry marker ("Attempt 1 failed" or `ci-flake-capture`). The Docs run
+`42492473035` passed. Criterion 6 is met, so this PLAN is `complete`.
