@@ -353,3 +353,59 @@ host". Recorded in the MADR as A1 (F10, D11, D12) and here as steps 1a, 1b, 2a a
 scope, in P4b only: `internal/cli/service/mcrelay.user.service.tmpl` (comment only),
 `internal/cli/service/deployunits_test.go`, `deploy/systemd/mcrelay.user.service`, `docs/guides/ops-mcrelay.md`
 and `0099-MADR-installer-service-state-verification.md`.
+
+The owner committed the amendment (`31e21118`) and approved the rerun: "committed, proceed".
+
+### P4 — 2026-11-08: second attempt, with the restriction on (steps 1a to 4a)
+
+`p4_remote.py` gained steps 1a and 1b. Log: `0240-p4-run3.log`. `mcrelay` was built from `31e21118` the same way.
+
+* **The sysctl:** `0` before; `1` during, read back after `sudo -n sysctl -w`; `0` after, restored in the `finally`
+  block and read back (`sysctl_restored: true`).
+* **Before unit** (`6178ad32^`): `ActiveState=activating`, `SubState=auto-restart`, `ExecMainStatus=218`,
+  `NRestarts=3` after 20 s. Eight journal lines matched, all from the spawn step:
+
+  ```text
+  mcrelay-0240-check.service: Failed to drop capabilities: Operation not permitted
+  mcrelay-0240-check.service: Failed at step CAPABILITIES spawning /home/<user>/0240-check/mcrelay: Operation not permitted
+  mcrelay-0240-check.service: Main process exited, code=exited, status=218/CAPABILITIES
+  ```
+
+  These are the lines 0099 recorded on its EC2 instance.
+* **After unit** (HEAD): `ActiveState=active`, `SubState=running`, `Result=success`, `NRestarts=0`,
+  `ExecMainStatus=0`. No line matched `218` or `CAPABILITIES`. mcrelay logged `mcrelay starting` and `listening`.
+* **`curl -sk https://127.0.0.1:<port>/healthz`:** exit 0, `{"ok":true}`.
+* **Cleanup:** unit file gone, `LoadState=not-found`, scratch directory gone, local stage removed. A separate ssh
+  session afterwards read the sysctl as `0` and found neither `~/0240-check` nor a `0240` unit file.
+
+**MADR A1's hypothesis holds on this host.** With the restriction off, the old unit runs (first attempt). With it
+on, the old unit fails with 218. That is the only change between the two runs. The fixed unit runs with the
+restriction on.
+
+### P4b — 2026-11-08: the wording
+
+`p4b_wording.py` applied seven edits to five files, each anchor matched once and each result read back:
+
+* `deployunits_test.go`: the `bannedUserUnitDirectives` comment; the F4a message, now "it makes a systemd user unit
+  unstartable where user namespaces are restricted, as on stock Ubuntu 24.04 and later (218/CAPABILITIES;
+  0099-MADR-… F4a; 0240-MADR A1)"; and the file's header comment, which said the manual install "crash-looped" with
+  no qualifier. **Deviation, 2026-11-08:** step 1 named the comment and the message, not the header. The header
+  made the same claim, so it was narrowed too. No decision changes.
+* `mcrelay.user.service.tmpl` and `deploy/systemd/mcrelay.user.service`: the F4a comment, the same text in both.
+  Comment lines only, so no rendered directive changes.
+* `ops-mcrelay.md`: the note's first bullet names the hosts that fail, and says a host with the restriction off
+  starts the old unit but should still have the lines removed.
+* `0099-MADR`: the 2026-11-08 note gains the qualifier.
+
+The source for "stock Ubuntu 24.04 and later" is the repository's existing wording for this restriction:
+`ops-linux-install.md` ("AppArmor restricted user namespaces (Ubuntu 24.04+)") and
+`0048-MADR-codex-sandbox-namespace.md`.
+
+* **Step 2:** `grep -n 'EVERY host\|every host\|never starts'` over the five files: no output.
+* **Step 3:** `p4b_planted.py` (`p2_planted.py` with the new F4a expectation, also copying the template):
+  unplanted, exit 0. Then every break exit 1 and caught, the F4a one with the new message: "…sets PrivateDevices:
+  it makes a systemd user unit unstartable where user namespaces are restricted, as on stock Ubuntu 24.04 and
+  later…". The clone was removed.
+* **Step 4:** `go test -count=1 ./internal/cli/service/`: ok. `make pre-add-check
+  FILES=internal/cli/service/deployunits_test.go`: "1 file(s) clean". `make race`: exit 0, 49 `ok` lines, no FAIL,
+  panic or race line. `make check-records markdownlint-docs`: exit 0, 0 issues in 59 files.

@@ -3,8 +3,8 @@
 // The shipped examples deploy/systemd/<product>.user.service are a second copy
 // of each embedded unit template. Nothing compared them until MADR 0240, and the
 // mcrelay copy kept the two directives MADR 0099 F4a removed from the template,
-// so the documented manual install crash-looped with 218/CAPABILITIES. These
-// tests fail CI on that drift.
+// so the documented manual install crash-looped with 218/CAPABILITIES on hosts
+// that restrict user namespaces. These tests fail CI on that drift.
 
 package service_test
 
@@ -27,7 +27,9 @@ var allowedUnitDifferences = map[string]string{
 	"[Service] TimeoutStartSec": "only the template's Type=notify needs a start timeout (0240-MADR D4)",
 }
 
-// bannedUserUnitDirectives make a systemd user unit unstartable on every host.
+// bannedUserUnitDirectives make a systemd user unit unstartable on any host
+// where the user manager cannot create a user namespace with capabilities,
+// which includes stock Ubuntu 24.04 and later (MADR 0240 A1).
 var bannedUserUnitDirectives = []string{"PrivateDevices", "RestrictNamespaces"}
 
 // unitDirectives parses systemd unit text into "[Section] Key" -> values. It
@@ -151,8 +153,9 @@ func TestDeployUserUnitsMatchTheTemplates(t *testing.T) {
 			for _, banned := range bannedUserUnitDirectives {
 				key := "[Service] " + banned
 				if _, ok := deploy[key]; ok {
-					t.Errorf("%s sets %s: it makes a systemd user unit unstartable on every host "+
-						"(218/CAPABILITIES; 0099-MADR-installer-service-state-verification.md F4a)", rel, banned)
+					t.Errorf("%s sets %s: it makes a systemd user unit unstartable where user namespaces "+
+						"are restricted, as on stock Ubuntu 24.04 and later (218/CAPABILITIES; "+
+						"0099-MADR-installer-service-state-verification.md F4a; 0240-MADR A1)", rel, banned)
 				}
 				if _, ok := tmpl[key]; ok {
 					t.Errorf("%s sets %s (0099-MADR F4a)", tmplName, banned)

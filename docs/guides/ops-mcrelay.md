@@ -85,8 +85,10 @@ Manual unit: [deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.
 **If you copied a manual unit before
 [MADR 0240](../decisions/0240-MADR-make-the-shipped-user-units-match-the-templates-and-gate-them.md):**
 
-- **mcrelay:** the old copy set `PrivateDevices=true` and `RestrictNamespaces=true`, so the unit never starts. It
-  restarts in a loop with `status=218/CAPABILITIES`. Delete both lines from
+- **mcrelay:** the old copy set `PrivateDevices=true` and `RestrictNamespaces=true`. On a host that restricts user
+  namespaces, as stock Ubuntu 24.04 and later does, the unit restarts in a loop with `status=218/CAPABILITIES`
+  and mcrelay does not run. A host with the restriction turned off (for example by
+  `scripts/bwrap-apparmor-fix.sh`) starts it, but the file is still wrong. Delete both lines from
   `~/.config/systemd/user/mcrelay.service`, or replace the file with `mcrelay setup-service --force`.
 - **Either manual unit:** delete the `Environment=GOCACHE=/cache/go` and `Environment=GOTMPDIR=/cache/tmp` lines.
   Agents inherit them, and their Go commands fail on a host where `/cache` is not writable.

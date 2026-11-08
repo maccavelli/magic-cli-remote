@@ -116,7 +116,8 @@ otherwise merely report honestly rather than resolve:
   *Note, 2026-11-08: F4a's fix (`14ea9749`) changed the template and its tests.
   The shipped example `deploy/systemd/mcrelay.user.service` kept both
   directives, so the documented manual install has crash-looped with
-  `218/CAPABILITIES` since. Its fix, and a test that compares the deploy units
+  `218/CAPABILITIES` since, on any host that restricts user namespaces (stock
+  Ubuntu 24.04 and later; 0240-MADR A1). Its fix, and a test that compares the deploy units
   with the templates, are
   [0240-MADR-make-the-shipped-user-units-match-the-templates-and-gate-them.md](0240-MADR-make-the-shipped-user-units-match-the-templates-and-gate-them.md).
   This record's status is unchanged.*

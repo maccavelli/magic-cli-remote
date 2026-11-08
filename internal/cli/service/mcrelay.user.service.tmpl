@@ -76,9 +76,10 @@ MemoryDenyWriteExecute=true
 # ProtectHostname needs a UTS namespace, also commonly prohibited.
 #
 # MADR 0099 F4a — PrivateDevices and RestrictNamespaces were on this unit until
-# v0.13.4 and made it unstartable in user scope on EVERY host, not merely
-# container-restricted ones: reproduced on a stock Ubuntu 26.04 EC2 instance,
-# where systemd reported
+# v0.13.4 and made it unstartable in user scope on any host where the user
+# manager cannot create a user namespace with capabilities, which includes
+# stock Ubuntu 24.04 and later (MADR 0240 A1), not merely container-restricted
+# ones: reproduced on a stock Ubuntu 26.04 EC2 instance, where systemd reported
 #     mcrelay.service: Failed to drop capabilities: Operation not permitted
 #     Failed at step CAPABILITIES ... status=218/CAPABILITIES
 # in a permanent Restart=always loop. Removing BOTH was necessary and
