@@ -1,8 +1,8 @@
 ---
 status: accepted
-date: 2026-11-07
+date: 2026-11-08
 decision-makers: Project Owner
-consulted: "this repository at 938b0002, read from code; gobble-cli at v0.2.0 (0da1f2d, 2026-11-06) and acpext/v0.1.0 (4d1eb01), read from code and, for initialize, session/new, session/list and authenticate, from a no-credential run of the installed binary; acp-go-sdk2 v1.34.0, the pin of both; the module proxy for acpext/v0.1.0; this record's previous body (e020cd54); 0074, 0184, 0185, 0186, 0208, 0234 and 0235; gobble-cli's 0008, 0017, 0042 and 0043 records and its 0009-REPORT"
+consulted: "this repository at 938b0002, read from code; gobble-cli at v0.2.0 (0da1f2d, 2026-11-06) and acpext/v0.1.0 (4d1eb01), read from code and, for initialize, session/new, session/list and authenticate, from a no-credential run of the installed binary; acp-go-sdk2 v1.34.0, the pin of both; the module proxy for acpext/v0.1.0; this record's previous body (e020cd54); 0074, 0184, 0185, 0186, 0208, 0234 and 0235; gobble-cli's 0008, 0017, 0042 and 0043 records and its 0009-REPORT. For amendment A1 (2026-11-08): issue #36; this repository at 5b3533fc; gobble-cli's go.mod at v0.2.0, v0.3.0, v0.3.1 and main (4970cca), and acpext/v0.1.0's types.go, read through the GitHub API"
 informed: gobble-cli, acp-go-sdk2
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD033 MD036 MD060 -->
@@ -42,6 +42,18 @@ agent-neutral `acpagent` hook (D4). One needs a small gobble-cli change, or a sl
 
 gobble-cli's other pins at `v0.2.0`: go-llmprovider-sdk `v1.27.0`, go-selfupdate-lib `v1.24.0`, go-tui-lib/v2
 `v2.12.0`, `gobble-cli/acpext v0.1.0`. This repository pins go-llmprovider-sdk `v1.27.0` too, since 0235.
+
+**Re-read 2026-11-08, for amendment A1.** The table above is the third body's read and stays as written.
+
+| Side | Read at | acp-go-sdk2 | go-llmprovider-sdk | acpext |
+| :--- | :--- | :--- | :--- | :--- |
+| This repository | `5b3533fc` (master, tag `v0.25.1`) | `v1.34.2` (0217 P3g) | `v1.28.0` (0217 P3g) | not required yet |
+| gobble-cli `v0.2.0` | `0da1f2d` | `v1.34.0` | `v1.27.0` | `v0.1.0` |
+| gobble-cli `v0.3.0` | `b67cbbe` (released 2026-11-07) | `v1.34.0` | `v1.27.0` | `v0.1.0` |
+| gobble-cli `v0.3.1` | `6f82468` (released 2026-11-07) | `v1.34.0` | `v1.27.0` | `v0.1.0` |
+| gobble-cli `main` | `4970cca` | `v1.34.2` | `v1.28.0` | `v0.1.0` |
+
+Only the `go.mod` of each gobble-cli ref was read for A1. Nothing else in `v0.3.0` or `v0.3.1` was re-read.
 
 The `initialize`, `session/new`, `session/list` and `authenticate` facts marked **(run)** come from one run of the
 installed `gobble acp`. It ran under `env -i`, with `HOME` and `GOBBLE_HOME` in a scratch directory, so no credential
@@ -354,7 +366,8 @@ copies gobble's credential resolution and Pi's file format into this repository,
   * no `--set` on the command line, and no `GOBBLE_*` variable set by the daemon. gobble reads its own global settings
     as the service account;
   * the default `StartTimeout` (30 s). gobble's `session/new` can wait up to 10 s for its run provider's listing (F3).
-    The PLAN measures a cold start from `v0.2.0`, and a measured need for more is a deviation.
+    The PLAN measures a cold start from `v0.2.0`, and a measured need for more is a deviation. *A1: from the target
+    release.*
 * The process model is the adapter's: one `gobble acp` per session, plus the warm spare when prewarm is on.
 
 ### D2. No client files or terminals
@@ -421,12 +434,15 @@ This closes G8.
 ### D5. Version
 
 * `KnownGoodVersion: "0.2.0"`, the tag the D12 fixtures are captured from. A mismatch warns and never refuses (0186
-  Q5). A development build reports a prerelease or `0.0.0-dev…`, and warns.
+  Q5). A development build reports a prerelease or `0.0.0-dev…`, and warns. *A1 (2026-11-08): the tag is now A1's
+  target release, not `v0.2.0`, so this PLAN is the one that moves `KnownGoodVersion` past `v0.2.0` and revisits the
+  floor below.*
 * No `MinVersion`, and no descriptor `Floor`. A floor at a tag would refuse every development build of that release.
   `doctor`'s floor check runs `<bin> --version`, which gobble does not accept (F1, F3). Its next release will accept
   it (F3's note of 2026-11-07); the PLAN that moves `KnownGoodVersion` past `v0.2.0` revisits the floor.
 * This repository never runs gobble's update. gobble has none (F3).
 * The `acpext` version required is the one the `KnownGoodVersion` release was built with: `v0.1.0` for `v0.2.0`.
+  *A1: the same rule holds for the target release. Every gobble release so far, and `main`, carries `acpext v0.1.0`.*
 
 ### D6. Session lifecycle
 
@@ -491,6 +507,11 @@ Unchanged from the second body.
 
 * `_gobble/retry` (`acpext.MethodRetry`, `acpext.RetryNotice`): `Host.Notice` at `start`, naming the attempt, the wait
   and the cause; a notice at an `end` with an `error`; nothing at a successful `end`.
+* **A cause this repository does not know** (A1, 2026-11-08). `acpext.RetryCause` is an open set: acpext defines twelve
+  constants, and its own doc says "a client should take a cause it does not know, which a later gobble may add". The
+  handler treats an unknown cause exactly like a known one: the notice is produced, and names the cause as gobble sent
+  it. If the handler gives known causes friendlier wording, an unknown cause falls back to its raw value. It is never
+  dropped, refused or logged as an error.
 * `_gobble/compaction` (`acpext.MethodCompaction`, `acpext.CompactionNotice`): `Host.UpdateCompaction`, in progress at
   `start`, then completed or failed. One compaction id per start, kept in `Spec.NewSessionState`.
 * `_gobble/personality` is not registered and is declined at Debug.
@@ -532,7 +553,8 @@ Unchanged from the second body.
 * **acpext's own frames.** `acpext/testdata/` (34 files, at `v0.1.0`) are gobble's recorded shapes. The gobble package's
   unit tests use them through acpext's types, with no capture and no quota.
 * **Release fixtures,** captured with `internal/wirecap` from the installed `v0.2.0` into
-  `internal/provider/gobble/testdata/wire/0.2.0/`. They cover `initialize`, `session/new`, `authenticate`, a prompt with
+  `internal/provider/gobble/testdata/wire/0.2.0/`. *A1: from the installed target release instead, into
+  `testdata/wire/<its version>/`.* They cover `initialize`, `session/new`, `authenticate`, a prompt with
   a tool call, `/model`, `/thinking`, rename and clone idle and mid-turn, a retry and a compaction, a close then a load,
   and a prompt with no credential. The capture needs a credential and spends quota, so it runs on the owner's word.
   Frames are scanned for identifiers before they are committed.
@@ -544,7 +566,8 @@ Unchanged from the second body.
   3. the session declares `CapRename` and `CapFork`, and model and thinking from the options, and no other Ops-backed
      capability;
   4. Rename and Fork send exactly D9's frames and map the answers; during a prompt they return gobble's refusal;
-  5. the two notifications produce D10's events;
+  5. the two notifications produce D10's events, including a `_gobble/retry` whose `cause` is none of acpext's twelve
+     constants, which still produces its notice naming that cause (A1);
   6. a no-credential prompt is presented `KindAuth`, with `ErrorData.Command` in the text;
   7. a recorded session sends nothing outside D6, D7 and D9: no other `_gobble/*`, no `_x.ai/*`, no `fs/*` or
      `terminal/*` answer;
@@ -584,8 +607,12 @@ The second body's D13, with its facts updated.
 gobble is registered when all of these hold:
 
 1. 0208 P7 on master. **Met.**
-2. A gobble release tag after `v0.1.1`. **Met: `v0.2.0`.**
-3. Both repositories on one acp-go-sdk2 tag. **Met: `v1.34.0`.** A later bump on either side is 0184 D12's lockstep.
+2. A gobble release tag after `v0.1.1`. **Met: `v0.2.0`.** *A1: the release must also meet gate 3; it is A1's
+   target release.*
+3. Both repositories on one acp-go-sdk2 tag. ~~**Met: `v1.34.0`.**~~ A later bump on either side is 0184 D12's
+   lockstep. **Not met since 2026-11-08 (A1):** this repository pins `v1.34.2` (0217 P3g), and every gobble release
+   pins `v1.34.0`. gobble-cli's `main` pins `v1.34.2`, so the gate is met again at the first gobble release cut from
+   it.
 4. D12's unit tests pass, each seen failing first; `live-gobble` passes on the owner's word.
 5. grok's, opencode's, kilo's and codex's suites pass unchanged.
 6. An `acpext` tag on the proxy, the one the gate-2 release was built with. **Met: `acpext/v0.1.0`.**
@@ -609,6 +636,41 @@ Each needs its own record:
 * 0185's "No dependency" bullet was superseded in part by 0235 D5, for `internal/provider/grok`. The gobble package
   does not import go-llmprovider-sdk. `TestSDKIsImportedOnlyByGrok` already refuses it, and D12 item 10 restates it.
 * acpext is not go-llmprovider-sdk and does not bring it in: it requires nothing.
+
+### A1. Amendment, 2026-11-08: unknown retry causes, and the SDK gate after 0217 P3g
+
+Made on the owner's request ("amend 0179 for the two #36 gaps"). Issue #36 compared this record's second body with
+the published `acpext v0.1.0`. The third body covers its checklist, except for two gaps.
+
+**Gap 1: a retry cause this repository does not know.** #36 item 5 says `RetryCause` is an open set, and that a
+handler should take a cause it does not know. acpext's doc comment at `v0.1.0` says the same. D10 and D12 did not say
+it, and no test pinned it. A1 adds D10's last bullet, and widens D12 item 5 to cover it. Decoding already works,
+because `RetryCause` is a `string`. The risk was a handler that maps causes through a fixed table and drops a cause
+outside it.
+
+**Gap 2: the SDK gate no longer holds.** The third body found gate 3 met, with both repositories on acp-go-sdk2
+`v1.34.0`. On 2026-11-07, 0217 P3g moved this repository to `v1.34.2`. gobble released `v0.3.0` and `v0.3.1` the same
+day, and both still pin `v1.34.0`; only gobble-cli's `main` pins `v1.34.2` (Baselines, re-read). No gobble release now
+shares this repository's SDK tag, so the third body's capture target, `v0.2.0`, fails gate 3.
+
+The options for gap 2:
+
+* **Wait for a gobble release on this repository's SDK tag, and target it (chosen).** It keeps 0184 D12's lockstep. It
+  costs nothing here but time, and gobble-cli's `main` already has the pin.
+* **Capture `v0.2.0` anyway.** Rejected: it breaks gate 3. The fixtures and `live-gobble` would pin a build whose
+  schema and capability gates differ from the ones this repository compiles against.
+* **Move this repository back to `v1.34.0`.** Rejected: it undoes 0217 P3g's bug fixes, including G14's `null`
+  handling, for a record that has not started.
+
+**The decision.** The **target release** is the newest gobble release that pins the same acp-go-sdk2 tag as this
+repository when the PLAN's P2 starts. It replaces `v0.2.0` wherever the third body names `v0.2.0` as the release to
+build against: D5's `KnownGoodVersion`, D12's release fixtures and their directory, `live-gobble`, and Confirmation 5.
+D5's floor is revisited for it, as D5 already required of the PLAN that moves past `v0.2.0`. F3's facts were read at
+`v0.2.0`, so they are re-read at the target release before P2's code is written. A difference is a deviation under
+the PLAN's C11. If this repository's SDK pin moves again before P2, the target moves with it.
+
+**Not changed:** go-llmprovider-sdk is not a gate. The gobble package does not import it (D16), so gobble's pin of it
+does not have to match this repository's.
 
 ### Consequences
 
@@ -642,7 +704,7 @@ Each needs its own record:
 3. `TestNoProviderIsNamedInAcpagent` passes unchanged. No file outside `internal/provider/gobble` and D11's places
    names gobble.
 4. A gobble session's `bypass` is confirmed on the phone.
-5. `live-gobble` passes against `v0.2.0`, on the owner's word.
+5. `live-gobble` passes against ~~`v0.2.0`~~ A1's target release, on the owner's word.
 6. The other providers' unit, conformance and wire suites pass unchanged, and `make race`, the Linux test host's
    `go test -race ./...` and `make ci-windows` pass.
 7. `go.mod` requires `github.com/maccavelli/gobble-cli/acpext` at a tag, with no `replace`, and `go list -m all`
@@ -804,3 +866,9 @@ files there are gobble-cli's own pair, written on the owner's word (Q4, 2026-11-
   the generator this record had placed here. F3 and D5 note gobble-cli's untagged `--version` flag.
 * **2026-11-07.** Accepted on the owner's "Approved to update 0179 madr and plan". The PLAN was rewritten the same day
   for this body, as P0 to P6.
+* **2026-11-08.** Amendment A1, on the owner's "amend 0179 for the two #36 gaps":
+  * D10 takes a retry cause it does not know, and D12 item 5 tests it;
+  * gate 3 is no longer met after 0217 P3g, so the release to build against becomes the newest gobble release on this
+    repository's acp-go-sdk2 tag (the target release), replacing `v0.2.0` in D5, D12, D14 and Confirmation 5.
+
+  The Baselines gain a dated re-read. The third body's text is kept, with A1's changes marked in place.

@@ -1,6 +1,6 @@
 ---
 status: proposed
-date: 2026-11-07
+date: 2026-11-08
 associated-madr: "0179-MADR-gobble-native-acp-provider.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -22,20 +22,27 @@ mcremote registers gobble as the provider `"gobble"`, as the MADR's D1 to D16 se
 * no client files or terminals (D2);
 * phone provider-auth through gobble's own CLI, never a file this repository writes (D3);
 * a credential-aware handshake, through one agent-neutral `acpagent` hook, `Spec.AuthPreferenceFunc` (D4);
-* `KnownGoodVersion` `0.2.0`, with no floor (D5);
+* `KnownGoodVersion` ~~`0.2.0`~~ the target release's version (MADR A1), with the floor revisited for it (D5);
 * the standard model and thinking path, `ModelsFromOption` set, and a `ListModels` that starts no process (D7);
 * `bypass` marked dangerous (D8);
 * Rename and Fork bound to `_gobble/set_session_name` and `_gobble/clone`, and handlers for `_gobble/retry` and
   `_gobble/compaction`, all through acpext's names and types (D9, D10, D13);
 * the turkey icon, fetched by `tools/vendor-icons/sync.sh` from gobble-cli at a pinned `v*` tag (D11, Q4);
-* the contract pinned by acpext's frames, by fixtures captured from `v0.2.0`, and by `live-gobble` (D12).
+* the contract pinned by acpext's frames, by fixtures captured from ~~`v0.2.0`~~ the target release, and by
+  `live-gobble` (D12).
+
+**The target release** (MADR A1, 2026-11-08) is the newest gobble release that pins the same acp-go-sdk2 tag as this
+repository when P2 starts. Wherever this plan names `v0.2.0` as the release to build, capture or test against, it now
+means the target release. On 2026-11-08 there is none: this repository pins `v1.34.2`, gobble-cli `v0.3.1` pins
+`v1.34.0`, and gobble-cli's `main` (`4970cca`) pins `v1.34.2` but is not released.
 
 The plan is complete when the MADR's Confirmation 1 to 8 is met.
 
 ## Scope
 
 **Base.** master at `938b0002`, acp-go-sdk2 `v1.34.0`, go-llmprovider-sdk `v1.27.0`. gobble-cli at `v0.2.0` and
-`acpext/v0.1.0`. gobble-cli is read, never written by this plan; its icon is its own
+`acpext/v0.1.0`. *A1 (2026-11-08): master is now at `5b3533fc`, with acp-go-sdk2 `v1.34.2` and go-llmprovider-sdk
+`v1.28.0`; gobble-cli at the target release.* gobble-cli is read, never written by this plan; its icon is its own
 `0044-PLAN-publish-gobbles-icon-and-its-generator.md`.
 
 **In scope:**
@@ -43,7 +50,7 @@ The plan is complete when the MADR's Confirmation 1 to 8 is met.
 * `internal/provider/acpagent/`: `acpagent.go` (the `AuthPreferenceFunc` field and its one use), and a test beside the
   existing selection tests (P1). `session.go` and `acpagent.go` again only if P1 step 4 finds the close bound loses an
   entry (MADR Q6);
-* `internal/provider/gobble/` (new): the package, its tests, and `testdata/wire/0.2.0/` (P2, P3);
+* `internal/provider/gobble/` (new): the package, its tests, and `testdata/wire/<target version>/` (P2, P3);
 * `internal/provider/provider.go` and `provider_test.go`: `IDGobble` (P2);
 * `go.mod` and `go.sum`: `github.com/maccavelli/gobble-cli/acpext v0.1.0` alone (P2);
 * registration (P4):
@@ -184,7 +191,8 @@ Files: `internal/provider/acpagent/acpagent.go`; `internal/provider/acpagent/acp
 
    Seen failing (C4) with line 754 reverted to `p.spec.AuthPreference`: the first case authenticates `vendor.a`, and
    the second authenticates `vendor.a` instead of failing.
-4. **The close bound (Q6).** Read gobble-cli `v0.2.0`'s `session/close` and cancel paths (`acpserver/agent.go`'s close
+4. **The close bound (Q6).** Read gobble-cli ~~`v0.2.0`~~ the target release's `session/close` and cancel paths (if
+   P1 runs before a target release exists, read `v0.2.0` and re-read at the target in P2 step 1) (`acpserver/agent.go`'s close
    handler and the session writer it waits for), and answer one question: can a process killed between a cancel and
    the end of its close lose the cancelled turn's last JSONL entry?
    * **No** (each entry is written and synced before the cancel is acknowledged, or the close waits for nothing that
@@ -196,7 +204,8 @@ Files: `internal/provider/acpagent/acpagent.go`; `internal/provider/acpagent/acp
 
 ### P2 — the gobble package, unregistered (MADR D1 to D10, D13)
 
-**Gate:** P1 committed. P2 registers nothing: no descriptor list, config file or phone file changes.
+**Gate:** P1 committed. P2 registers nothing: no descriptor list, config file or phone file changes. *A1: and a target
+release exists, installed on the capture host (MADR D14 gates 2 and 3).*
 
 Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; `internal/provider/gobble/` (`doc.go`,
 `gobble.go`, `section.go`, `auth.go`, `catalog.go`, `ops.go`, `notify.go`, and their `_test.go` files); this plan.
@@ -210,13 +219,18 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
      as written there;
    * whether the adapter can load a session while an earlier process for it still runs (D6). If it can, the phase
      stops: gobble's writer lock refuses that load.
+   * *A1:* the MADR's F3 facts, read at `v0.2.0`, re-read at the target release: `initialize`, `session/new`,
+     `session/list` and `authenticate` from a no-credential run, the `_gobble/*` methods D9 and D10 use, and the
+     `acpext` version its `go.mod` requires. Whether its binary accepts `--version`, which decides D5's floor. A
+     difference is a deviation (C11).
 2. **The module.** `go get github.com/maccavelli/gobble-cli/acpext@v0.1.0`. `go.mod` gains that one requirement, with
    no `replace`. `go mod tidy` is clean, and `go list -m all` gains only that module (Confirmation 7).
 3. **The id.** `provider.IDGobble ID = "gobble"` in `provider.go`, and its row in `TestIDConstants`.
 4. **The Spec** (D1, D2, D5, D7, D8), built per provider from its `Config` in `gobble.go`, so the auth hooks run the
    configured `bin`:
    * `ID`, `DefaultBin: "gobble"`, `DefaultArgs` returning `["acp"]`; no `ModelArgs`; the default `StartTimeout`;
-   * `KnownGoodVersion: "0.2.0"`; no `MinVersion`;
+   * `KnownGoodVersion:` ~~`"0.2.0"`~~ the target release's version (A1); no `MinVersion` unless step 1 finds the
+     target accepts `--version`, which is then a deviation for the owner to decide;
    * `ClientCapabilities`: the default less `fs.readTextFile`, `fs.writeTextFile` and `terminal`, with
      `auth.terminal` false;
    * `DefaultModeID: "default"`, `SynthesizeAutoMode: false`, `DangerousModeIDs: []string{"bypass"}`;
@@ -258,7 +272,9 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
    The package holds no `"_gobble/…"` literal.
 9. **Notifications** (D10), `notify.go`: `acpext.MethodRetry` decodes `acpext.RetryNotice` into `Host.Notice` at
    `start` and at an `end` with an `error`; `acpext.MethodCompaction` decodes `acpext.CompactionNotice` into
-   `Host.UpdateCompaction`, one id per start from the session state.
+   `Host.UpdateCompaction`, one id per start from the session state. *A1:* a `cause` outside acpext's twelve
+   constants produces the same notice, naming the cause as sent. Any friendlier wording for known causes falls back
+   to the raw value, never to nothing.
 10. **The tests** (D12 items 1 to 6, 8, 10 and 11), on `acpagent/acptest` and `Provider.StartOn`, with frames built
     from acpext's types and its `testdata/` shapes. Each is seen failing (C4) on its own planted break:
     * item 1, `initialize` advertises no `fs`, `terminal` or `auth.terminal`: `fs` put back;
@@ -270,7 +286,9 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
       an `Ops.Compact` added;
     * item 4, Rename and Fork send exactly D9's frames and map the answers, and return gobble's -32600 during a
       prompt: the clone result read as `id`;
-    * item 5, the two notifications produce D10's events: the retry handler unregistered;
+    * item 5, the two notifications produce D10's events: the retry handler unregistered. *A1:* plus a retry `start`
+      with `cause` `"a-cause-gobble-adds-later"` produces its notice naming that cause: the cause mapped through a
+      table of the twelve constants with no fallback, so the unknown cause yields no notice or an empty cause;
     * item 6, a -32000 prompt is `KindAuth` with `ErrorData.Command` in the text: the data replaced by a bare message;
     * item 8, `AuthCatalogList` equals `acpext.AuthProviders()`; the stub records its argv and stdin, and the key is
       on stdin and absent from argv; `StartDeviceAuth` for `claude` is `ErrAuthMethodUnsupported`: the key moved to
@@ -285,7 +303,7 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
     * the `auth_method_id` rule: the check removed.
 
     Auth tests run against a scratch `GOBBLE_HOME` and a stub `gobble`, never the host's store or binary.
-11. **Measured:** one `AuthStatus` refresh against the installed `gobble` `v0.2.0` with a scratch `GOBBLE_HOME`,
+11. **Measured:** one `AuthStatus` refresh against the installed `gobble` ~~`v0.2.0`~~ target release with a scratch `GOBBLE_HOME`,
     nine concurrent `auth check`s, timed five times. A median over 1 s is a deviation (D3's fallback is too slow for
     every `providers.list`).
 12. `TestSDKIsImportedOnlyByGrok` and `TestNoProviderIsNamedInAcpagent` pass unchanged. Go gates (C5), and
@@ -295,9 +313,11 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
 
 **Gate:** P2 committed, and the owner's word for the capture (C10), naming the gobble provider and model to use.
 
-Files: `internal/provider/gobble/testdata/wire/0.2.0/frames.jsonl` and `meta.json`; a fixture test file; this plan.
+Files: `internal/provider/gobble/testdata/wire/<target version>/frames.jsonl` and `meta.json`; a fixture test file;
+this plan.
 
-1. **The capture,** with `MCREMOTE_WIRE_CAPTURE_DIR` (`internal/wirecap`) against the installed `gobble` `v0.2.0`,
+1. **The capture,** with `MCREMOTE_WIRE_CAPTURE_DIR` (`internal/wirecap`) against the installed `gobble` ~~`v0.2.0`~~
+   target release,
    driven by acpagent with the P2 Spec, in an isolated home with the owner's chosen credential:
    * `initialize`, `session/new`, `authenticate`;
    * a prompt with a tool call; `/model` and `/thinking`;
@@ -375,7 +395,7 @@ Files: `tools/vendor-icons/sync.sh`; `apps/mobile/assets/vendor_icons/gobble.svg
 
 Files: this plan, the MADR, `docs/README.md`.
 
-1. **`make live-gobble`** against the installed `v0.2.0` (D12's live list). The record lists the recorded connection's
+1. **`make live-gobble`** against the installed ~~`v0.2.0`~~ target release (D12's live list). The record lists the recorded connection's
    methods.
 2. **The phone key write (Confirmation 8).** With a scratch `GOBBLE_HOME` and a dummy key that is not a real
    credential, a phone `provider.set_credential` for gobble, through a scratch daemon, makes `gobble auth check` report the
@@ -397,7 +417,7 @@ Files: this plan, the MADR, `docs/README.md`.
 | 2 D12's eleven tests and the hook's test, each seen failing | P1, P2, P3 | P1 step 3; P2 step 10; P3 step 4 |
 | 3 no gobble name outside its package and D11's places | P1, P4 | P1 step 5; P4 step 7 |
 | 4 `bypass` confirmed on the phone | P2 | step 10, the `bypass` test |
-| 5 `live-gobble` against `v0.2.0` | P6 | step 1 |
+| 5 `live-gobble` against the target release (A1) | P6 | step 1 |
 | 6 the other providers unchanged; race and Windows | every phase | C5; P6 steps 4 and 5 |
 | 7 `acpext` by tag, no `replace`; `go list -m all` gains only it | P2 | step 2 |
 | 8 a phone key write; no key in argv or logs | P2, P6 | P2 step 10 item 8; P6 step 2 |
@@ -534,3 +554,19 @@ amendment.
   with P2 step 11's measurement), and keeping gobble's `recent` model group in the picker (P2 step 7). The first
   draft dropped `recent` as a duplicate; the owner kept it the same day ("i like having recents in the model list").
 * **The status** is `proposed` until the owner approves a phase. R1 is complete, and nothing else has started.
+
+## Amendment, 2026-11-08 — MADR A1: unknown retry causes, and the target release
+
+On the owner's "amend 0179 for the two #36 gaps". The MADR's A1 states the findings and the decision. Here:
+
+* **P2 step 9 and step 10 item 5:** the retry handler takes a cause it does not know. The test sends
+  `"a-cause-gobble-adds-later"` and is seen failing on a cause table with no fallback.
+* **The release to build against** is the target release: the newest gobble release on this repository's
+  acp-go-sdk2 tag when P2 starts. It replaces `v0.2.0` in the Goal, the Scope's base and test-data path, P1 step 4,
+  P2's gate and steps 1, 4 and 11, P3, P6 step 1, and the Verification table. P2 step 1 re-reads the MADR's F3 facts,
+  and whether the binary accepts `--version`, at the target release.
+* **Where it stands, 2026-11-08:** this repository pins acp-go-sdk2 `v1.34.2`. gobble-cli's newest release, `v0.3.1`,
+  pins `v1.34.0`. gobble-cli's `main` (`4970cca`) pins `v1.34.2`, go-llmprovider-sdk `v1.28.0` and `acpext v0.1.0`,
+  the same as this repository, but has no release yet. P0 and P1 do not depend on the target release. P2 waits for
+  it.
+* No phase has started, and no source is in this amendment. The status stays `proposed`.
