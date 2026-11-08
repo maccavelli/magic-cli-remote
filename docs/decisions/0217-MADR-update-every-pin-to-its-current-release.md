@@ -48,7 +48,8 @@ the host standard and the host installs are in scope only where an advisory is a
 | `github.com/caddyserver/certmagic` | v0.25.4 | v0.25.6 |
 | `golang.org/x/mod` | v0.41.0 | v0.42.0 |
 | `github.com/maccavelli/go-selfupdate-lib` | v1.22.3 | ~~v1.23.0~~ ~~v1.23.1 (F3, F3a)~~ **v1.24.0** (F3e) |
-| `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | ~~v1.26.0, current~~ ~~v1.27.0 (F3b)~~ ~~v1.28.0 (F3c)~~ ~~v1.31.1 (F3d; v1.30.0 came by 0224)~~ ~~v1.31.2 (F3e)~~ **v1.33.0** (F3f) |
+| `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | ~~v1.26.0, current~~ ~~v1.27.0 (F3b)~~ ~~v1.28.0 (F3c)~~ ~~v1.31.1 (F3d; v1.30.0 came by 0224)~~ ~~v1.31.2 (F3e)~~ ~~v1.33.0 (F3f)~~ ~~v1.34.0 (F3g)~~ **v1.34.2** (F3h) |
+| `github.com/maccavelli/go-llmprovider-sdk` | (not yet required; v1.27.0 since 0235) | **v1.28.0** (F3h) |
 | `github.com/maccavelli/go-tui-lib/v2` | (not yet required; v2.7.0 since 0219) | ~~v2.9.0 (F3d)~~ **v2.12.0** (F3f) |
 
 * `go list -m -u all` lists 33 indirect modules with a newer version. They include the AWS SDK used
@@ -380,6 +381,76 @@ Magic requires no other sibling module, directly or indirectly (`go.mod`, `go.su
   this move, Magic is one minor ahead. gobble's move is gobble-cli's own record and commit. As in
   F3d, 0184 D12's shared pin is needed only before `live-gobble`.
 
+**F3h. On 2026-11-07, two of Magic's four sibling libraries have newer tags. Neither changes a
+library requirement or an API Magic calls. One fix reaches Magic's ACP client.** *Observed
+2026-11-07 (`git ls-remote --tags` of each sibling repository; `go list -m @latest` through the
+proxy and `GOPROXY=direct`; each release's notes on GitHub; `go mod download -json` and `diff -r`
+of the module trees in the module cache).*
+
+| Module | Pinned | Newest tag | Peeled commit, tag time (UTC) |
+| :--- | :--- | :--- | :--- |
+| `acp-go-sdk2` | v1.34.0 (F3g) | **v1.34.2** (v1.34.1 between) | `4c94d2ec…`, 2026-11-07 23:37 |
+| `go-llmprovider-sdk` | v1.27.0 (0235) | **v1.28.0** | `e98c2483…`, 2026-11-07 22:45 |
+| `go-selfupdate-lib` | v1.24.0 (F3e) | v1.24.0, current | (no change) |
+| `go-tui-lib/v2` | v2.12.0 (F3f) | v2.12.0, current | (no change) |
+
+* **`go-llmprovider-sdk` is a sibling library now.** F3g said Magic requires no other sibling
+  module. From `2666dc26`, by
+  [0235-MADR-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md](0235-MADR-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md)
+  D5, it also requires `go-llmprovider-sdk`. So this record's rule for sibling libraries covers it
+  too.
+* **Neither `go.mod` changed.** For each library, the new tag's `GoModSum` equals the pinned
+  tag's: `Iz5f3g3L…` for `acp-go-sdk2` and `dE+W7oDy…` for `go-llmprovider-sdk`. So no
+  transitive requirement moves.
+* **`acp-go-sdk2` v1.34.1, its 0049 G14.** The schema stays 1.25.0. Its notes say `make api`
+  reports no change against v1.34.0.
+  * **The Go change** is in `types_gen.go`, the one non-test, non-tooling file that differs from
+    v1.34.0 besides `README.md`. `skipInvalid` now skips an array item that is the literal `null`.
+    Before, `encoding/json` decoded that item to its zero value. Validation, which runs on every
+    received message, then failed, and the whole message was refused.
+  * **It reaches Magic.** Magic's client connections set `WithInboundValidation`, receive
+    `session/update`, read `initResp.AuthMethods` (`internal/provider/acpagent/acpagent.go:1515-1520`),
+    and list sessions with `acp.AllSessions` (`sessioncaps.go:74`). Before this fix:
+    * an agent's `session/update` with a `null` in a tool call's `content` or `locations` was
+      refused, and Magic's handler never saw the update;
+    * an `initialize` answer with a `null` in `authMethods` failed `Initialize`, so the session
+      did not start;
+    * a `session/list` answer with a `null` in `additionalDirectories` failed the listing.
+
+    Now each `null` item is dropped, and the rest of the message is accepted. No engine Magic runs
+    is known to send such an item, so this removes a failure Magic has not been seen to meet.
+  * **Sending is unchanged.** Magic's tests of a `null` patch field (`patchfields_test.go`) send
+    a whole field as `null`, not a `null` item, and `skipInvalid` still reads a `null` array as no
+    items.
+* **`acp-go-sdk2` v1.34.2, the generator's fixes** (G1 to G13, G15 to G37). Its notes say the
+  exported API, the generated files, the schema, the `go` lines and the requirements are
+  v1.34.1's. `diff -r` agrees: from v1.34.0 to v1.34.2, the only changed `.go` file outside tests
+  and `cmd/` is `types_gen.go`, with G14's change. Magic does not build `cmd/generate`.
+* **`go-llmprovider-sdk` v1.28.0, its 0071 MADR.**
+  * **Added:** `catalog.Cache.Close`, which stops and waits for a cache's background fetches and
+    then refuses calls given the cache; and `auth.OAuthSession.Wait`.
+  * **Fixed:** two background listing starts now count their fetch under the lock. Concurrent
+    `List` calls of one key no longer send a second listing request (its 0053 D4).
+  * **What changes:** `catalog/cache.go`, `discovery.go`, `listing_cache.go`, `lookup.go`,
+    `model_metadata.go`, `auth/oauth_session.go`, `internal/transport/probe.go`, and a comment in
+    `command_token.go`.
+  * **None of it reaches Magic.** Magic's only use of the SDK is `catalog.Static`,
+    `catalog.SortByRank`, `catalog.LabelName` and `llmprovider.ProviderGrok`, in
+    `internal/provider/grok`. `TestSDKIsImportedOnlyByGrok` holds it to those
+    (`internal/provider/grok/sdk_boundary_test.go`). The first three live in
+    `catalog/models_catalog.go` and `catalog/version_reading.go`, which are byte-for-byte the same
+    at both tags. Magic builds no `Cache`, calls no `List`, and uses no `OAuthSession`. The changed
+    files still compile into Magic, because they are in the `catalog` package. At package level
+    they add only three variables: `errCacheClosed`, an error value, and two test hooks,
+    `listingStartHook` and `listingClaimHook`, which are nil until a test sets them. They add no
+    `init`.
+  * **Not taken here:** `Cache.Close` and `OAuthSession.Wait`. Magic has no cache to close
+    (D5's rule: "Adopting its new APIs … is not a pin").
+* **gobble** pins `acp-go-sdk2 v1.34.0` and `go-llmprovider-sdk v1.27.0` (gobble-cli's `go.mod`,
+  read 2026-11-07). After this move, Magic is one patch ahead on the first and one minor ahead on
+  the second. gobble's move is gobble-cli's own record and commit. As in F3d, 0184 D12's shared
+  pin is needed only before `live-gobble`.
+
 **F4. CI actions: four of eight are behind.** Each is pinned by commit, with a version comment.
 
 | Action | Pinned | Newest release, peeled commit |
@@ -700,7 +771,10 @@ Chosen option: **"B — Tiered by risk"**, because:
     (F3f). The indirect modules `go list -m -u` shows behind stay where they are. *Amended again
     2026-11-05 (PLAN Deviation 20), by the owner: "pin the latest go-acp-sdk2", then "we need to
     ensure the sibling repo dependencies are all pinned to latest. acp-go-sdk2 just updated".*
-    Then `acp-go-sdk2` to v1.34.0 (F3g). The other two sibling libraries are current.
+    Then `acp-go-sdk2` to v1.34.0 (F3g). The other two sibling libraries are current. *Amended
+    again 2026-11-07 (PLAN Deviation 22), by the owner: "go-llmprovider-sdk, acp-go-sdk2 both
+    have new releases. we need to pin them."* Then `acp-go-sdk2` to v1.34.2 and
+    `go-llmprovider-sdk` to v1.28.0 (F3h). `go-selfupdate-lib` and `go-tui-lib/v2` are current.
   * `make vulncheck` must stay "clear" apart from `GO-2026-5932`.
 * **D5 — `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1, as an amendment to 0207 (F3, F3a).**
   *Amended 2026-10-30 by the owner, before phase 3: "pin go-selfupdate-lib to current v1.23.1".*

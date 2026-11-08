@@ -2173,3 +2173,50 @@ anything besides the test file and records.
 * The 1,525 `Test*` directories in the Windows test host's default temp directory (0201's P11).
 
 **Files for this commit:** `go.mod`, `go.sum`, this PLAN and the 0217 MADR.
+
+### P3g — `acp-go-sdk2` v1.34.2 and `go-llmprovider-sdk` v1.28.0
+
+#### Deviation 22 (2026-11-07): two sibling libraries tagged after P3f
+
+**Found** by the owner: "go-llmprovider-sdk, acp-go-sdk2 both have new releases. we need to pin
+them. there are a lot of bug fixes and enhancements." At `6279ad00`, `go.mod` requires
+`acp-go-sdk2 v1.34.0` and `go-llmprovider-sdk v1.27.0`. The newest tags are v1.34.2 (v1.34.1
+between) and v1.28.0. What each changes, and what reaches Magic, is the MADR's F3h.
+`go-selfupdate-lib v1.24.0` and `go-tui-lib/v2 v2.12.0` are current. `go-llmprovider-sdk`
+became a sibling library with 0235, after P3f, so this is the first phase that checks it.
+
+**Proposed: pin both,** by P3f's steps. `ci.yml` and the `Makefile` do not name either library,
+so neither changes. Adopting `Cache.Close` or `OAuthSession.Wait` is not in this phase (F3h).
+Waiting for the owner's approval.
+
+1. P0: the tree holds only this record and the 0217 MADR, neither staged. Every sibling library's
+   tags are re-read with `git ls-remote`. `v1.34.2^{}` (`4c94d2ec…`) must still be `acp-go-sdk2`'s
+   newest tag, `v1.28.0^{}` (`e98c2483…`) `go-llmprovider-sdk`'s, and the other two must still be
+   current. A newer tag is a stop, to amend F3h. `go.mod` and `go.sum` are copied to the session
+   scratchpad.
+2. `go get github.com/maccavelli/acp-go-sdk2@v1.34.2 github.com/maccavelli/go-llmprovider-sdk@v1.28.0`,
+   then `go mod tidy`.
+   * `go.mod` changes only those two lines, and `go 1.27.3` stays.
+   * `go.sum` changes only those two modules' lines, with each `/go.mod` hash unchanged.
+   * `go list -m -u`, filtered to direct modules, shows no sibling module behind.
+3. The gates of P3f step 3:
+   * `make pre-add-check`;
+   * `go vet` on three GOOS and `make vet-tags`;
+   * `make staticcheck`;
+   * `make vulncheck`;
+   * `make race`, with `internal/provider/acpagent`, `internal/provider/grok` and
+     `internal/wirecap` among its packages. `TestSDKIsImportedOnlyByGrok` must still pass;
+   * check-libs on the step's content.
+
+   Then `make check-libs` runs on the owner's commit. There is no live agent run. No value Magic
+   sends changes, and G14 only accepts messages that were refused before (F3h).
+4. P3f step 4's host runs: `go test -race -count=1 ./...` on the Linux test host and
+   `make ci-windows` on the Windows test host.
+5. Stage `go.mod`, `go.sum`, this PLAN and the 0217 MADR, with this phase's execution record.
+   The owner commits (or asks the agent to, as at P3f step 5).
+
+**Scope.** No file is added. No source or test changes. No check is added, so there is nothing
+to see fail.
+
+**Rollback.** Restore `go.mod` and `go.sum` from step 1's copy, or revert the phase's commit.
+Neither library changed its requirements, so nothing else moves back.
