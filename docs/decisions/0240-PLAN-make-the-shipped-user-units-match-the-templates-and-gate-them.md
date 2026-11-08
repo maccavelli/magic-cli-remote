@@ -171,6 +171,38 @@ Files: `docs/guides/ops-mcrelay.md`, `docs/guides/config-mcrelay.md`, `README.md
 4. **If the before-run does not fail with 218** on that host, the phase stops. The MADR's F1 rests on 0099's
    reproduction, so a host that cannot reproduce it cannot confirm the fix, and the owner decides what host to use.
 
+**Amended 2026-11-08 (MADR A1, D11).** The first attempt stopped at step 4 (execution record, below). The run repeats
+on the same host with Ubuntu's user-namespace restriction turned on. Steps 1 to 4 stand, with these changes:
+
+1a. Before the before-run, the script reads `kernel.apparmor_restrict_unprivileged_userns` and records it. Then it
+    runs `sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=1` and checks that the value reads `1`. The
+    run is refused if `sudo -n` fails. `/etc/sysctl.d/60-mcremote-userns.conf` is not touched.
+1b. In the cleanup's `finally` block, before the unit and directory checks, the script runs
+    `sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=<recorded value>` and checks that it reads back.
+    The report shows the value before, during and after.
+2a. Step 2 gains one exception: the runtime sysctl, restored by 1b. Nothing else on the host changes.
+4a. If the before-run still does not fail with 218 with the restriction on, the phase stops again. P4b does not run,
+    and the owner decides.
+
+### P4b — Say which hosts fail (MADR A1, D12)
+
+**Gate:** P4 passed with the restriction on: the old unit showed 218, and the fixed one reached `active` and
+answered `/healthz`.
+
+1. Replace "every host", "EVERY host" and "never starts" in each place D12 names. The new wording: hosts where the
+   user manager cannot create a user namespace with capabilities, which includes stock Ubuntu 24.04 and later.
+   * `internal/cli/service/deployunits_test.go`: the `bannedUserUnitDirectives` comment and the F4a `t.Errorf`
+     message.
+   * `internal/cli/service/mcrelay.user.service.tmpl` and `deploy/systemd/mcrelay.user.service`: the F4a comment,
+     the same text in both.
+   * `docs/guides/ops-mcrelay.md`: the note's first bullet.
+   * `0099-MADR-installer-service-state-verification.md`: the 2026-11-08 note under F4a.
+2. `grep -rn 'EVERY host\|every host\|never starts'` over those five files finds nothing.
+3. Rerun `p2_planted.py` with its F4a expectation changed to the new message: the `PrivateDevices=true` break must
+   fail with it, and the other four breaks are caught as before.
+4. `go test -count=1 ./internal/cli/service/`, `make pre-add-check FILES=internal/cli/service/deployunits_test.go`,
+   `make race`, `make check-records`, `make markdownlint-docs`, the redact preview. **Stage** with this plan.
+
 ### P5 — Close-out
 
 1. The MADR's Confirmation 1 to 5, each with its evidence, in the execution record.
@@ -187,6 +219,7 @@ Files: `docs/guides/ops-mcrelay.md`, `docs/guides/config-mcrelay.md`, `README.md
 | 3 `verify-units`, `test`, `race`, `pre-add-check`, CI | P2 | C3; CI on the push |
 | 4 the user-manager run: 218 before, `active` after | P4 | step 1 |
 | 5 the docs note, "every", records and lint | P3, P5 | P3 steps 1 to 4 |
+| 6 (A1) no "every host" or "never starts"; the narrowed message seen on a planted break | P4b | steps 2 and 3 |
 
 ## Rollout and Rollback
 
@@ -285,3 +318,38 @@ The owner committed and pushed P1 and P2, and approved P3: "committed, pushed, p
   `journalctl --user -u mcrelay | grep 218`. On a host that hit the bug, the journal still holds the old 218 lines,
   so that check would fail after a correct fix. The note runs the check over the last five minutes and says why.
   This changes no decision and no fact in the MADR.
+
+The owner committed P3 (`ffbda60f`) and approved P4: "committed, proceed".
+
+### P4 — 2026-11-08: first attempt, stopped at step 4
+
+Script and logs are in the session scratchpad (`p4_live_unit.py`, `p4_remote.py`, `0240-p4.log`,
+`0240-p4-run2.log`). `mcrelay` was built for linux/amd64 with `CGO_ENABLED=0` from `ffbda60f` on a clean tree. The
+before unit is `6178ad32^`'s, and the after unit is HEAD's. Each has only `ExecStart`'s binary and config path
+pointed at `%h/0240-check/`. The config uses a loopback bind on a free port, `tls.mode: files` with a one-day
+self-signed certificate, `data_dir` inside the scratch directory, and one throwaway host entry whose secret was
+generated on the host and never printed.
+
+* **Pre-checks (read-only):** `openssl`, `curl` and `python3` present; the user manager reports `running`; no
+  `~/0240-check` and no `mcrelay-0240-check` unit.
+* **A local pre-flight assertion failed first.** It searched the whole after unit for `PrivateDevices` and matched
+  the F4a comment. Nothing had reached the host. It now checks directive lines only.
+* **Run 1:** the before unit was `activating (auto-restart)`, `ExecMainStatus=1`. Its journal shows mcrelay itself
+  refusing the certificate: "tls file …/cert.pem is readable by group/other". The script had left the certificate
+  at mode 0644. No 218 line. systemd had started the process, which a 218 failure prevents.
+* **Run 2,** with the certificate at 0600: the before unit reached `ActiveState=active`, `SubState=running`,
+  `Result=success`, `NRestarts=0`. No line matched `218` or `CAPABILITIES`. mcrelay logged `mcrelay starting` and
+  `listening` on its loopback port.
+* **Both runs** stopped as step 4 requires, without running the after unit. Cleanup reported the unit file gone,
+  `LoadState=not-found`, and the scratch directory gone. The local stage directory was removed.
+* **Why, from read-only probes** (MADR A1, F10): the host has `kernel.apparmor_restrict_unprivileged_userns = 0`
+  from `/etc/sysctl.d/60-mcremote-userns.conf`, written by `scripts/bwrap-apparmor-fix.sh` for 0048. `unshare -U
+  true` exits 0. The user manager's `CapEff` is `CAP_WAKE_ALARM` alone. `sudo -n true` exits 0.
+
+**Deviation, 2026-11-08: the before-run did not reproduce 218.** Found: the test host has Ubuntu's user-namespace
+restriction turned off, and the unit as it was before the fix starts there. Offered: turn the restriction on for the
+run on the same host, or use a fresh stock Ubuntu EC2 instance as 0099 did. The owner chose "Flip sysctl on test
+host". Recorded in the MADR as A1 (F10, D11, D12) and here as steps 1a, 1b, 2a and 4a and phase P4b. Files added to
+scope, in P4b only: `internal/cli/service/mcrelay.user.service.tmpl` (comment only),
+`internal/cli/service/deployunits_test.go`, `deploy/systemd/mcrelay.user.service`, `docs/guides/ops-mcrelay.md`
+and `0099-MADR-installer-service-state-verification.md`.

@@ -44,6 +44,10 @@ Failed at step CAPABILITIES ... status=218/CAPABILITIES
 With `Restart=always` that is a permanent crash loop. Removing both was necessary and sufficient; neither alone
 cleared it (0099-PLAN, "F4a — relay unit hardening directives").
 
+*Amended 2026-11-08 (A1, below): "every host" overstates 0099's evidence, which is one stock Ubuntu 26.04 EC2
+instance. On the Linux test host, with Ubuntu's user-namespace restriction turned off, the unit as it was started
+and ran (F10).*
+
 The embedded template is fixed and says so (`mcrelay.user.service.tmpl:73-87`). The deploy file still carries the
 directives, and its comment (`:137-140`) blames "container-restricted hosts". 0099 records that reasoning as the
 reason the pair was wrongly thought safe, and says not to reintroduce them on it.
@@ -175,8 +179,10 @@ decided `Type=simple`, and adds the gate F4 shows is missing. A fixes only the s
   unit as it is today is started and seen failing with `218/CAPABILITIES`. The fixed unit is then started and seen
   `active`, with no `218` in its journal. The owner's own services are not touched. This is the acceptance F4 says
   CI cannot give.
+  *Amended 2026-11-08 (A1, D11): the run happens with the host's user-namespace restriction turned on.*
 * **D9. Not changed:** the templates, `RenderUnit`, `setup-service`, the system units, and the launchd examples
   (F9). `make verify-units` keeps checking syntax; the parity test is the behavioural gate.
+  *Amended 2026-11-08 (A1, D12): the mcrelay template's F4a comment changes. No directive changes.*
 * **D10. 0099 gets a dated note** pointing here: F4a's fix covered the template, and this record covers the deploy
   copy it missed.
 
@@ -204,7 +210,11 @@ decided `Type=simple`, and adds the gate F4 shows is missing. A fixes only the s
    push.
 4. On the Linux test host: the current mcrelay deploy unit, under a scratch name, fails with `218/CAPABILITIES`; the
    fixed one reaches `active` with no `218` in its journal; the scratch unit and its files are removed afterwards.
+   *Amended 2026-11-08 (A1, D11): both runs happen with `kernel.apparmor_restrict_unprivileged_userns=1`, and
+   afterwards the sysctl reads the value it had before the run.*
 5. The docs carry D7's note, `config-mcrelay.md` says "every", and `make check-records` and markdown lint pass.
+6. *Added 2026-11-08 (A1, D12):* none of D12's places says "every host" or "never starts". The test's F4a message
+   is seen once more on the planted `PrivateDevices=true` break, now with the narrowed wording.
 
 ## Pros and Cons of the Options
 
@@ -238,6 +248,62 @@ decided `Type=simple`, and adds the gate F4 shows is missing. A fixes only the s
 * Bad, because the generated `Type=notify` would reverse F5's decided `Type=simple`.
 
 ## More Information
+
+### Amendment A1 — 2026-11-08: the 218 needs a host that restricts user namespaces
+
+PLAN P4 started the mcrelay deploy unit as it was before the fix (`6178ad32^`) on the Linux test host. The unit did
+not fail. PLAN P4 step 4 stopped the phase, and the owner chose how to continue (below).
+
+#### F10. The old unit runs on a host without Ubuntu's user-namespace restriction [observed]
+
+On the Linux test host (Ubuntu 26.04.1, systemd 259.9-0ubuntu0.1, kernel 7.0, a KVM guest), under the scratch unit
+name `mcrelay-0240-check`, the old unit reached `ActiveState=active` and `SubState=running` with `NRestarts=0`. The
+journal had no line matching `218` or `CAPABILITIES`, and mcrelay logged `listening`. Read-only probes of the same
+host:
+
+* `kernel.apparmor_restrict_unprivileged_userns = 0`, set by `/etc/sysctl.d/60-mcremote-userns.conf`. That file is
+  written by this repository's `scripts/bwrap-apparmor-fix.sh`
+  ([0048-MADR-codex-sandbox-namespace.md](0048-MADR-codex-sandbox-namespace.md)), so the codex sandbox can create
+  user namespaces. 0048 records the stock Ubuntu value as `1`.
+* `unshare -U true` as the user: exit 0.
+* The user manager's capability sets: `CapEff` = `0000000800000000`, which is `CAP_WAKE_ALARM` alone, with no
+  `CAP_SETPCAP`.
+
+0099's reproduction was a stock Ubuntu 26.04 EC2 instance, which has the restriction on.
+
+**Hypothesis, tested by D11:** a user manager without `CAP_SETPCAP` cannot change a unit's capability bounding set
+itself, and `PrivateDevices=` and `RestrictNamespaces=` both need that change. So it can apply them only inside a
+user namespace it creates. With AppArmor's restriction on, that namespace gets no capabilities, the change fails
+with `EPERM`, and systemd reports `218/CAPABILITIES`. Without the restriction, the change succeeds. This explains
+both 0099's result and F10. It is not yet shown.
+
+#### Decisions
+
+* **D11. P4 reproduces the 218 by turning the restriction on, on the same host** (owner's choice, 2026-11-08: "Flip
+  sysctl on test host"). The P4 script:
+  * records the sysctl's current value;
+  * sets it to `1` with `sudo -n sysctl -w`, a runtime change that leaves the drop-in file alone, so a reboot also
+    restores it;
+  * runs the old unit, then the fixed one;
+  * restores the recorded value in a `finally` block, and checks that it reads back.
+
+  The cost is about a minute with the codex sandbox restricted on that host. The rejected alternative was a fresh
+  stock Ubuntu EC2 instance as 0099 used. It matches 0099's environment exactly and leaves the test host alone, but
+  it costs AWS spend, setup and teardown, and does not test the hypothesis by changing one variable. If the old unit
+  still does not fail with the restriction on, P4 stops again and nothing in D12 changes.
+* **D12. Once D11 confirms it, the wording says which hosts fail.** "Every host" and "never starts" become: hosts
+  where the user manager cannot create a user namespace with capabilities, which includes stock Ubuntu 24.04 and
+  later. The places that change:
+  * this record's F1, by the dated note already there;
+  * `internal/cli/service/deployunits_test.go`: the `bannedUserUnitDirectives` comment and the F4a failure message;
+  * `internal/cli/service/mcrelay.user.service.tmpl` and its copy in `deploy/systemd/mcrelay.user.service`: the F4a
+    comment, which says "EVERY host". This is a comment-only change to a template, which D9 otherwise excludes;
+  * `docs/guides/ops-mcrelay.md`: the note from D7, which says "never starts";
+  * the dated note this record added to
+    [0099-MADR-installer-service-state-verification.md](0099-MADR-installer-service-state-verification.md) F4a.
+
+  The ban stays. The directives break a stock Ubuntu host, and a unit file cannot know which kind of host it will
+  land on.
 
 ### Owner questions, answered 2026-11-08
 
