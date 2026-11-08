@@ -464,6 +464,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0236 | MADR | Re-pin codex to 0.167.0, and generate more of its contract from codex's own sources | [0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md](decisions/0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md) |
 | 0236 | PLAN | Implement re-pinning codex to 0.167.0, and generating more of its contract | [0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md](decisions/0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md) |
 | 0237 | REPORT | Grok Build 1.0.77 surface vs the magic-cli-remote grok provider | [0237-REPORT-grok-1.0.77-surface-and-magic-provider.md](../docs/reports/0237-REPORT-grok-1.0.77-surface-and-magic-provider.md) |
+| 0238 | MADR | Tolerate server pushes that arrive before the auth reply | [0238-MADR-tolerate-pushes-before-the-auth-reply.md](decisions/0238-MADR-tolerate-pushes-before-the-auth-reply.md) |
+| 0238 | PLAN | Implement tolerating server pushes that arrive before the auth reply | [0238-PLAN-tolerate-pushes-before-the-auth-reply.md](decisions/0238-PLAN-tolerate-pushes-before-the-auth-reply.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
@@ -485,3 +487,4 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | find why a decision was made | the records table above, starting at [0001-MADR-architecture-mcremote.md](decisions/0001-MADR-architecture-mcremote.md) |
 | check a library's newest release before moving a pin | `make check-libs`; [0207-PLAN-finish-full-semver-pins-and-check-libs.md](decisions/0207-PLAN-finish-full-semver-pins-and-check-libs.md), V2 |
 | see what grok 1.0.77 changed relative to Magic's grok provider | [0237-REPORT](reports/0237-REPORT-grok-1.0.77-surface-and-magic-provider.md) |
+| know why an event can arrive before `auth_ok` | [0238-MADR-tolerate-pushes-before-the-auth-reply.md](decisions/0238-MADR-tolerate-pushes-before-the-auth-reply.md) |
