@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-08
 decision-makers: Project Owner
 consulted: "this repository at 5b3533fc plus the 0179 amendment (owner's commit of 2026-11-08); 0200-REPORT-record-status-audit.md and the commits that applied it (56ea5621); a scripted inventory of every numbered record's front matter and every unnumbered doc (tidy_inventory.py, session scratchpad)"
@@ -147,6 +147,8 @@ guide work small enough to review.
 4. The reference script and the link resolver were each seen failing on a planted bad input.
 5. `make check-records` passes; markdown lint passes; the disclosure guard preview finds nothing.
 6. No file outside `docs/`, `apps/mobile/docs/`, the root `README.md` and the records changed.
+   *Amended 2026-11-08: and `apps/mobile/README.md`, which the owner's "Add all 17" (PLAN P3 Deviation 2) brought
+   into scope.*
 
 ## Pros and Cons of the Options
 

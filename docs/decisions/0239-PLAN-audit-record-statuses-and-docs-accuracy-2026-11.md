@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-08
 associated-madr: "0239-MADR-audit-record-statuses-and-docs-accuracy-2026-11.md"
 ---
@@ -386,3 +386,48 @@ The owner committed P5 and approved P6: "committed, proceed".
   * `make markdownlint-docs`: 0 issues, after removing a doubled blank line at the end of the report (MD012).
   * The redact preview: 0 files.
 * **Staged:** the six mobile docs, the report's P6 section, and this plan.
+
+The owner committed P6 and approved P7: "committed, proceed".
+
+### P7 — 2026-11-08: the report and close-out
+
+* **Start state (C1).** Clean tree. `master` was two commits ahead of `origin/master`: the owner's P5 and P6 commits,
+  not yet pushed.
+* **Correction to P6's record:** it says "Six files changed" and "the six mobile docs". The P6 commit changed five
+  mobile docs (`apps/mobile/README.md`, `mobile-profiling.md`, `ops-android-emulator.md`, `ops-android-signing.md`,
+  `standards/mobile/architecture.md`), with the report and this plan: seven files in all.
+* **Step 1, the report.** It gained:
+  * an opening that lists every phase;
+  * a P7 section with one row per doc in scope (41), giving its phase, the checker's count on the committed text, and
+    whether a 0239 commit changed it (26 changed; 15 checked and accurate);
+  * the 0090-PLAN closure;
+  * one table of every finding for the owner, each pointing at its phase.
+
+  The table came from a scratch script (`p7_perdoc.py`, C3) that runs `docref.py` per doc and reads the 0239
+  commits.
+* **0090-PLAN** `in-progress` → `complete`, with a closing status note: task 4.1 landed in `39b83ba9` (P3), task
+  3.3 in `d493b32a` (P4). The P1 note had named both as what remained.
+* **Step 2, the Confirmation.** A scratch script (`p7_confirm.py`, C3) checks 1, 2, 3 and 6. It was seen failing
+  first with one planted input per check, and caught all four: a fake record, a fake proposed/complete pair, a fake
+  doc and a fake path. Its first real run found that Confirmation 3 was not yet met: nine standards were named only
+  collectively ("seven standards") or by stem. The per-doc table names every doc, and the rerun passes.
+
+  | # | Check | Evidence |
+  | :--- | :--- | :--- |
+  | 1 | every open record in the report | `p7_confirm.py`: 51 of 51 named in the report's P1 section, as corrected, kept with a note, closed on the owner's check, or checked and left |
+  | 2 | no `proposed` MADR with a `complete` PLAN unless explained | `p7_confirm.py` over every MADR's and PLAN's front matter, in both trees: none |
+  | 3 | each unnumbered doc in the report, with its checker result and corrections | `p7_confirm.py`: 41 of 41; the report's P7 table gives each doc's checker count, and its phase section gives its corrections |
+  | 4 | the checker and the resolver seen failing | P3 steps 1 and 2: eight planted kinds, all reported; a planted dead same-file and cross-file anchor, both reported. P5 repeated the same-file case on its new links |
+  | 5 | records check, lint, redact preview | every phase's checks, and below for P7 |
+  | 6 | nothing outside scope changed | `p7_confirm.py`: the eight commits that touched this plan changed 73 files, all under `docs/`, `apps/mobile/docs/`, `README.md` or `apps/mobile/README.md`. The MADR's Confirmation 6 gained a dated note for the last, which the owner's "Add all 17" brought into scope |
+
+* **Status.** Every phase is committed by the owner (P1 `84d40e10`, P2 `ec41bca0`, P3 `39b83ba9`, P4 `d493b32a`,
+  the 0227 closure `4831e6c5`, P5 `c6abb741`, P6 `38f2594e`). This plan is `complete`, and the MADR is `accepted`.
+* **Not done, by design (D8):** every finding in the report's P7 table. Each needs a decision or a code change
+  outside this audit's scope. One is already resolved, by 0240.
+* **Checks.**
+  * `check_records.py --write-index`: no change; the index lists titles, not statuses.
+  * `make check-records`: exit 0.
+  * `make markdownlint-docs`: 0 issues.
+  * The redact preview: 0 files.
+* **Staged:** the report, this pair, and 0090-PLAN.

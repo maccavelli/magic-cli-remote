@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-08
 associated-madr: "0090-MADR-config-template-completeness.md"
 owner: [Implementer]
@@ -201,5 +201,19 @@ Status kept: `in-progress`, with what remains restated. Phase 3's tasks 3.1 and 
 * task 4.1, the stale kilo version in `README.md`.
 
 Both are in scope for the 0239 audit's guide phases. This plan closes when they land.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).
+
+## Status note — 2026-11-08 (closed)
+
+`in-progress` → `complete`. The two remaining items landed in the 0239 audit's guide phases:
+
+* task 4.1: `README.md` gives kilo 7.8.18, which is `KnownGoodVersion` (`internal/provider/kilo/version.go:25`), in
+  `39b83ba9` (0239 P3);
+* task 3.3: `docs/guides/config.md`'s environment table gained the six `MCREMOTE_LIMITS_*` rows, in `d493b32a`
+  (0239 P4).
+
+With tasks 3.1 and 3.2 (0201 D23) and 4.2 (no longer applicable, 0208 P8) as the earlier note records, every task is
+done or overtaken. The checklist above is left as it was written.
 
 Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).
