@@ -399,6 +399,9 @@ of the module trees in the module cache).*
   [0235-MADR-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md](0235-MADR-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md)
   D5, it also requires `go-llmprovider-sdk`. So this record's rule for sibling libraries covers it
   too.
+  * *Added 2026-11-07, at PLAN P3g (Deviation 23).* 0235 did not add it to `check_libs.json`, so
+    `make check-libs` never checked it. P3g adds it, with `./internal/provider/grok/...` as its
+    packages.
 * **Neither `go.mod` changed.** For each library, the new tag's `GoModSum` equals the pinned
   tag's: `Iz5f3g3L…` for `acp-go-sdk2` and `dE+W7oDy…` for `go-llmprovider-sdk`. So no
   transitive requirement moves.

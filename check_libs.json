@@ -4,5 +4,7 @@
                 "./internal/provider/grok/..."]},
   {"module": "github.com/maccavelli/go-selfupdate-lib",
    "packages": ["./internal/updateclient/...", "./internal/cli/...", "./internal/relay/...",
-                "./internal/daemon/..."]}
+                "./internal/daemon/..."]},
+  {"module": "github.com/maccavelli/go-llmprovider-sdk",
+   "packages": ["./internal/provider/grok/..."]}
 ]}

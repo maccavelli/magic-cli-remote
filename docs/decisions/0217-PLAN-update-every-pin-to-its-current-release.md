@@ -2220,3 +2220,115 @@ to see fail.
 
 **Rollback.** Restore `go.mod` and `go.sum` from step 1's copy, or revert the phase's commit.
 Neither library changed its requirements, so nothing else moves back.
+
+**Approved** by the owner, 2026-11-07: "committed, proceed to P3g" (the records were committed
+as `b47b9012`).
+
+#### Deviation 23 (2026-11-07): `check_libs.json` does not list `go-llmprovider-sdk`
+
+**Found** while writing step 3's check-libs run. `check_libs.json` lists `acp-go-sdk2` and
+`go-selfupdate-lib`, and nothing else. `go-llmprovider-sdk` arrived with 0235 (`2666dc26`), which
+did not add it. So `make check-libs` has never checked it, and `check_libs.py --lib
+github.com/maccavelli/go-llmprovider-sdk` refuses with "is not in the configured libraries".
+Step 3's run used a scratch copy of the config with the entry added, so that one run still checked
+the library.
+
+**Decided** by the owner: "fix this: check_libs.json is missing go-llmprovider-sdk, so make
+check-libs never checks it."
+
+* **Added to P3g's scope:** `check_libs.json` gains
+  `{"module": "github.com/maccavelli/go-llmprovider-sdk", "packages": ["./internal/provider/grok/..."]}`.
+  `internal/provider/grok` is the only package that may import the SDK
+  (`TestSDKIsImportedOnlyByGrok`), so its tests are the ones that use it.
+* **The check is seen to fail first,** in a scratch clone of `HEAD`, never in this tree. The clone
+  gets the new entry, P3g's `go.mod` and `go.sum`, and a deliberate break: `internal/provider/grok`
+  refers to `(*catalog.Cache).Close`, which exists only from v1.28.0. Those changes are committed in
+  the clone, because `check_libs.py` checks a committed `HEAD`. Then
+  `check_libs.py --lib github.com/maccavelli/go-llmprovider-sdk --tag v1.27.0` must fail its build
+  check. The same run against the committed config must refuse the `--lib`. The clone is removed
+  afterwards.
+* **Step 5's files** gain `check_libs.json`.
+* No other library is missing. Magic requires four sibling modules. `go-tui-lib/v2` is checked by
+  hand, as F3f says, because `check_libs.py` refuses a `/v2` module path.
+
+#### Deviation 24 (2026-11-07): `make staticcheck` fails at step 3, on a finding older than the move
+
+**Found** at step 3, on each GOOS: `internal/provider/codex/contract_generate_test.go:496:6: func
+fixtureResponseTypes is unused (U1000)`. A scratch clone of `b47b9012`, on the old pins, fails the
+same way. `master`'s CI run `42418403757`, on `6279ad00`, failed only in its staticcheck step.
+The helper is called only from a `live_codex_contract`-tagged file. It came with
+[0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md](0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md)
+P1 (`f261d73c`).
+
+**Decided** by the owner, out of three options: "Fix first under 0236 (Recommended)". The other
+two were staging P3g first and fixing afterwards, and folding the fix into P3g. The fix is that
+plan's Deviation 3, committed as `5f7a65c2`, which moves the helper into its tagged caller. P3g
+resumed on `5f7a65c2`.
+
+#### P3g, executed (2026-11-07; approved by the owner: "committed, proceed to P3g", then "committed, proceed with step 4")
+
+Scripts and logs are in the session scratchpad (`p3g_step1.py` to `p3g_step4.py`,
+`p3g_remote.py`, `p3g_clfail.py`, `p3g-*.log`).
+
+* **Step 1** (`b47b9012`). `git status` was clean.
+  * `git ls-remote --tags` of each sibling repository gave these newest tags, each as F3h expects:
+    * `acp-go-sdk2` v1.34.2, peeled `4c94d2ecd45e`;
+    * `go-llmprovider-sdk` v1.28.0, peeled `e98c24832115`;
+    * `go-selfupdate-lib` v1.24.0;
+    * `go-tui-lib` v2.12.0.
+  * `go.mod` and `go.sum` were copied aside, and the copies checked byte for byte.
+* **Step 2.** "upgraded github.com/maccavelli/acp-go-sdk2 v1.34.0 => v1.34.2" and "upgraded
+  github.com/maccavelli/go-llmprovider-sdk v1.27.0 => v1.28.0".
+  * After `go mod tidy`, `go.mod` changes only those two lines, and `go 1.27.3` stays.
+  * `go.sum` changes only those modules' four lines. Each `/go.mod` hash is unchanged
+    (`Iz5f3g3L…`, `dE+W7oDy…`).
+  * `go list -m -u` shows no direct sibling module behind. One non-sibling direct module is
+    behind: `github.com/spf13/pflag` v1.0.10 → v1.1.0. D4's 2026-11-04 amendment limits these
+    moves to sibling libraries, so it stays.
+* **Step 3, this Mac:**
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check` | exit 0, "1008 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go vet ./...`, `CGO_ENABLED=0` | darwin/arm64, windows/amd64, linux/amd64: exit 0 each |
+  | `make vet-tags` | exit 0, every tag ok |
+  | `make staticcheck` | exit 2 on Deviation 24's finding. Then exit 0 with `5f7a65c2`'s files, "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" for each GOOS |
+  | `make vulncheck` | exit 0, "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+  | `make race` | exit 0; no FAIL, panic or data race |
+  | check-libs on the step's content | exit 0, "0 failing checks; scratch removed", `go-llmprovider-sdk` included through a scratch copy of the config (Deviation 23) |
+
+  * The first cross vet ran with this Mac's `CGO_ENABLED=1`. linux/amd64 then failed in
+    `runtime/cgo`, because macOS clang was compiling the Linux C files. That was the step's
+    script, not the move. The Makefile's cross checks set `CGO_ENABLED=0` (`Makefile:641`), and
+    with it all three pass.
+  * `HEAD` then moved by `5f7a65c2` only: two `_test.go` files, one of them under a live tag, and
+    0236's PLAN. So the other gates were not re-run.
+* **Deviation 23's check, seen to fail first** (`p3g_clfail.py`). It ran in a scratch clone of
+  `b47b9012`, and the clone was removed afterwards:
+
+  | Run | Input | Result |
+  | :--- | :--- | :--- |
+  | A | committed config, `--lib github.com/maccavelli/go-llmprovider-sdk` | exit 2, "--lib github.com/maccavelli/go-llmprovider-sdk is not in the configured libraries" |
+  | B | new entry, P3g's pins, and `var _ = (*catalog.Cache).Close` in `internal/provider/grok`; `--tag v1.27.0` | exit 1, "7 failing checks". Build: `(*catalog.Cache).Close undefined (type *catalog.Cache has no field or method Close)`. API: "2 incompatible: - ./llmprovider/catalog.(*Cache).Close: removed" |
+  | C | B without the break, default tag (v1.28.0) | exit 0, "0 failing checks" |
+
+  `check_libs.py` kept run B's scratch directory, as it does on a failure. It was removed and
+  checked gone.
+* **Step 4** (`5f7a65c2` plus `go.mod` and `go.sum`, carried as a bundle of `master`):
+  * the Linux test host: `go1.27.3`, `go test -race -count=1 ./...` exit 0, 49 `ok` lines;
+  * the Windows test host: `go1.27.3`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED
+    CHECKS PASSED", 49 `ok` lines.
+
+  Neither log has a FAIL, panic or race line. Each host's clone and scratch directory were removed
+  and checked gone.
+* **Step 5.** Staged for the owner's commit: `go.mod`, `go.sum`, `check_libs.json`, this PLAN and
+  the 0217 MADR. `make check-libs` runs on that commit.
+
+**Not done in P3g:**
+* Adopting `catalog.Cache.Close` or `auth.OAuthSession.Wait` (F3h). Magic has no cache to close.
+* gobble-cli's pins (F3h): `acp-go-sdk2 v1.34.0` and `go-llmprovider-sdk v1.27.0`, gobble-cli's
+  own record and commit.
+* `spf13/pflag` v1.1.0 (step 2), a non-sibling module.
+* No live agent run. No value Magic sends changes (F3h).
+
+**Files for this commit:** `go.mod`, `go.sum`, `check_libs.json`, this PLAN and the 0217 MADR.
