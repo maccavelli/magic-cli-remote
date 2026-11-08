@@ -279,3 +279,41 @@ finding in the report, not a change: removing the line is a change to `.gobble/s
 amendment. The audit spent the owner's quota on the six runs, at the owner's direction.
 
 **Staged:** the two 0227 records, the report, and this plan.
+
+That was committed and pushed by the owner.
+
+### P4 — 2026-11-08: install, configuration and operations guides, and the Go standards
+
+* **Start state (C1).** Clean tree; `master` equal to `origin/master`.
+* **Step 1, the method.** P3's checker and resolver over the eleven guides and the nine Go standards: 219 unresolved,
+  all classified (the report lists the classes), and no dead anchor in these files. Two read-only helper passes (C5),
+  one at a time, read the eleven guides in full against the code. Their claims were spot-checked against the files
+  before any edit:
+  * `relay.secret` at `config.go:99`;
+  * the `route53` nesting at `config.go:264`;
+  * `detectAdvertiseHost`;
+  * libdns/route53's calls and retry default;
+  * the mcrelay template's 0099 F4a comment;
+  * the recovery manifest's labels;
+  * `pair prune`'s refusal;
+  * `auth-recovery`'s output;
+  * `update`'s re-signing condition;
+  * the installer's exit `1` path.
+
+  The Go standards were read directly.
+* **Step 2, corrections.** 14 files changed; the report lists each correction with its evidence. Three would have
+  misconfigured a host as written: the mcrelay secret key, the Route 53 block's nesting, and an unneeded IAM action.
+  0090-PLAN's task 3.3, the `MCREMOTE_LIMITS_*` rows, is done here.
+* **Checks.**
+  * The checker: 215 after, all classified.
+  * `anchors.py`: only the known `receipts.md:197` (P5's).
+  * `make check-records`: exit 0.
+  * `make markdownlint-docs`: 0 issues.
+  * The Docs workflow's two Go tests: ok.
+  * The redact preview: 0 files.
+* **Finding** (D8): `deploy/systemd/mcrelay.user.service` keeps the two hardening options 0099 F4a removed from the
+  template. It goes to the owner, not changed here.
+* **Staged:** the 14 guides, the report's P4 section, and this plan.
+
+**Not done in P4:** 0090-PLAN's last item, task 4.1 (the README's kilo version), was done in P3. 0090-PLAN can close
+in P7, after its note is updated.

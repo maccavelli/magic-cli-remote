@@ -22,7 +22,7 @@ verbatim, so raw strings still appear inside agent transcripts.
 
 1. **Identity, not path.** Grants attach to the *responsible process's code
    identity*. Children inherit the daemon's responsibility, so one grant on
-   `mcremote` covers every spawned agent (claude/opencode/codex) —
+   `mcremote` covers every spawned agent (codex, grok, kilo, opencode) —
    and a grant on Terminal.app covers **nothing** for the LaunchAgent.
 2. **Headless means silent.** A LaunchAgent gets no reliable consent
    prompt; denial surfaces as `EPERM` ("operation not permitted"), which
@@ -82,9 +82,13 @@ make install MC_CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
 
 This signs `mcremote`/`mcrelay` with stable identifiers
 (`com.magiccliremote.mcremote`) and an anchor-based designated
-requirement — the grant then survives rebuilds and updates.
-`install-binary.sh` verifies the signature survived the swap. Unsigned
-builds keep working; they just re-ask for FDA after every upgrade.
+requirement — the grant then survives rebuilds. To keep it across
+`mcremote update` too, set `MC_CODESIGN_IDENTITY` for the update, and in the
+service's environment for an agent-run update: it re-signs the verified binary
+with the same identifier before installing it. Without it, the update installs
+the release's ad-hoc-signed binary. `install-binary.sh` verifies the signature
+survived the swap. Unsigned builds keep working, but lose the grant on every
+upgrade, usually without a prompt; re-add the binary.
 
 ## Recovery and diagnosis
 

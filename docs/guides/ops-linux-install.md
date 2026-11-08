@@ -84,9 +84,11 @@ install, and on a second one the running daemon keeps running the previous
 binary until you restart it.
 
 **Installing an older release.** `--version` installs another release with
-this installer's steps. A release published before this installer reports its
-version in an older form, so it is refused: the installer puts back what was
-there and exits `2`. Install such a release with its own installer, from
+this installer's steps. A release whose assets this installer cannot find in
+its `SHA256SUMS` is refused with exit `1` before anything is downloaded, and the
+message names that release's own installer. One whose binaries report their
+version in an older form is put back after the check, with exit `2`. Install
+such a release with its own installer, from
 `https://github.com/maccavelli/magic-cli-remote/releases/download/<tag>/install.sh`.
 
 Exit codes: `0` success · `1` usage error, unsupported platform or missing
@@ -123,8 +125,9 @@ looks for that product's service definition:
 
 ## Supported platforms
 
-`linux/amd64` and `linux/arm64`. The binaries are built with `CGO_ENABLED=0`
-and `-tags netgo,osusergo`, so they are **fully static** — one artifact per
+`linux/amd64` and `linux/arm64`. The release binaries are built with
+`CGO_ENABLED=0`, so they are **fully static** (a local `make build` also adds
+`-tags netgo,osusergo`) — one artifact per
 architecture runs on glibc (Ubuntu, Oracle, Rocky, Debian) and musl (Alpine)
 alike. 32-bit ARM, i686 and riscv64 are not published, and the installer
 refuses them, naming the platforms the release ships.
@@ -453,7 +456,8 @@ starts it, updates it from a shell and then from inside the service, through
 the daemon's own agent, which must hand off, and removes it. It needs Podman
 (or `CONTAINER_ENGINE=docker`) and the network: the update downloads a
 published release, `v0.23.0` unless `MCREMOTE_LIVE_RELEASE` names another.
-CI runs runit and s6 on every push; OpenRC needs a container booted with its
+CI runs runit and s6 on every push to `master`, every tag and every pull
+request, except a change that touches only Markdown; OpenRC needs a container booted with its
 own init, so it runs here only:
 
 ```sh

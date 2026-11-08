@@ -158,7 +158,7 @@ All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
 | `MCRELAY_TLS_ROUTE53_HOSTED_ZONE_ID` | `tls.letsencrypt.route53.hosted_zone_id` | Route 53 zone for DNS-01 |
 | `MCRELAY_TLS_ROUTE53_REGION` | `tls.letsencrypt.route53.region` | AWS region for DNS-01 |
 | `MCRELAY_TLS_ROUTE53_PROFILE` | `tls.letsencrypt.route53.profile` | AWS profile for DNS-01 |
-| `MCRELAY_TLS_ROUTE53_MAX_RETRIES` | `tls.letsencrypt.route53.max_retries` | AWS API retries (`0` = default) |
+| `MCRELAY_TLS_ROUTE53_MAX_RETRIES` | `tls.letsencrypt.route53.max_retries` | AWS API attempts (`0` = the Route 53 provider's default of five) |
 | `MCRELAY_HOSTS` | host allowlist | Comma-separated `host_id:secret` entries |
 | `MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET` | `allow_legacy_tunnel_secret` | Allow registration secret on `/v1/tunnel` (default false) |
 | `MCRELAY_TRUSTED_PROXIES` | `trusted_proxies` | Comma-separated CIDRs/IPs of reverse proxies |
@@ -176,8 +176,9 @@ All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
 | `MCRELAY_LIMITS_SPLICE_IDLE_SECONDS` | `limits.splice_idle_seconds` | Silence before ending splice (R15); `-1` disables |
 | `MCRELAY_LIMITS_SPLICE_MAX_SECONDS` | `limits.splice_max_seconds` | Max splice lifetime (R15); `-1` disables |
 
-These are also listed as commented `Environment=` lines in
-[deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.user.service).
+Most of these are also listed as commented `Environment=` lines in
+[deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.user.service);
+`MCRELAY_LIMITS_MAX_CONNS` is not.
 
 ### Examples
 
@@ -403,9 +404,11 @@ describes it in full:
 User-unit hardening (on by default; set `false` in a drop-in to disable):
 `NoNewPrivileges`, `PrivateTmp`, `RestrictSUIDSGID`, `LockPersonality`,
 `RestrictRealtime`, `ProtectKernelTunables`, `ProtectControlGroups`,
-`SystemCallArchitectures=native`, plus `PrivateDevices` and
-`RestrictNamespaces`, `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6`,
-and `MemoryDenyWriteExecute` (0091 D4; probed on a user unit).
+`SystemCallArchitectures=native`, plus `RestrictAddressFamilies=AF_UNIX AF_INET
+AF_INET6` and `MemoryDenyWriteExecute` (0091 D4; probed on a user unit).
+`PrivateDevices` and `RestrictNamespaces` are deliberately absent: a user
+manager cannot apply them, and they left the unit unable to start on every host
+(MADR 0099 F4a).
 `KillMode=mixed`. `PATH` is a closed set (`~/.local/bin`, `/usr/local/bin`,
 `/usr/bin`, `/bin`) — no grok/opencode/kilo/flutter prefixes (0091 D1).
 `UMask=0077` (0091 D2). Source of truth:

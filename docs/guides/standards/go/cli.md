@@ -9,19 +9,23 @@ component: "cli"
 
 The `mcremote` command tree is implemented with Cobra in `internal/cli`. Its
 root currently owns global `--config`, `--log-level`, and `--log-format` flags;
-subcommands include `serve`, `version`, `pair`, `setup-service`, and `engines`.
+subcommands are `serve`, `version`, `pair`, `setup-service`, `engines`, `paths`,
+`doctor`, `update`, `receipts`, and `auth-recovery` (`internal/cli/root.go`).
 
 ## Command design
 
-- Keep `cmd/mcremote/main.go` and `cmd/mcrelay/main.go` to version injection,
-  execution, one user-facing error write, and process exit. The command package
-  owns parsing and command behavior.
+- Keep `cmd/mcremote/main.go` and `cmd/mcrelay/main.go` to loading a detached
+  update's handoff environment (MADR 0210 D2), execution, one user-facing error
+  write, and process exit. The build identity is go-selfupdate-lib's
+  `buildinfo`, stamped by the linker. The command package owns parsing and
+  command behavior.
 - Construct commands with `RunE`/`Args` validation and return errors to the
   single execution boundary. Keep `SilenceErrors` and `SilenceUsage` enabled on
   the root command so errors are not duplicated and usage is not emitted for
   operational failures.
-- Long flags use `--name`; `-h` remains help only. Do not add ad-hoc short
-  aliases without a compatibility reason.
+- Long flags use `--name`; `-h` is help. The one short alias is `update`'s `-y`
+  for `--yes`, which go-selfupdate-lib's update flags define. Do not add ad-hoc
+  short aliases without a compatibility reason.
 - Write stable, testable command examples and help text. Any behavior exposed
   by `--help` is part of the operator interface.
 

@@ -28,7 +28,7 @@ Under `<data_dir>/provider-auth/<provider>/`, mode `0700`:
 | Item | Meaning |
 | --- | --- |
 | `manifest.json` | Labels, fingerprints, and transaction state. Contains **no** token, device code, or credential path. |
-| `generations/*.auth` | Immutable `0600` copies: the current credential and the one before it. Exactly two are retained. |
+| `generations/*.auth` | Immutable `0600` copies: the current credential and, when there is one, the one before it. At most two are retained. |
 | `pending/<id>/home/` | An isolated home for one in-flight login. Always starts empty. |
 
 These files are a recovery aid, never an authentication source. They never leave
@@ -70,12 +70,12 @@ mcremote auth-recovery choose <provider> <live|current|previous|logged-out>
 | `previous` | Promote the prior generation, retaining the displaced one as previous. |
 | `logged-out` | Record the tombstone, then remove the live credential and all retained generations. |
 
-Exit codes: `0` success, `2` usage or unknown provider/choice, `3` validation,
-locking, or recovery failure. A failed choice changes nothing and leaves the
-state exactly as it was.
+Exit codes: `0` success, `1` the configuration could not be loaded, `2` usage
+or unknown provider/choice, `3` validation, locking, or recovery failure. A
+failed choice changes nothing and leaves the state exactly as it was.
 
-Output contains provider, state, and timestamps only — never a path,
-fingerprint, generation id, or credential.
+Output contains the provider, its state and `recovery_available` only — never a
+path, fingerprint, generation id, or credential.
 
 ## Unsupported backends
 

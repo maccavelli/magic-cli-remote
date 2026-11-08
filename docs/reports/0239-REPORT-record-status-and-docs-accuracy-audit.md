@@ -7,7 +7,8 @@ Started 2026-11-08, at `master` `cb68b744`. This report records what the audit o
 found and corrected. It decides nothing: each correction cites its evidence in the record it changed, and here.
 Its sections are filled phase by phase, as
 [0239-PLAN-audit-record-statuses-and-docs-accuracy-2026-11.md](../decisions/0239-PLAN-audit-record-statuses-and-docs-accuracy-2026-11.md)
-runs. This version covers P1, the open records; P2, the `completed` spelling; and P3, the entry points.
+runs. This version covers P1, the open records; P2, the `completed` spelling; P3, the entry points; and P4, the
+install, configuration and operations guides with the Go standards.
 
 ## Rules
 
@@ -207,3 +208,80 @@ None looks like the code being the one that is wrong; each matches a later recor
 ### Not covered by P3
 
 The unnumbered docs added by PLAN P3 Deviation 2 (the coding standards and `apps/mobile/README.md`) are P4's and P6's.
+
+## P4 — install, configuration and operations guides, and the Go standards
+
+`config.md`, `config-mcrelay.md`, `ops-linux-install.md`, `ops-windows-install.md`, `ops-macos-tcc.md`,
+`ops-mcrelay.md`, `ops-credential-recovery.md`, `ops-hardware-validation.md`, `headscale.md`, `iam-route53-acme.md`,
+`ops-codex-contract.md`, and the nine files of `docs/guides/standards/go/`.
+
+### Method
+
+P3's checker and resolver, then a read-through of each guide against the code. Two read-only helper passes, one at a
+time, read the eleven guides in full; their load-bearing claims were spot-checked against the files before any edit.
+The Go standards were read directly. go-selfupdate-lib's installer templates and service backends were read at the
+pinned commit, and libdns/route53 v1.6.2 in the module cache.
+
+Checker: 219 unresolved references before, 215 after, all in P3's non-error classes, plus provider keys whose middle
+segment is a section id (`providers.opencode.bin`), AWS and Windows API names, and the `ci-windows` targets, which
+live in `make/ci-windows.mk`. Anchors: none dead in these files.
+
+### Corrections that would have misconfigured a host
+
+| File | Was | Now | Evidence |
+| --- | --- | --- | --- |
+| `ops-mcrelay.md` | mcremote's `relay: registration_secret:` | `relay.secret` (or `MCREMOTE_RELAY_SECRET`) | `internal/config/config.go:99`. Non-provider sections decode leniently, so the wrong key was ignored and the host never registered |
+| `iam-route53-acme.md` | `route53:` beside `letsencrypt:` | nested under `letsencrypt:` | `internal/config/config.go:264`. `tls.route53` was ignored, so the zone ID and profile were dropped |
+| `iam-route53-acme.md` | IAM policy grants `route53:ListHostedZones` | removed; `ListHostedZonesByName` is the only listing call | libdns/route53 v1.6.2 `client.go:298, 344, 395, 418` |
+
+### Other corrections
+
+| File | Was | Now | Evidence |
+| --- | --- | --- | --- |
+| `config.md` | grok `args`: empty uses `--no-auto-update agent --no-leader stdio`; "always gets `--no-auto-update`" | the key-driven global flags, then that argv; a non-empty `args` replaces all of it | `internal/provider/grok/grok.go:225-247`; `acpagent.go:291` |
+| `config.md` | grok `reasoning_effort`: which grok model takes which level | each live model advertises its levels | the live catalog decides |
+| `config.md` | kilo known-good 7.4.22 | 7.8.18 | `internal/provider/kilo/version.go:25` |
+| `config.md` | `pair.advertise_host` empty: Tailscale IPv4, else loopback; `--host` default likewise | follows the bind; Tailscale only for an empty, `tailscale` or wildcard bind | `internal/cli/pair.go:621-635` |
+| `config.md` | no `--copy` row; `--permission` "Permission id" | `--copy` added; "or handoff nonce" | `internal/cli/pair.go:199, 225`; `receipts.go:273` |
+| `config.md`, `config-mcrelay.md` | Route 53 `max_retries` `0` = "SDK default" | the provider's default, five attempts | libdns/route53 `client.go:142-154` |
+| `config.md` | env table without the `limits` keys beyond two | six `MCREMOTE_LIMITS_*` rows added (closes 0090-PLAN task 3.3) | `internal/config/env_limits_test.go` |
+| `config.md` | a macOS log row stranded outside its table | a sentence | layout |
+| `config-mcrelay.md` | hardening "plus `PrivateDevices` and `RestrictNamespaces`" | both deliberately absent | `internal/cli/service/mcrelay.user.service.tmpl:73-82` (MADR 0099 F4a) |
+| `config-mcrelay.md` | every variable listed in the deploy unit | most; `MCRELAY_LIMITS_MAX_CONNS` is not | `deploy/systemd/mcrelay.user.service` |
+| `ops-mcrelay.md` | outer TLS "files or ACME HTTP-01" | adds DNS-01 | `internal/relay/tls.go:56-125` |
+| `headscale.md` | `tailscale` "the default in every shipped launch path" | set by the mesh config and start script; the seed config keeps `127.0.0.1` | `configs/config.mesh-grok.yaml:12`; `defaults_mcremote.yaml` |
+| `headscale.md` | connect to `ws://…` | `wss://…`, TLS on by default | `internal/config/config.go:328-334` |
+| `iam-route53-acme.md` | citations by line number of `headscale.md` (stale) | by section | `headscale.md` §3 |
+| `ops-linux-install.md` | an older release is refused with exit `2` | exit `1` before any download when its assets are not found; `2` after a failed version check | go-selfupdate-lib `install.sh:350-356, 503-505` |
+| `ops-linux-install.md` | binaries built with `-tags netgo,osusergo` | release binaries cgo-free with no tags; `make build` adds the tags | `scripts/verify-build-metadata.sh:4-6` |
+| `ops-linux-install.md` | CI runs runit and s6 "on every push" | pushes to `master`, tags and pull requests, except Markdown-only changes | `ci.yml:8-14` |
+| `ops-macos-tcc.md` | agents "claude/opencode/codex" | codex, grok, kilo, opencode | `internal/provider/registered/registered.go:20-23` |
+| `ops-macos-tcc.md` | signing keeps the grant across updates; unsigned builds "re-ask" | `update` re-signs only with `MC_CODESIGN_IDENTITY` set; unsigned builds lose the grant, usually silently | `internal/updateclient/client.go:360-365`; `internal/cli/service/advisories.go:60` |
+| `ops-credential-recovery.md` | "Exactly two are retained" | at most two | `internal/providerauth/manifest.go:94-95` |
+| `ops-credential-recovery.md` | output has "timestamps"; exit codes 0, 2, 3 | state and `recovery_available`; adds exit `1` | `internal/cli/auth_recovery.go:33-41, 79-82, 144-147` |
+| `ops-hardware-validation.md` | the read deadline is 60 s, reset only by the app ping | `limits.ws_read_deadline_seconds`, default 120 s; on v2 any data or transport pong extends it | `internal/config/config.go:565-568`; `internal/ws/server.go:690-695` |
+| `ops-hardware-validation.md` | C4: a `pair create` token pairs as is | needs `auth.require_client_key: false` | `internal/config/config.go:557`; `internal/ws/server.go:1504-1531` |
+| `ops-hardware-validation.md` | C5: `pair prune` clears it | `pair prune --stale <duration>`; a bare `prune` fails | `internal/cli/pair.go:305-310` |
+| `standards/go/core.md` | the Makefile stamps `main.version`, `main.commit`, `main.date` | go-selfupdate-lib `buildinfo` (version and build kind); no date | `Makefile:1-23`; `cmd/mcremote/main.go` |
+| `standards/go/core.md`, `README.md` | `netgo,osusergo` are release-build defaults | Linux `make` builds only; release binaries carry no tags | `Makefile:94-110`; `verify-build-metadata.sh:4-6` |
+| `standards/go/cli.md` | five subcommands; `main.go` does "version injection"; `-h` the only short flag | ten subcommands; handoff environment then execute; `update`'s `-y` | `internal/cli/root.go:77-86`; `cmd/mcremote/main.go` |
+| `standards/go/config.md` | no word on provider sections | per-provider strict sections, and their variables | `internal/config/sections.go` |
+| `standards/go/testing.md` | live tags `live_grok`, `live_opencode` | adds `live_codex` (and its parts) and `live_kilo` | the `//go:build` lines |
+
+`ops-windows-install.md` and `ops-codex-contract.md` were checked in full and are unchanged. The other Go standards
+(`concurrency`, `logging`, `network`, `session`) match the code.
+
+### Doc-versus-code differences (Q3)
+
+The two silent misconfigurations above, and the read-deadline description, are places where a guide described
+something the code does not do. None looks like the code being wrong.
+
+### Findings for the owner, from P4
+
+- **`deploy/systemd/mcrelay.user.service` still sets `PrivateDevices=true` and `RestrictNamespaces=true`** (lines
+  131-132). MADR 0099 F4a removed both from the embedded template because they make a user unit fail to start on
+  every host (`218/CAPABILITIES`). The guides point readers at this file as the manual unit. It is a code change, not
+  this audit's.
+- **Unverified, left as written:** `ops-hardware-validation.md` F6's "expect ≤60 s" lingering bound (a device pass's
+  expected result; it may share the old 60 s deadline), and `ops-codex-contract.md`'s "an identical 164 methods",
+  which may be an older capture's count.

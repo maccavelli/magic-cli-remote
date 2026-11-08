@@ -10,7 +10,7 @@ Config reference: [config-mcrelay.md](config-mcrelay.md). Audit hardening: [0016
 | Accept host registration (`/v1/host`) with allowlist secret | Authenticate phone devices or client keys |
 | Accept phone join by `host_id` (`/v1/phone`) | See protocol-v1 plaintext (opaque splice + inner TLS) |
 | Splice phone ↔ host tunnel (`/v1/tunnel`) | Store history, tokens, or pair codes |
-| Outer TLS (files or ACME HTTP-01) | Replace mesh/Tailscale when direct works |
+| Outer TLS (files, or ACME HTTP-01 / DNS-01) | Replace mesh/Tailscale when direct works |
 
 Pair QR still points at **mcremote** identity (`fp` / `mode`); `relay` + `hid` only select the join path.
 
@@ -227,7 +227,7 @@ On each agent host (`~/.config/mcremote/config.yaml` or env):
 relay:
   url: "wss://relay.example.com"
   host_id: "devbox-1"
-  registration_secret: "same-as-mcrelay-allowlist"  # never on the phone / QR
+  secret: "same-as-mcrelay-allowlist"  # never on the phone / QR
 ```
 
 Restart mcremote. Logs should show registration with mcrelay. Pair URI emission includes `relay` + `hid` when configured.
@@ -235,7 +235,7 @@ Restart mcremote. Logs should show registration with mcrelay. Pair URI emission 
 Rotate registration secret without re-pairing phones:
 
 1. Add new secret on **mcrelay** for the same `host_id` (or update the one entry)
-2. Update **mcremote** `registration_secret`
+2. Update **mcremote** `relay.secret` (or `MCREMOTE_RELAY_SECRET`)
 3. Restart mcremote (re-registers)
 4. Phones keep using the same `hid` + `relay` URL
 

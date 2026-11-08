@@ -61,7 +61,7 @@ The intended split is:
 
 The public zone never needs an address record for the daemon.
 
-**Check this before deploying:** `docs/guides/headscale.md:91` currently sets
+**Check this before deploying:** [headscale.md §3, Headscale TLS](headscale.md#3-headscale-tls-built-in-lets-encrypt) currently sets
 
 ```yaml
 override_local_dns: false   # safer on multi-use servers
@@ -92,7 +92,7 @@ dig +short devbox.ts.example.com       # must return the 100.x tailnet IP
 ### Do not reuse the Headscale name
 
 `headscale.example.com` already runs its own ACME client
-(`tls_letsencrypt_hostname`, HTTP-01 on port 80 — `docs/guides/headscale.md:78-80`).
+(`tls_letsencrypt_hostname`, HTTP-01 on port 80 — [headscale.md §3](headscale.md#3-headscale-tls-built-in-lets-encrypt)).
 Give the daemon a distinct name. Two ACME clients renewing the same hostname
 fight over the certificate and burn the "5 duplicate certificates per week"
 limit.
@@ -167,10 +167,7 @@ Save as `route53-acme-policy.json`, substituting your zone ID.
     {
       "Sid": "DiscoverZone",
       "Effect": "Allow",
-      "Action": [
-        "route53:ListHostedZones",
-        "route53:ListHostedZonesByName"
-      ],
+      "Action": "route53:ListHostedZonesByName",
       "Resource": "*"
     }
   ]
@@ -184,14 +181,14 @@ Save as `route53-acme-policy.json`, substituting your zone ID.
 | `WriteAcmeChallengeTxtRecordsOnly` | Creates and removes the challenge TXT record | No |
 | `ReadZoneContents` | The solver reads existing records before an UPSERT | No |
 | `PollChangePropagation` | Route 53 is eventually consistent; the solver polls `GetChange` until `INSYNC` before telling Let's Encrypt to validate | No |
-| `DiscoverZone` | Maps the domain to a zone ID | **Yes** — drop it if you set `route53.hosted_zone_id` in config (recommended; it is also faster and unambiguous when a private zone shares the name) |
+| `DiscoverZone` | Maps the domain to a zone ID (`ListHostedZonesByName`, the only listing call the solver makes) | **Yes** — drop it if you set `tls.letsencrypt.route53.hosted_zone_id` in config (recommended; it is also faster and unambiguous when a private zone shares the name) |
 
 The three condition keys are what make this credential safe: it can write
 **only TXT records**, **only** at names beginning `_acme-challenge.`, and
 **only** in the one zone. A host compromise cannot repoint your A records, MX
 records, or NS delegation.
 
-`ListHostedZones`/`ListHostedZonesByName` and `GetChange` are not
+`ListHostedZonesByName` and `GetChange` are not
 resource-scopable to a single zone — that is an AWS API constraint, not an
 oversight. `GetChange` is scoped to the `change/*` ARN here; if your region or
 partition rejects that, widen it to `"*"` (it only reveals change status, no
@@ -298,10 +295,10 @@ tls:
       - devbox.ts.example.com
     email: you@example.com
     staging: true          # keep true until a real cert issues cleanly
-  route53:
-    hosted_zone_id: Z0123456789ABCDEFGHIJ   # the PUBLIC zone from Step 1
-    region: us-east-1
-    profile: mcremote                       # omit when using an instance role
+    route53:               # under letsencrypt: a tls.route53 block is ignored
+      hosted_zone_id: Z0123456789ABCDEFGHIJ   # the PUBLIC zone from Step 1
+      region: us-east-1
+      profile: mcremote                       # omit when using an instance role
 ```
 
 Route 53 is a global service, but the SDK still wants a region; `us-east-1` is

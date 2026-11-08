@@ -28,6 +28,11 @@ defaults-only daemon.
 
 - Add each supported nested environment key explicitly with `BindEnv` and, when
   needed for Viper to discover it, `SetDefault`. Test the environment spelling.
+- A provider's keys live in its own section, `internal/provider/<id>/section.go`
+  (MADR 0208 D6), registered through the descriptor list. Every section field
+  gets a default, so its `MCREMOTE_PROVIDERS_<ID>_<KEY>` variable resolves; tag
+  a field `env:"-"` when it has no variable. Sections are strict: an unknown
+  key, provider id or provider variable fails the load and names it.
 - Keep config structs typed, validate after unmarshalling, and normalize coupled
   state once at the boundary. TLS mode is normalized after validation so every
   consumer receives a concrete mode.

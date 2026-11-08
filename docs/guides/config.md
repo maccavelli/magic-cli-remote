@@ -52,7 +52,8 @@ The `0600` modes above are Unix; on Windows the equivalent is an owner-only
 DACL applied to the containing directory, because `os.Chmod` there grants no
 access control. Directories are created private and a directory owned by
 another user is refused rather than repaired.
-| LaunchAgent logs (macOS) | `~/Library/Logs/mcremote/` (stdio only) |
+
+On macOS the LaunchAgent's stdout and stderr go to `~/Library/Logs/mcremote/`.
 
 Inspect the effective layout (no mutation):
 
@@ -104,7 +105,7 @@ through the provider sections.
 | `tls.letsencrypt.route53.hosted_zone_id` | *(empty — discovered from the zone name)* |
 | `tls.letsencrypt.route53.region` | *(empty — `AWS_REGION`)* |
 | `tls.letsencrypt.route53.profile` | *(empty — `AWS_PROFILE`)* |
-| `tls.letsencrypt.route53.max_retries` | `0` (AWS SDK default) |
+| `tls.letsencrypt.route53.max_retries` | `0` (the Route 53 provider's default: five attempts) |
 | `log.level` | `info` |
 | `log.format` | `text` |
 | `data_dir` | *(empty — XDG data home)* |
@@ -115,11 +116,11 @@ through the provider sections.
 | `providers.fake.enabled` | `false` (dev/smoke only) |
 | `providers.grok.enabled` | `true` |
 | `providers.grok.bin` | `grok` |
-| `providers.grok.args` | `[]` — empty uses built-in `--no-auto-update agent --no-leader stdio` (+ `-m MODEL` when set). Daemon-spawned grok always gets `--no-auto-update` (MADR 0081 P1.3) |
+| `providers.grok.args` | `[]` — empty runs grok with the global flags the keys below set (`-m`, `--reasoning-effort`, `--always-approve`, `--permission-mode`, `--sandbox`, `--no-subagents`, `--disable-web-search`), then `--no-auto-update agent --no-leader stdio` (MADR 0081 P1.3). A non-empty `args` replaces all of it, `--no-auto-update` included (config-file only) |
 | `providers.grok.always_approve` | `false` |
 | `providers.grok.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
 | `providers.grok.model` | *(empty)* |
-| `providers.grok.reasoning_effort` | *(empty — still passed as `--reasoning-effort <EFFORT>` (ACP no-op on grok 1.0.5) and applied as session/new\|load `_meta.reasoningEffort`. Live models advertise the set: grok-4.6 is `low`, `medium`, `high`, `xhigh`; grok-4.5 is `low`, `medium`, `high`)* |
+| `providers.grok.reasoning_effort` | *(empty — still passed as `--reasoning-effort <EFFORT>` (ACP no-op on grok 1.0.5) and applied as session/new\|load `_meta.reasoningEffort`. Each live model advertises the levels it accepts, from `low`, `medium`, `high` and `xhigh`)* |
 | `providers.grok.permission_mode` | **`default`** — passed as `--permission-mode <MODE>`. Valid: `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`; empty inherits grok's own config. Rejected at load if unrecognised. **Process-wide and launch-scoped**: applies to every grok session, changing it needs an engine restart. Distinct from the per-session `auto` **mode** in the app's mode menu, which is daemon-enforced (MADR 0049). See the note below on why this is pinned. |
 | `providers.grok.sandbox` | *(empty — grok's own default)* — OS-level sandbox profile (`--sandbox <PROFILE>`). Built-ins: `off`, `workspace`, `devbox`, `read-only`, `strict`. Any other value is treated as a custom profile name and resolved by grok from `~/.grok/sandbox.toml` or `.grok/sandbox.toml`; grok errors clearly if it is missing. Also settable via the `GROK_SANDBOX` env var. See the sandbox note below. |
 | `providers.grok.allowed_tools`, `.disallowed_tools`, `.allow_rules`, `.deny_rules` | Removed ([0208 PLAN](../decisions/0208-PLAN-make-the-provider-layer-agent-neutral.md) P8): grok ignores them over ACP, so a config that still sets one fails to load and names it. Delete the setting. See the note below |
@@ -169,7 +170,7 @@ through the provider sections.
 | `providers.codex.standalone_processes_enabled` | `false` — permit unsandboxed standalone processes (MADR 0109 D37). Each spawn still needs a per-command confirmation on the phone |
 | `providers.codex.standalone_process_env_allowlist` | `[]` — environment variable names a phone may set on a standalone spawn; empty allows none. A secret-looking name (`TOKEN`, `SECRET`, `PASSWORD`, `API_KEY`, …) or a duplicate fails the load |
 | `providers.codex.sandbox_broken_policy` | `warn` (default) — when the daemon's workspace-write probe fails (Linux userns/bwrap): `warn` = notice only; `require_full_access` = seed full-access (needs `allow_full_access: true`) or fail create; `refuse` = fail create. See [MADR 0048](../decisions/0048-MADR-codex-sandbox-namespace.md) |
-| `providers.kilo.enabled` | `true` — default-on since MADR 0075 acceptance (2026-08-10); set `false` per host to drop it from the phone's new-session provider menu. Known-good CLI: **kilo 7.4.22** (MADR 0088; `npm i -g @kilocode/cli` or `brew install Kilo-Org/tap/kilo`) |
+| `providers.kilo.enabled` | `true` — default-on since MADR 0075 acceptance (2026-08-10); set `false` per host to drop it from the phone's new-session provider menu. Known-good CLI: **kilo 7.8.18** (`npm i -g @kilocode/cli` or `brew install Kilo-Org/tap/kilo`) |
 | `providers.kilo.bin` | `kilo` |
 | `providers.kilo.always_approve` | `false` |
 | `providers.kilo.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
@@ -194,7 +195,7 @@ through the provider sections.
 | `relay.secret` | *(empty)* — registration secret (min 16); prefer env. Required for **serve** registration only; `pair` can advertise url+host_id without the secret in-process |
 | `relay.insecure_skip_verify` | `false` — skip TLS verify of **mcrelay** only (dev) |
 | `relay.max_frame_bytes` | `0` — bridge frame cap (0115 F6); `0` = 10 MiB. Set 4096–16777216 to match a raised relay `limits.max_message_bytes` |
-| `pair.advertise_host` | *(empty — auto-detect: Tailscale IPv4, else loopback)* — host (or host:port) advertised in the pair QR/URI. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used); `mcremote pair --host` overrides per run |
+| `pair.advertise_host` | *(empty — follows the bind: an explicit `listen.host`, including the default `127.0.0.1`, is advertised as is; an empty, `tailscale` or wildcard bind advertises the Tailscale IPv4, else loopback)* — host (or host:port) advertised in the pair QR/URI. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used); `mcremote pair --host` overrides per run |
 | `receipts.enabled` | `false` — signed receipts for permission decisions are opt-in (MADR 0077). See `docs/guides/receipts.md` |
 | `receipts.allow_patterns` | `[]` — shell-glob patterns (`*`, `?`, `[set]`) matched against `"<tool_name> <detail>"`; a match triggers a device-signed, hash-chained receipt for that decision |
 | `receipts.deny_patterns` | `[]` — same syntax; a match here wins over `allow_patterns` on the same decision |
@@ -438,7 +439,7 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID` | `tls.letsencrypt.route53.hosted_zone_id` | Route 53 hosted zone ID |
 | `MCREMOTE_TLS_ROUTE53_REGION` | `tls.letsencrypt.route53.region` | AWS region |
 | `MCREMOTE_TLS_ROUTE53_PROFILE` | `tls.letsencrypt.route53.profile` | AWS shared-config profile |
-| `MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES` | `tls.letsencrypt.route53.max_retries` | AWS API max retries (`0` = SDK default). Unlike the three above, this key has **no** short `MCREMOTE_TLS_ROUTE53_*` alias — it is reachable only by its full path. The short spelling is silently ignored. |
+| `MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES` | `tls.letsencrypt.route53.max_retries` | AWS API attempts (`0` = the Route 53 provider's default of five). Unlike the three above, this key has **no** short `MCREMOTE_TLS_ROUTE53_*` alias — it is reachable only by its full path. The short spelling is silently ignored. |
 | `MCREMOTE_PROVIDERS_GROK_ENABLED` | `providers.grok.enabled` | Enable Grok provider (`true`/`false`) |
 | `MCREMOTE_PROVIDERS_GROK_BIN` | `providers.grok.bin` | Grok executable path |
 | `MCREMOTE_PROVIDERS_GROK_ALWAYS_APPROVE` | `providers.grok.always_approve` | Auto-approve Grok tool requests |
@@ -481,6 +482,12 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_HEADSCALE_CONTROL_URL` | `headscale.control_url` | Headscale control URL |
 | `MCREMOTE_LIMITS_MAX_WS_CLIENTS` | `limits.max_ws_clients` | Max simultaneous WebSocket connections |
 | `MCREMOTE_LIMITS_MAX_LIVE_SESSIONS` | `limits.max_live_sessions` | Max concurrent provider sessions |
+| `MCREMOTE_LIMITS_WS_READ_DEADLINE_SECONDS` | `limits.ws_read_deadline_seconds` | Authenticated WebSocket read deadline (seconds) |
+| `MCREMOTE_LIMITS_WS_RESUME_WINDOW_SECONDS` | `limits.ws_resume_window_seconds` | v2 resume-token validity (seconds) |
+| `MCREMOTE_LIMITS_TCP_KEEPALIVE_DISABLE` | `limits.tcp_keepalive.disable` | Turn kernel TCP keepalive probes off (`true`/`false`) |
+| `MCREMOTE_LIMITS_TCP_KEEPALIVE_IDLE_SECONDS` | `limits.tcp_keepalive.idle_seconds` | Idle time before the first probe |
+| `MCREMOTE_LIMITS_TCP_KEEPALIVE_INTERVAL_SECONDS` | `limits.tcp_keepalive.interval_seconds` | Interval between probes |
+| `MCREMOTE_LIMITS_TCP_KEEPALIVE_COUNT` | `limits.tcp_keepalive.count` | Failed probes before the OS closes the connection |
 | `MCREMOTE_PAIR_ADVERTISE_HOST` | `pair.advertise_host` | Host (or host:port) advertised in the pair QR/code, overriding auto-detection. Ignored in `letsencrypt` mode, where the primary ACME domain is used |
 | `MCREMOTE_PAIR_HOST` | `pair.advertise_host` | Legacy alias for `MCREMOTE_PAIR_ADVERTISE_HOST` (same key) |
 | `MCREMOTE_RELAY_URL` | `relay.url` | mcrelay base URL (`wss://…`) |
@@ -588,7 +595,7 @@ see [docs/guides/receipts.md](receipts.md)).
 |------|-------------|
 | `--data-dir` | Data directory (overrides config) — where `receipts/<device_id>.jsonl` and `devices.json` live |
 | `--device` | Device id: optional filter on `list`; **required** on `verify` and `show` |
-| `--permission` | Permission id (`show` only, required): which decision to decode |
+| `--permission` | Permission id or handoff nonce (`show` only, required): which decision to decode |
 
 `verify` exits non-zero on a broken chain (reporting the exact 1-indexed
 line), so it is safe to use in an audit script. Both `verify` and `show`
@@ -606,8 +613,9 @@ the key archived beside the chain (`receipts/<device_id>.spki`) — so a
 |------|-------------|
 | `--name` | Device label (default `device`) |
 | `--qr` | Print terminal QR (default on TTY) |
-| `--host` | Advertise host:port in QR/URI. Overrides `pair.advertise_host` for this run. Default: the primary ACME domain in `letsencrypt` mode; else `pair.advertise_host`, then the Tailscale IPv4 (`selfsigned`) |
+| `--host` | Advertise host:port in QR/URI. Overrides `pair.advertise_host` for this run. Default: the primary ACME domain in `letsencrypt` mode; else `pair.advertise_host`; else the bind address (the Tailscale IPv4 only when `listen.host` is empty, `tailscale` or a wildcard) |
 | `--ttl` | Pair **code** lifetime (default `5m`; `pair code` / bare `pair` only) |
+| `--copy` | Copy the pair URI to the clipboard through the terminal (OSC 52, or `tmux load-buffer -w` inside tmux); needs a terminal (`pair code` / bare `pair` only) |
 | `--data-dir` | Data directory for devices / pair codes |
 
 ### `mcremote pair list` / `pair revoke`

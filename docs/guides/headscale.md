@@ -264,7 +264,7 @@ Recommend advertising:
 | Mode | `listen.host` | Notes |
 |------|---------------|--------|
 | Local only | `127.0.0.1` | `Defaults()`; phone cannot connect |
-| Mesh | `tailscale` | **Recommended, and the default in every shipped launch path.** Resolved at startup to this host's Tailscale IPv4; waits for that address rather than widening to `0.0.0.0` |
+| Mesh | `tailscale` | **Recommended.** Set by `configs/config.mesh-grok.yaml` and `scripts/start-mcremote-grok.sh`; `setup-service`'s seed config keeps `127.0.0.1`. Resolved at startup to this host's Tailscale IPv4; waits for that address rather than widening to `0.0.0.0` |
 | Off-tailnet | `0.0.0.0` | Explicit opt-in only. Reachable from any interface, including café wifi; the ACL above then protects nothing |
 
 Always keep `auth.require_device_token: true` in production.
@@ -275,7 +275,7 @@ Always keep `auth.require_device_token: true` in production.
 2. On the phone: Connect → **Enter code** (8 chars) or **Scan QR**.  
 3. Durable token is stored on the device after claim — no re-emailing. Codes expire in 5 minutes.  
 4. Phone Tailscale logged into the same Headscale tailnet.  
-5. Connect to `ws://<host-magicdns-or-tailnet-ip>:7531/v1/ws`  
+5. Connect to `wss://<host-magicdns-or-tailnet-ip>:7531/v1/ws` (TLS is on by default, self-signed and pinned)  
 6. Send the `auth` message with the token (see [protocol-v1.md](protocol-v1.md)).  
 
 ## What Phase 1 does **not** do

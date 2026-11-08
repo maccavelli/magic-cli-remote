@@ -19,9 +19,11 @@ to those roles; this is not a general microservice template.
 - The module declares Go 1.27.3 in `go.mod`.
 - Entrypoints are `cmd/mcremote/main.go` and `cmd/mcrelay/main.go`; application
   packages are private under `internal/`.
-- The build uses `CGO_ENABLED=0`, `-trimpath`, `-tags netgo,osusergo`, and
-  `-ldflags '-s -w'` by default. These are release-build defaults, not a rule
-  for every Go project.
+- The Makefile builds with `CGO_ENABLED=0`, `-trimpath` and `-ldflags '-s -w'`,
+  plus `-tags netgo,osusergo` on Linux only; `make verify-build-metadata`
+  checks them. The published release binaries come from go-selfupdate-lib's
+  build workflow, cgo-free with no tags. These are this project's defaults, not
+  a rule for every Go project.
 - The CLI is Cobra/pflag; configuration is Viper over YAML, environment, and
   bound flags; the WebSocket server uses `github.com/coder/websocket`.
 - The logging implementation is `log/slog`, with `zap` present only as a

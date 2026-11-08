@@ -25,8 +25,11 @@ but are not mandatory when a focused scenario is clearer.
 - Run `make test` for ordinary Go changes and `make race` for concurrent,
   session, relay, or WebSocket changes. `make preflight` runs formatting, tidy
   verification, vet, staticcheck, race tests, and mobile checks.
-- Tests tagged `live_grok` and `live_opencode` invoke real CLIs/models. Keep
-  them opt-in and run them at acceptance, not repeatedly in the edit loop.
+- Tests tagged `live_grok`, `live_opencode`, `live_codex` (and its
+  `live_codex_turn`, `live_codex_review` and `live_codex_contract` parts) and
+  `live_kilo` invoke real CLIs/models and spend quota (`make live-grok`,
+  `make live-opencode`, `make live-codex`, `make live-kilo`). Keep them opt-in
+  and run them at acceptance, not repeatedly in the edit loop.
 - Use standard `//go:build` constraints for genuinely separate live or
   integration suites, with a blank line before `package`.
 

@@ -22,18 +22,23 @@ component: "core"
 
 ## Build policy
 
-`make build`, `make build-remote`, and `make build-relay` produce the release
-artifacts. They default to a pure-Go, static-oriented build:
+`make build`, `make build-remote`, and `make build-relay` produce local builds;
+the published release binaries come from go-selfupdate-lib's build workflow,
+cgo-free with no tags. The Makefile defaults to a pure-Go, static-oriented
+build, with the tags on Linux only:
 
 ```make
 CGO_ENABLED=0
-GO_BUILDFLAGS=-trimpath -tags netgo,osusergo
+GO_BUILDFLAGS=-trimpath -tags netgo,osusergo   # Linux; -trimpath alone elsewhere
 GO_LDFLAGS=-s -w
 ```
 
-The Makefile also link-stamps `main.version`, `main.commit`, and `main.date`.
-Preserve those variables in the command `main` packages when changing version
-reporting. Do not add `-gcflags='-N -l'` to release builds; it disables normal
+The Makefile also link-stamps go-selfupdate-lib's `buildinfo` variables, the
+version and the build kind (`VERSION=`, `BUILD_KIND=`), with the `-X` pair
+`buildinfo.LDFlags` renders, and each binary reports `buildinfo.Identity()`. No
+build date is stamped: the commit and its time come from the binary's own VCS
+build settings, so the same source builds byte-identically. Keep version
+reporting on `buildinfo`; the `main` packages declare no version variables. Do not add `-gcflags='-N -l'` to release builds; it disables normal
 compiler optimization.
 
 `CGO_ENABLED=0` is a project default, not an absolute prohibition. A change

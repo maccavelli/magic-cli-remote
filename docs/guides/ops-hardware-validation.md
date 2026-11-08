@@ -141,14 +141,15 @@ sudo, and disturbs nothing else on the network.
 | A2 | `kill -STOP`, mesh, app backgrounded 2–3 min first | Same bound. **This is where the keepalive earns its place** — app timers are throttled here | ✅ 2026-08-02 |
 | A3 | `kill -STOP` while on **relay** (Settings → Route → Relay → Reconnect now first) | Same bound; exercises the outer-hop keepalive and mcrelay's tolerance of ping frames | ✅ 2026-08-02 |
 | A4 | `kill -CONT` after each of the above | Reconnects unattended, no tap required | ✅ 2026-08-02 |
-| A5 | Agent reply longer than 60 s, no user input | Session survives to the end | |
+| A5 | Agent reply longer than the read deadline (default 120 s), no user input | Session survives to the end | |
 | A6 | Idle 15 min, foregrounded | Zero disconnects | |
 | A7 | Idle 30 min, backgrounded | Zero disconnects | |
 | A8 | Walk out of Wi-Fi range (cellular off) | Leaves "Connected"; recovers on return | |
 
 **A5 is the regression test for plan amendment B1.** The daemon's read deadline
-is only reset by the application `ping`, never by protocol keepalive frames, and
-a streaming session sends nothing upstream. If the ping were ever made
+(`limits.ws_read_deadline_seconds`, default 120 s) needs traffic from the phone:
+on protocol v2 any data or transport pong extends it, and a streaming session
+sends nothing else upstream. If the ping were ever made
 conditional on the link "looking healthy", a long reply would be dropped
 mid-answer — presenting as the agent hanging.
 
@@ -242,8 +243,8 @@ both; only the service manager differs, and none of these rows touch it.
 | C1 (V11, Auto) | Connect mode **Auto** (the default), on-mesh, scan a dual-available **code** QR | Claims immediately — status says "claiming over mesh…", no pause, no menu wait; Settings → Route shows mesh | |
 | C2 (V11, Select) | Connect mode **Select**, same QR | Pauses with the menu; pick a transport; **Claim & connect** completes the pairing (= B1+B5) | |
 | C3 (V11, Auto, off-mesh) | Auto, Tailscale off on the phone, scan the same QR | Claims over the relay with no ~8 s mesh stall (sole-available path, unchanged by mode) | |
-| C4 (V10) | On the host: `mcremote pair create --name phone-token`. On the phone: Settings → **Long-lived token**, paste, Save, back, **Connect** | Pairs with the token; no code involved. The Host field must already name the host | |
-| C5 (V15) | Burn a code (the B12 window: kill connectivity after the claim is sent), then on the host: `mcremote pair list` | The burn's device row is listed — a registration no phone holds a token for. `mcremote pair revoke <id>` or `mcremote pair prune` clears it | |
+| C4 (V10) | On a host with `auth.require_client_key: false`: `mcremote pair create --name phone-token`. On the phone: Settings → **Long-lived token**, paste, Save, back, **Connect** | Pairs with the token; no code involved. The Host field must already name the host. With the default `require_client_key: true` the token is refused (`client key rejected`), because `pair create` enrolls no key | |
+| C5 (V15) | Burn a code (the B12 window: kill connectivity after the claim is sent), then on the host: `mcremote pair list` | The burn's device row is listed — a registration no phone holds a token for. `mcremote pair revoke <id>` (or `pair prune --stale <duration>`) clears it | |
 
 Notes:
 
@@ -369,7 +370,7 @@ Daemon log lines worth knowing:
 - `registered with mcrelay host_id=…` — the relay path is usable
 - `tunnel bridged to local listener` — a phone joined through the relay
 - `ws client disconnected reason=read_deadline` — the daemon gave up on a
-  silent client at 60 s
+  silent client after `limits.ws_read_deadline_seconds` (default 120 s)
 - `device authenticated` — a session actually completed the handshake
 
 ## Results
@@ -398,9 +399,9 @@ and nothing observed so far would have caught it. Until those run, the evidence
 says the mechanism fires, not that it only fires when it should.
 
 **A5** is also outstanding, and it is the regression test for plan amendment
-B1: a reply longer than the daemon's 60 s read deadline must survive, because
-that deadline is reset only by the application ping and a streaming session
-sends nothing upstream.
+B1: a reply longer than the daemon's read deadline (default 120 s) must
+survive, because on v2 only the phone's data or a transport pong extends that
+deadline, and a streaming session sends nothing else upstream.
 
 ### Remaining
 
