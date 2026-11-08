@@ -282,6 +282,13 @@ something the code does not do. None looks like the code being wrong.
   131-132). MADR 0099 F4a removed both from the embedded template because they make a user unit fail to start on
   every host (`218/CAPABILITIES`). The guides point readers at this file as the manual unit. It is a code change, not
   this audit's.
+  *Resolved 2026-11-08 by
+  [0240-MADR-make-the-shipped-user-units-match-the-templates-and-gate-them.md](../decisions/0240-MADR-make-the-shipped-user-units-match-the-templates-and-gate-them.md)
+  and its PLAN: both directives removed and the units gated against their templates (`6178ad32`), the guides' note
+  (`ffbda60f`), and the host scope corrected (`31e21118`, `1ff7fe58`). "Every host" was too broad. The 218 happens
+  where the user manager cannot create a user namespace with capabilities, which includes stock Ubuntu 24.04 and
+  later (0240-MADR A1). The `config-mcrelay.md` row above that reads "most; `MCRELAY_LIMITS_MAX_CONNS` is not" was
+  reverted to "every" by 0240-MADR D6, when the unit gained that variable.*
 - **Unverified, left as written:** `ops-hardware-validation.md` F6's "expect ≤60 s" lingering bound (a device pass's
   expected result; it may share the old 60 s deadline), and `ops-codex-contract.md`'s "an identical 164 methods",
   which may be an older capture's count.

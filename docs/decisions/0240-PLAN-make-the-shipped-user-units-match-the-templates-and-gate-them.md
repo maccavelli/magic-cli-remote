@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-08
 associated-madr: "0240-MADR-make-the-shipped-user-units-match-the-templates-and-gate-them.md"
 ---
@@ -409,3 +409,31 @@ The source for "stock Ubuntu 24.04 and later" is the repository's existing wordi
 * **Step 4:** `go test -count=1 ./internal/cli/service/`: ok. `make pre-add-check
   FILES=internal/cli/service/deployunits_test.go`: "1 file(s) clean". `make race`: exit 0, 49 `ok` lines, no FAIL,
   panic or race line. `make check-records markdownlint-docs`: exit 0, 0 issues in 59 files.
+
+The owner committed P4 and P4b (`1ff7fe58`), pushed `ffbda60f..1ff7fe58`, and approved P5: "proceed".
+
+### P5 — 2026-11-08: close-out
+
+**Deviation, 2026-11-08: Confirmation 1's first grep, as written, matches two comment lines.**
+`grep -n 'PrivateDevices\|RestrictNamespaces' deploy/systemd/*.user.service` finds `mcrelay.user.service:139` and
+`:144`. Both are in the F4a comment that D1 requires, so the check contradicted D1 from the start. Offered: reword the
+check to directive lines, or drop the names from the comments. The owner chose "Reword check to directives". The
+MADR's Confirmation 1 carries a dated note. No other file changes.
+
+The MADR's Confirmation, each with its evidence:
+
+| # | Check | Evidence |
+| :--- | :--- | :--- |
+| 1 | no banned directive, no `/cache/` path | `grep -nE '^[[:space:]]*(PrivateDevices\|RestrictNamespaces)[[:space:]]*=' deploy/systemd/*.user.service`: no output. `grep -rn '/cache/' deploy/systemd/`: no output |
+| 2 | both tests pass, each seen failing first | P1: 21 failures on the files as they were, exactly those expected. P2 and P4b: five planted breaks, each caught with its own message |
+| 3 | `verify-units`, `test`, `race`, `pre-add-check`, CI | P2: `systemd-analyze verify` exit 0 on all four units on the Linux test host (systemd 259). P2 and P4b: `make race` exit 0, 49 ok; `pre-add-check` clean. CI: see below |
+| 4 | 218 before, `active` after, restriction on, sysctl restored | P4 second attempt: `ExecMainStatus=218` before; `active`, `NRestarts=0`, `{"ok":true}` after; sysctl `0` → `1` → `0` |
+| 5 | the docs note, "every", records and lint | P3: the note, "Every one of these", the README row. `make check-records markdownlint-docs` exit 0 |
+| 6 | no "every host" or "never starts"; narrowed message seen failing | P4b steps 2 and 3 |
+
+* The 0239 report's P4 finding gains "Resolved 2026-11-08 by 0240", with the four commits. It also notes that its
+  `config-mcrelay.md` row ("most; `MCRELAY_LIMITS_MAX_CONNS` is not") was reverted by D6.
+* CI: Docs and CI passed on `6178ad32` (P1 and P2), and on `1ff7fe58` (P4b). On `1ff7fe58` every CI job passed:
+  Go test, the darwin/arm64, windows/amd64 and linux/arm64 builds, both Flutter jobs, and the runit and s6
+  supervisors. The Android APK and the self-update build and publish were skipped, since they run only on a tag.
+* Every Confirmation item is met. This plan is `complete`. The MADR stays `accepted`, as P0 set it.

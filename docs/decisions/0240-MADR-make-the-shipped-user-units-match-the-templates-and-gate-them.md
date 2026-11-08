@@ -203,6 +203,9 @@ decided `Type=simple`, and adds the gate F4 shows is missing. A fixes only the s
 
 1. `grep -n 'PrivateDevices\|RestrictNamespaces' deploy/systemd/*.user.service` finds nothing, and
    `grep -rn '/cache/' deploy/systemd/` finds nothing.
+   *Amended 2026-11-08 (owner's choice at PLAN P5): the first grep, as written, matches the F4a comment that D1
+   requires. The check is for directive lines:
+   `grep -nE '^[[:space:]]*(PrivateDevices|RestrictNamespaces)[[:space:]]*=' deploy/systemd/*.user.service`.*
 2. `TestDeployUserUnitsMatchTheTemplates` and `TestDeployRelayUnitNamesEveryRelayVariable` pass. Each was seen
    failing first: on the deploy files as they are today, and again on a scratch copy with one planted break per
    rule.
