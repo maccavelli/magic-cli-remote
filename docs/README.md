@@ -469,6 +469,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0239 | MADR | Audit the open records and the guides against the tree, 2026-11 | [0239-MADR-audit-record-statuses-and-docs-accuracy-2026-11.md](decisions/0239-MADR-audit-record-statuses-and-docs-accuracy-2026-11.md) |
 | 0239 | PLAN | Implement the November 2026 audit of the open records and the guides | [0239-PLAN-audit-record-statuses-and-docs-accuracy-2026-11.md](decisions/0239-PLAN-audit-record-statuses-and-docs-accuracy-2026-11.md) |
 | 0239 | REPORT | Record status and docs accuracy audit, 2026-11 | [0239-REPORT-record-status-and-docs-accuracy-audit.md](../docs/reports/0239-REPORT-record-status-and-docs-accuracy-audit.md) |
+| 0240 | MADR | Make the shipped user units match the templates, and gate them so they cannot drift again | [0240-MADR-make-the-shipped-user-units-match-the-templates-and-gate-them.md](decisions/0240-MADR-make-the-shipped-user-units-match-the-templates-and-gate-them.md) |
+| 0240 | PLAN | Implement making the shipped user units match the templates, and gating them | [0240-PLAN-make-the-shipped-user-units-match-the-templates-and-gate-them.md](decisions/0240-PLAN-make-the-shipped-user-units-match-the-templates-and-gate-them.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
