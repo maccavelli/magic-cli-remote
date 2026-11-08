@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-11-08
 associated-madr: "0238-MADR-tolerate-pushes-before-the-auth-reply.md"
 ---
@@ -134,4 +134,51 @@ pointer for review, not a gate, so it is not committed.
 
 ## Execution record
 
-Not started. P1 waits for the owner's approval.
+### P1 — 2026-11-08: the test helper and the guide (approved by the owner: "committed, proceed")
+
+The records commit is `9fe04642` ("docs(decisions): add 0238 on pushes before the auth reply").
+Scripts and logs are in the session scratchpad (`flake_widen.py`, `sweep_auth_order.py`,
+`race_summary.py`, `0238-make-race.log`).
+
+* **Step 1.** `git status` was clean. `master` was one commit ahead of `origin/master`, and that
+  commit was `9fe04642`, the records commit. The step was written assuming the records commit
+  would already be pushed. Nothing else was ahead, so the base is the one the plan describes.
+* **Step 2.** `authV2` now reads with `readUntil(ctx, t, conn, protocol.TypeAuthOK)`, with the
+  comment from the step. The bare `readEnv` and its type check are gone. Nothing else in the file
+  changed.
+* **Step 3.** `docs/guides/protocol-v1.md` carries the Frame order paragraph, after the
+  `Authorization: Bearer` paragraph and before "Unauthenticated clients may only use…", with the
+  full-filename link to the MADR.
+* **Step 4, seen to fail, then to pass.** `flake_widen.py 50 30 10` injects a 30 ms delay in
+  `handleAuth`'s resume branch and a 10 ms delay before the pump's re-advertise, in a scratch clone
+  of `9fe04642`:
+
+  | Run | `resume_test.go` | Result |
+  | :--- | :--- | :--- |
+  | A | committed (bare `readEnv`) | `go test` exit 1, 50 of 50 failed: `resume_test.go:153: want auth_ok got event {"event":{"type":"remote_commands"…` |
+  | B | the working tree's (`readUntil`), copied into the clone | `go test` exit 0, 0 of 50 failed |
+
+  Each clone was removed afterwards and checked gone.
+* **Step 5, gates on this Mac:**
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check FILES="internal/ws/resume_test.go"` | exit 0, "1 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go test -race -count=1 ./internal/ws` | exit 0, `ok … internal/ws 24.517s` |
+  | `make race` | exit 0; 49 `ok` lines; no FAIL, panic or data race line |
+  | `make check-records` | exit 0 |
+  | disclosure guard preview | "would edit 0 file(s)" |
+
+* **Step 6.** Staged for the owner's commit: `internal/ws/resume_test.go`,
+  `docs/guides/protocol-v1.md` and this PLAN. The MADR was not amended: no decision or fact changed.
+  This PLAN stays `in-progress` until CI passes on the push (criterion 6).
+
+**Not done in P1:**
+
+* No daemon change (D3).
+* No committed test that forces the interleaving. The MADR's Consequences say why; the
+  experiment above stands in for it.
+* No run on the Linux or Windows test hosts. The change is one test helper, and the race suite and
+  CI cover it.
+
+**Files for this commit:** `internal/ws/resume_test.go`, `docs/guides/protocol-v1.md`, this PLAN.

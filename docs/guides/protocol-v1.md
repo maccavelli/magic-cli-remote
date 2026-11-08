@@ -243,6 +243,14 @@ Optional: `Authorization: Bearer <token>` on the HTTP Upgrade request. On succes
 sends an `auth_ok` for protocol 1 straight away, because the upgrade carries no `protocols`
 list; a client that wants v2 sends `auth` instead (MADR 0201 D9).
 
+**Frame order.** The daemon treats the socket as authenticated as soon as it accepts the token
+or pair code, a moment before it queues the `auth_ok` or `pair_ok` that answers the request. A
+server push, such as an `event` or `providers.prewarm`, can therefore arrive before that reply.
+Match the reply to your request by `id`, and handle a push that arrives first exactly as you
+would one that arrives after
+([0238-MADR-tolerate-pushes-before-the-auth-reply.md](../decisions/0238-MADR-tolerate-pushes-before-the-auth-reply.md)).
+The `auth_ok` or `auth_error` sent after a Bearer upgrade has no `id`; match it by `type`.
+
 Unauthenticated clients may only use HTTP `GET /healthz` (liveness only — `{"ok":true}`), plus WS `auth` / `pair.claim`. `GET /v1/hello` requires a device token.
 
 ### Client identity (client-key allowlist)

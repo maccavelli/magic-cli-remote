@@ -69,10 +69,10 @@ func authV2(ctx context.Context, t *testing.T, conn *websocket.Conn, token strin
 		ResumeWindowMS: windowMS,
 	})
 	writeEnv(ctx, t, conn, env)
-	got := readEnv(ctx, t, conn)
-	if got.Type != protocol.TypeAuthOK {
-		t.Fatalf("want auth_ok got %s %s", got.Type, string(got.Payload))
-	}
+	// A push can be queued before the auth reply (0238-MADR F1): read past
+	// events to the reply. readUntil still fails on any other type, so an
+	// auth_error stops the test with its payload.
+	got := readUntil(ctx, t, conn, protocol.TypeAuthOK)
 	var ok protocol.AuthOKPayload
 	if err := json.Unmarshal(got.Payload, &ok); err != nil {
 		t.Fatal(err)
