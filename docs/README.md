@@ -463,6 +463,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0235 | PLAN | Implement saving the last live model catalog, and taking grok's fallback from the SDK | [0235-PLAN-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md](decisions/0235-PLAN-save-the-last-live-model-catalog-and-take-groks-fallback-from-the-sdk.md) |
 | 0236 | MADR | Re-pin codex to 0.167.0, and generate more of its contract from codex's own sources | [0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md](decisions/0236-MADR-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md) |
 | 0236 | PLAN | Implement re-pinning codex to 0.167.0, and generating more of its contract | [0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md](decisions/0236-PLAN-re-pin-codex-to-0-167-0-and-generate-more-of-its-contract.md) |
+| 0237 | REPORT | Grok Build 1.0.77 surface vs the magic-cli-remote grok provider | [0237-REPORT-grok-1.0.77-surface-and-magic-provider.md](../docs/reports/0237-REPORT-grok-1.0.77-surface-and-magic-provider.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
@@ -483,3 +484,4 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | understand the wire protocol | [protocol-v2.md](guides/protocol-v2.md) (delta over [protocol-v1.md](guides/protocol-v1.md)) |
 | find why a decision was made | the records table above, starting at [0001-MADR-architecture-mcremote.md](decisions/0001-MADR-architecture-mcremote.md) |
 | check a library's newest release before moving a pin | `make check-libs`; [0207-PLAN-finish-full-semver-pins-and-check-libs.md](decisions/0207-PLAN-finish-full-semver-pins-and-check-libs.md), V2 |
+| see what grok 1.0.77 changed relative to Magic's grok provider | [0237-REPORT](reports/0237-REPORT-grok-1.0.77-surface-and-magic-provider.md) |
