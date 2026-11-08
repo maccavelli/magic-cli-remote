@@ -59,12 +59,13 @@ The rules of [0200-REPORT-record-status-audit.md](0200-REPORT-record-status-audi
 | 0169-PLAN | remaining: D7's git on the Linux test host and WSL, and D3's Flutter lockstep (magic-git's pair). A6 is overtaken by 0217 D2 |
 | 0217-PLAN | remaining: the owner's dotfiles commit on the Linux test host (owner: "Not yet", 2026-11-08). A5 reads as amended by D4's siblings-only rule (`spf13/pflag` held) |
 
-### Waiting on the owner
+### Closed on the owner's check, after P1's commit
 
-- **0227-MADR / PLAN** (`proposed` / `in-progress`): Phases 1–3 are in `.claude/settings.json`, `opencode.json` and
-  `.gobble/settings.yaml` (`254279ac`). Phase 4 waits on the owner's manual check that a read-only turn no longer
-  prompts in Claude Code, OpenCode and gobble, and that `git add` still does. The owner asked for the procedure on
-  2026-11-08; the result decides both statuses.
+- **0227-MADR** `proposed` → `accepted`, and **0227-PLAN** `in-progress` → `complete`. The owner ran the
+  Confirmation's check headless on 2026-11-08, at `39b83ba9`, one run per tool in its default permission mode. In
+  Claude Code, OpenCode and gobble the read-only turn (`git status`, `git log -1`, `check_records.py --next`, a read
+  of `AGENTS.md`) ran without a denial. The control, `git add --dry-run AGENTS.md`, was denied by each:
+  `permission_denials` in Claude Code, "auto-rejecting" in OpenCode, "declined" in gobble.
 
 ### Checked and left as they are
 
@@ -92,6 +93,10 @@ Each reads accurately against the tree:
   `docs.yml` already carries a home-path step. Its portable disclosure check and parity test are not built.
 - **0227's configuration landed in an unrelated commit,** `254279ac` ("feat(opencode): add control plane and fixture
   host-tag guard"), not under 0227's own.
+- **gobble ignores one line of `.gobble/settings.yaml`.** Every gobble run warns
+  `permissions.allowBypass: only the global settings file can set this` (line 4). The project file's
+  `allowBypass: false` has no effect. It does no harm, since `false` is gobble's default, but removing the line is a
+  change to that file under an amendment of 0227.
 
 ## P2 — the `completed` spelling
 

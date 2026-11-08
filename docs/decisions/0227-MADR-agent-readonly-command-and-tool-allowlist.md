@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-11-01
+status: accepted
+date: 2026-11-08
 decision-makers: Project Owner
 consulted: none
 informed: every agent working in this repository
@@ -165,3 +165,27 @@ tools already run with no rule; the file still `allow`s them and the
 same bash prefixes as the other two files. `allowBypass` stays false.
 The project file loads only after trust (`gobble trust` or equivalent).
 Host paths never appear in the YAML.
+
+## Status note — 2026-11-08
+
+~~`proposed`~~ `accepted`. Its Confirmation is met: a read-only turn needs no permission in Claude Code, OpenCode or gobble, and a mutating command still does.
+
+The owner ran the Confirmation's check on 2026-11-08 at `39b83ba9`, headless, one run per tool in its default
+permission mode. The read-only prompt asked for `git status`, `git log -1`, `python3 scripts/check_records.py --next`
+and a read of `AGENTS.md`; the control asked for `git add --dry-run AGENTS.md`, which stages nothing even if allowed.
+
+| Tool | Read-only | Control |
+| --- | --- | --- |
+| Claude Code (`claude -p --permission-mode default`) | all four ran; `permission_denials: []` | denied: `permission_denials` lists the `git add` call |
+| OpenCode (`opencode run`, no `--auto`) | all four tool calls `completed` | "permission requested … auto-rejecting"; the call ended `error` |
+| gobble (`gobble chat -p --no-session`) | all four ran | "The command was declined, so nothing ran" |
+
+Headless rather than in the interactive sessions the PLAN's Verification names: both modes read the same allow
+lists, and a headless run turns an ask into a denial, which is what the control shows.
+
+**Finding:** every gobble run warns `.gobble/settings.yaml:4: permissions.allowBypass: only the global settings
+file can set this`. gobble ignores the project file's `allowBypass: false`. It does no harm, since `false` is the
+safe value and gobble's default, but the line has no effect. Removing it is a change to that file and needs its own
+amendment of this record; the audit does not make it.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).

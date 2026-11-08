@@ -259,3 +259,23 @@ Scripts and logs are in the session scratchpad (`docref.py`, `docref_failfirst.p
   * `go test ./internal/protocol/` and `TestTrackedFilesUseOnlyPlaceholderHomes`, the Docs workflow's Go tests: ok.
   * The redact preview: 0 files.
 * **Staged:** `README.md`, `apps/mobile/docs/architecture.md`, the MADR and this plan, and the report's P3 section.
+
+P3 was committed by the owner (`39b83ba9`).
+
+### P1's last item — 2026-11-08: 0227 closed on the owner's check
+
+The owner asked for 0227's test as commands to run in this session, and ran six. Each tool was run once headless in
+its default permission mode, with a read-only prompt and a control:
+
+* **Claude Code** (`claude -p --permission-mode default --output-format json`): `permission_denials: []`, then the
+  `git add --dry-run` call listed as denied.
+* **OpenCode** (`opencode run --format json`, no `--auto`): four tool calls `completed`, then "permission requested …
+  auto-rejecting".
+* **gobble** (`gobble chat -p --no-session`): all four ran, then "declined".
+
+0227-MADR became `accepted` and 0227-PLAN `complete`, each with a status note carrying the results. Every gobble run
+warned that the project file's `permissions.allowBypass` is honoured only in the global settings file. That is a
+finding in the report, not a change: removing the line is a change to `.gobble/settings.yaml` under 0227's own
+amendment. The audit spent the owner's quota on the six runs, at the owner's direction.
+
+**Staged:** the two 0227 records, the report, and this plan.

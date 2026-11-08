@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-11-01
+status: complete
+date: 2026-11-08
 associated-madr: "0227-MADR-agent-readonly-command-and-tool-allowlist.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -94,3 +94,27 @@ revert those files. No runtime service.
 * 2026-11-01 — Phases 1–2 landed (Claude and OpenCode JSON).
 * 2026-11-01 — Owner asked for gobble's own file. MADR amended; Phase 3
   added. Phase 3 lands in the same working tree.
+
+## Status note — 2026-11-08
+
+~~`in-progress`~~ `complete`. Phases 1–3 landed in `254279ac`. Phase 4 waited for the owner's confirmation that a read-only turn no longer prompts, which the check below gave.
+
+The owner ran the Confirmation's check on 2026-11-08 at `39b83ba9`, headless, one run per tool in its default
+permission mode. The read-only prompt asked for `git status`, `git log -1`, `python3 scripts/check_records.py --next`
+and a read of `AGENTS.md`; the control asked for `git add --dry-run AGENTS.md`, which stages nothing even if allowed.
+
+| Tool | Read-only | Control |
+| --- | --- | --- |
+| Claude Code (`claude -p --permission-mode default`) | all four ran; `permission_denials: []` | denied: `permission_denials` lists the `git add` call |
+| OpenCode (`opencode run`, no `--auto`) | all four tool calls `completed` | "permission requested … auto-rejecting"; the call ended `error` |
+| gobble (`gobble chat -p --no-session`) | all four ran | "The command was declined, so nothing ran" |
+
+Headless rather than in the interactive sessions the PLAN's Verification names: both modes read the same allow
+lists, and a headless run turns an ask into a denial, which is what the control shows.
+
+**Finding:** every gobble run warns `.gobble/settings.yaml:4: permissions.allowBypass: only the global settings
+file can set this`. gobble ignores the project file's `allowBypass: false`. It does no harm, since `false` is the
+safe value and gobble's default, but the line has no effect. Removing it is a change to that file and needs its own
+amendment of this record; the audit does not make it.
+
+Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).
