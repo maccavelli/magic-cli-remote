@@ -392,6 +392,11 @@ timeouts, the relay's first-envelope deadline and sweep, and the client's 60 s c
 - **`session_cancel_timeout` is declared in `internal/protocol/errors.go:49` and sent
   (`internal/ws/server.go:2126`), but missing from `ErrorCodes()`.** The registry the guide's tests check against
   does not contain it, so neither test can notice if its documentation goes. Code, not this audit's.
+  *Resolved 2026-11-09 by
+  [0241-MADR-register-every-sent-error-code.md](../decisions/0241-MADR-register-every-sent-error-code.md) and its
+  PLAN: `session_cancel_timeout` registered, with `not_found`, a second sent code that was neither registered nor
+  documented, and two checks that fail on a declared or helper-returned code left out of the registry
+  (`711201e9`).*
 - **Unverified, left as written:** `chat-performance.md`'s "Host dedup" row (`usage_update` only on change,
   `session_status: running` only on transition). No dedup site was found by search, and none was ruled out.
 
@@ -516,6 +521,6 @@ Nothing below was changed by this audit. Each is in its phase's section with the
 | `deploy/systemd/mcrelay.user.service` kept the two directives 0099 F4a removed | P4 | **resolved by 0240** |
 | `ops-hardware-validation.md` F6's "≤60 s" bound and `ops-codex-contract.md`'s "164 methods" | P4 | unverified, left as written |
 | prompt attachments: the guide promised validation and whole-prompt rejection that the code does not do | P5 | doc-versus-code; a decision on whether to validate |
-| `session_cancel_timeout` is sent but missing from `ErrorCodes()` | P5 | a code fix |
+| `session_cancel_timeout` is sent but missing from `ErrorCodes()` | P5 | **resolved by 0241** |
 | `chat-performance.md`'s "Host dedup" row | P5 | unverified, left as written |
 | the mobile architecture standard prescribes `AsyncNotifier` with `AsyncValue.guard()`, which no code uses | P6 | a rule to keep or drop |

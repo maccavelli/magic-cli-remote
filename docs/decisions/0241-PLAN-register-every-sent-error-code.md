@@ -181,3 +181,26 @@ Scripts and logs are in the session scratchpad (`0241-p1-d3-failfirst.log`, `024
   * `make check-records markdownlint-docs`: exit 0.
   * The redact preview: 0 files.
 * **Staged together**, so `master` never carries a failing test: the four Go files, `protocol-v1.md`, and this plan.
+
+The owner committed P1 and P2 as `711201e9`: "proceed, i committed".
+
+### P3 — 2026-11-09: close-out
+
+* **Start state (C1).** Clean tree. `master` two commits ahead of `origin/master` (`4d036801`, P0; `711201e9`, P1
+  and P2), not yet pushed. The pre-push disclosure guard over those two commits: exit 0.
+* **The 0239 report** (step 1): its P5 finding on `session_cancel_timeout` gains a dated note, resolved by this
+  record at `711201e9`, in the form of the 0240 note above it; its P7 table row now reads **resolved by 0241**.
+* **The MADR's Confirmation** (step 2):
+
+  | Confirmation | Evidence |
+  | :--- | :--- |
+  | 1 D3 fails on today's code, passes after D1 | P1 step 3: fails naming `ErrSessionCancelTimeout` only; P2: `ok` |
+  | 2 D4 fails on today's code, passes after D2 | P1 step 3: fails naming `not_found at codex_execution.go:138:10` only; P2: `ok` |
+  | 3 planted breaks | P2 step 4: four breaks, each exit 1 with its own message; unplanted exit 0 |
+  | 4 tests, race, pre-add, records, lint, CI | P2: package tests `ok`, `make race` 49 `ok`, pre-add 4 files clean, records and lint exit 0. **CI: pending the push** |
+  | 5 `not_found` documented | P2: `TestErrorCodesAreDocumented` passes with the new row |
+
+* **Not done yet:** CI on the push. The commits are unpushed, and a push needs the owner's word. This plan stays
+  `in-progress` until CI on `711201e9` is green; the MADR was already `accepted` at P0 (step 3).
+* `check_records.py --write-index`; `make check-records markdownlint-docs`; the redact preview. **Staged:** this
+  plan, the 0239 report, and `docs/README.md` if the index changed.
