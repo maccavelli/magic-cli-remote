@@ -1,8 +1,8 @@
 ---
 status: accepted
-date: 2026-11-08
+date: 2026-11-09
 decision-makers: Project Owner
-consulted: "this repository at 938b0002, read from code; gobble-cli at v0.2.0 (0da1f2d, 2026-11-06) and acpext/v0.1.0 (4d1eb01), read from code and, for initialize, session/new, session/list and authenticate, from a no-credential run of the installed binary; acp-go-sdk2 v1.34.0, the pin of both; the module proxy for acpext/v0.1.0; this record's previous body (e020cd54); 0074, 0184, 0185, 0186, 0208, 0234 and 0235; gobble-cli's 0008, 0017, 0042 and 0043 records and its 0009-REPORT. For amendment A1 (2026-11-08): issue #36; this repository at 5b3533fc; gobble-cli's go.mod at v0.2.0, v0.3.0, v0.3.1 and main (4970cca), and acpext/v0.1.0's types.go, read through the GitHub API"
+consulted: "this repository at 938b0002, read from code; gobble-cli at v0.2.0 (0da1f2d, 2026-11-06) and acpext/v0.1.0 (4d1eb01), read from code and, for initialize, session/new, session/list and authenticate, from a no-credential run of the installed binary; acp-go-sdk2 v1.34.0, the pin of both; the module proxy for acpext/v0.1.0; this record's previous body (e020cd54); 0074, 0184, 0185, 0186, 0208, 0234 and 0235; gobble-cli's 0008, 0017, 0042 and 0043 records and its 0009-REPORT. For amendment A1 (2026-11-08): issue #36; this repository at 5b3533fc; gobble-cli's go.mod at v0.2.0, v0.3.0, v0.3.1 and main (4970cca), and acpext/v0.1.0's types.go, read through the GitHub API. For amendment A2 (2026-11-09): issue #37 and the owner's comment on it; this repository at 15cec5a8; gobble-cli v0.4.0 (2e83cce): its go.mod and internal/cli/version.go; acpext/v0.2.0 (253e366): methods.go, types.go, doc.go, go.mod and testdata/, and its diff from acpext/v0.1.0, read through the GitHub API"
 informed: gobble-cli, acp-go-sdk2
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD033 MD036 MD060 -->
@@ -54,6 +54,17 @@ gobble-cli's other pins at `v0.2.0`: go-llmprovider-sdk `v1.27.0`, go-selfupdate
 | gobble-cli `main` | `4970cca` | `v1.34.2` | `v1.28.0` | `v0.1.0` |
 
 Only the `go.mod` of each gobble-cli ref was read for A1. Nothing else in `v0.3.0` or `v0.3.1` was re-read.
+
+**Re-read 2026-11-09, for amendment A2.** The tables above stay as written.
+
+| Side | Read at | acp-go-sdk2 | go-llmprovider-sdk | acpext |
+| :--- | :--- | :--- | :--- | :--- |
+| This repository | `15cec5a8` (master) | `v1.34.2` | `v1.28.0` | not required yet |
+| gobble-cli `v0.4.0` | `2e83cce` (released 2026-11-08) | `v1.34.2` | `v1.28.0` | `v0.2.0` |
+| gobble-cli `acpext/v0.2.0` | `253e366` | — | — | requires no module, as at `v0.1.0` |
+
+For A2, `v0.4.0`'s `go.mod` and `internal/cli/version.go` were read, and acpext `v0.2.0`'s whole diff from `v0.1.0`.
+The rest of `v0.4.0` was not re-read; issue #37 describes what it sends a client that offers `session.compaction`.
 
 The `initialize`, `session/new`, `session/list` and `authenticate` facts marked **(run)** come from one run of the
 installed `gobble acp`. It ran under `env -i`, with `HOME` and `GOBBLE_HOME` in a scratch directory, so no credential
@@ -231,6 +242,10 @@ Read at `v0.2.0`. Paths are gobble-cli's.
   * `ErrorData {command, error, provider, reason, sessionId}`, `CapabilitiesMeta`, `MetaKey = "gobble"`,
     `AuthProvider` and `AuthProviders()`, `LoginSuffix = "-login"`;
   * `acpext/testdata/`: 34 recorded frames, one per params, result and notification shape.
+  * *A2 (2026-11-09): from gobble `v0.4.0`, a client that offered `session.compaction` gets each compaction as ACP's
+    standard `compaction_update` and never `_gobble/compaction`, which goes only to a client that did not offer it.
+    acpext `v0.2.0` keeps `MethodCompaction` and `CompactionNotice` for those clients, and adds `CompactionMeta`, sent
+    under `_meta.gobble` of each `compaction_update`, with three more frames (37 in all).*
 * **gobble's records.** `0042-MADR-acpext-extension-contract-module.md` is accepted (2026-11-06), and its
   `docs/reports/0042-REPORT-acpext-sdk-surface-and-magic-import.md` §4 lists what this record uses. `0043-MADR`
   protects main and the `acpext` tags. `0017-MADR` (a `cancelled` todo status and `_gobble/get_todos`) is proposed and
@@ -295,7 +310,9 @@ gobble-cli's `docs/reports/0009-REPORT-magic-cli-remote-findings.md` tracks M1 t
 * **G2. The phone's Rename and Fork reach no gobble operation.** They need `Ops.Rename` and `Ops.Fork`. The schema
   has no rename, and gobble does not serve `session/fork`.
 * **G3. gobble's retry and compaction notices are declined.** A provider retry is a silent wait on the phone, and a
-  compaction shows no progress.
+  compaction shows no progress. *A2 (2026-11-09): the compaction half no longer holds from gobble `v0.4.0`. Its
+  `compaction_update` reaches the phone through 0190's standard path with no gobble code. Only the retry half, and
+  `CompactionMeta`'s extra facts, which the adapter declines, are gobble's to handle.*
 * **G4. Nothing pins gobble's wire in this repository:** no fixtures, no `live-gobble`.
 * **G5. The phone cannot configure gobble's credentials:** no `AuthStatus`, `AuthCatalogList`, `SetCredential`,
   `ClearCredential` or `StartDeviceAuth` for gobble.
@@ -380,6 +397,9 @@ Unchanged from the second body (0186 Q3).
   `tool_call_update` content.
 * An `fs/*` or `terminal/*` request from gobble is refused by the SDK with -32601. A fixture test pins that gobble
   sends none (D12).
+* *A2 (2026-11-09):* the Spec keeps the default's `session.compaction` and `session.notices`. Without
+  `session.compaction`, gobble `v0.4.0` would send `_gobble/compaction`, which nothing here handles (D10), and without
+  `session.notices` a paused automatic compaction would not reach the phone.
 
 ### D3. Phone provider-auth through gobble's own CLI
 
@@ -443,6 +463,13 @@ This closes G8.
 * This repository never runs gobble's update. gobble has none (F3).
 * The `acpext` version required is the one the `KnownGoodVersion` release was built with: `v0.1.0` for `v0.2.0`.
   *A1: the same rule holds for the target release. Every gobble release so far, and `main`, carries `acpext v0.1.0`.*
+  *A2 (2026-11-09): no longer so. `v0.4.0` requires `acpext v0.2.0`, so that is the version for it.*
+* *A2 (2026-11-09): **the supported minimum is gobble `v0.4.0`**, the first release that sends compaction as
+  `compaction_update` (D10) and the first on this repository's acp-go-sdk2 tag (A1). It is stated here and in
+  `docs/guides/config.md`, and not enforced: no `MinVersion` is set for it, since `MinVersion` counts a prerelease as
+  below its floor (`acpagent/version.go:58-76`) and would refuse every development build. An older gobble still
+  starts, warned by `KnownGoodVersion`, and shows no compaction progress. `v0.4.0` accepts `--version`
+  (`internal/cli/version.go`), which is the input D5's floor revisit needs. That revisit stays with the PLAN.*
 
 ### D6. Session lifecycle
 
@@ -512,8 +539,22 @@ Unchanged from the second body.
   handler treats an unknown cause exactly like a known one: the notice is produced, and names the cause as gobble sent
   it. If the handler gives known causes friendlier wording, an unknown cause falls back to its raw value. It is never
   dropped, refused or logged as an error.
-* `_gobble/compaction` (`acpext.MethodCompaction`, `acpext.CompactionNotice`): `Host.UpdateCompaction`, in progress at
-  `start`, then completed or failed. One compaction id per start, kept in `Spec.NewSessionState`.
+* ~~`_gobble/compaction` (`acpext.MethodCompaction`, `acpext.CompactionNotice`): `Host.UpdateCompaction`, in progress at
+  `start`, then completed or failed. One compaction id per start, kept in `Spec.NewSessionState`.~~ *A2 (2026-11-09):
+  no `_gobble/compaction` handler, and no compaction id in the session state. gobble `v0.4.0`, the supported minimum
+  (D5), sends this repository `compaction_update` instead, which 0190's path shows: one `in_progress` update, then a
+  terminal one with the same id, the summary in its `summary` field. An older gobble's `_gobble/compaction` is
+  declined at Debug, as `_gobble/personality` is.*
+* *A2 (2026-11-09): **gobble's compaction facts.** `_meta.gobble` on a `compaction_update` is decoded as
+  `acpext.CompactionMeta`, through `Spec.MetaHandlers` under `acpext.MetaKey`, which the adapter extends to
+  `compaction_update` (A2).*
+  * *A live completed compaction carries both `reason` and `tokensBefore`. For it, the handler sends one
+    `Host.Notice`, after the compaction's own event, naming the reason and the tokens before. `reason` is an open set,
+    like `RetryCause`: a reason this repository does not know is named as gobble sent it, never dropped.*
+  * *Every other combination sends nothing. An `in_progress` or `failed` update carries `reason` alone, and the card
+    already shows that compaction's state and any error. A replayed `completed` update carries `tokensBefore` without `reason`, and must not notify
+    again. A `paused` failure is already a `warning` notice of gobble's own, through `session.notices`.*
+  * *A value that does not decode is declined at Debug, never an error.*
 * `_gobble/personality` is not registered and is declined at Debug.
 
 ### D11. Registration, by descriptor
@@ -522,6 +563,7 @@ Unchanged from the second body.
 
 * **The package.** `gobble.go` (the Spec), `section.go` (a `Section` embedding `config.ACPProviderConfig`, its
   defaults and validation, and `Descriptor()`), `auth.go` (D3, D4), `ops.go` (D9), `notify.go` (D10), and their tests.
+  *A2: `notify.go` holds the `_gobble/retry` handler and the `CompactionMeta` handler, and no `_gobble/compaction`.*
 * **The descriptor.** `ID`, `Name: "gobble"`, `Section`, `New`. No `Floor` (D5) and no `Credentials` (D3).
 * **The list.** One line in `registered.Descriptors()`. Its position is Q5.
 * **The closed lists P9 has not removed yet:** `config.KnownProviderIDs` gains `"gobble"`, so the phone's prewarm
@@ -530,7 +572,8 @@ Unchanged from the second body.
   commented `providers.gobble` block, as P8 gave every provider. `TestTheShippedConfigFilesLoadThroughTheSections`
   loads them.
 * **`docs/guides/config.md`** gains gobble's rows: its keys, `auth_method_id`'s allowed values, that the phone writes
-  gobble's store through gobble's CLI (D3), and that `bypass` needs gobble's own `permissions.allowBypass`.
+  gobble's store through gobble's CLI (D3), and that `bypass` needs gobble's own `permissions.allowBypass`. *A2: and
+  that gobble `v0.4.0` is the supported minimum, an older one showing no compaction progress (D5).*
 * **Tests that list providers:** `internal/command/resolve_order_test.go`,
   `internal/provider/auth_conformance_test.go` and `internal/provider/provider_test.go`.
 * **The phone.** gobble's turkey icon (Q4, as answered on 2026-11-07), `gobble.svg`, with `gobble` in the vendor icon
@@ -545,44 +588,59 @@ Unchanged from the second body.
     tag. Registration does not wait for it.
 * **Make:** `live-gobble`, its `.PHONY` entry and the build-tag vet.
 * **`go.mod`:** `github.com/maccavelli/gobble-cli/acpext v0.1.0`, with no `replace`. Nothing else enters the module
-  graph, since acpext requires nothing.
+  graph, since acpext requires nothing. *A2: `v0.2.0`, the version `v0.4.0` requires (D5). It still requires nothing.*
 * **The default provider** is not changed here. That is 0208 P9's step 2 (Q3).
 
 ### D12. What pins the contract
 
-* **acpext's own frames.** `acpext/testdata/` (34 files, at `v0.1.0`) are gobble's recorded shapes. The gobble package's
+* **acpext's own frames.** `acpext/testdata/` (34 files, at `v0.1.0`; *A2: 37 at `v0.2.0`, the three new ones
+  `compaction.meta.start`, `.end` and `.paused`*) are gobble's recorded shapes. The gobble package's
   unit tests use them through acpext's types, with no capture and no quota.
 * **Release fixtures,** captured with `internal/wirecap` from the installed `v0.2.0` into
   `internal/provider/gobble/testdata/wire/0.2.0/`. *A1: from the installed target release instead, into
   `testdata/wire/<its version>/`.* They cover `initialize`, `session/new`, `authenticate`, a prompt with
   a tool call, `/model`, `/thinking`, rename and clone idle and mid-turn, a retry and a compaction, a close then a load,
-  and a prompt with no credential. The capture needs a credential and spends quota, so it runs on the owner's word.
+  and a prompt with no credential. *A2: the compaction is recorded as gobble sends it from `v0.4.0`: a
+  `compaction_update` pair, `in_progress` then `completed`, each with `_meta.gobble`, and after the load the replayed
+  `completed` update with the same id.* The capture needs a credential and spends quota, so it runs on the owner's word.
   Frames are scanned for identifiers before they are committed.
 * **Unit tests in the gobble package,** on `acpagent/acptest` and `Provider.StartOn`, each seen failing first on a
   planted break:
-  1. `initialize` advertises no `fs`, no `terminal` and no `auth.terminal`;
+  1. `initialize` advertises no `fs`, no `terminal` and no `auth.terminal`; *A2: and does advertise
+     `session.compaction` and `session.notices` (D2);*
   2. with a stored credential for one upstream, `authenticate` names that upstream; with none, `Start` fails
      `ErrACPAuthRequired` and sends no `authenticate` and no `session/new`;
   3. the session declares `CapRename` and `CapFork`, and model and thinking from the options, and no other Ops-backed
      capability;
   4. Rename and Fork send exactly D9's frames and map the answers; during a prompt they return gobble's refusal;
   5. the two notifications produce D10's events, including a `_gobble/retry` whose `cause` is none of acpext's twelve
-     constants, which still produces its notice naming that cause (A1);
+     constants, which still produces its notice naming that cause (A1); *A2: one notification, `_gobble/retry`. A
+     `_gobble/compaction` produces no event;*
   6. a no-credential prompt is presented `KindAuth`, with `ErrorData.Command` in the text;
   7. a recorded session sends nothing outside D6, D7 and D9: no other `_gobble/*`, no `_x.ai/*`, no `fs/*` or
-     `terminal/*` answer;
+     `terminal/*` answer; *A2: and gobble sends no `_gobble/compaction`;*
   8. `AuthCatalogList` equals `acpext.AuthProviders()`. `SetCredential` passes the key on stdin and never in argv.
      `StartDeviceAuth` for a provider without a login is `ErrAuthMethodUnsupported`. These run against a scratch
      `GOBBLE_HOME` and a stub `gobble` binary, never the host's store;
   9. every captured `_gobble/*` frame, and `initialize`'s `_meta.gobble`, decodes into its acpext type with unknown
-     members refused, and encodes back to the same JSON;
+     members refused, and encodes back to the same JSON; *A2: so does each captured `compaction_update`'s
+     `_meta.gobble`, as `acpext.CompactionMeta`;*
   10. only `internal/provider/gobble` imports acpext, and it imports no go-llmprovider-sdk, by source test;
-  11. `ListModels` starts no process (G10).
+  11. `ListModels` starts no process (G10);
+  12. *A2:* the `CompactionMeta` handler (D10): a live `completed` meta, `reason` `manual` and a `tokensBefore`, sends
+      one notice naming both, after the compaction event; a reason none of acpext's constants names is named as sent;
+      a replayed `completed` meta (no `reason`), an `in_progress` one and a `paused` one send none; a meta that does
+      not decode is declined, with no notice and no error.
 * **`acpagent`'s new hook** (D4) gets its own test, with vendor names kept out: a Spec with `AuthPreferenceFunc`
   answering `["vendor.b"]` authenticates `vendor.b` though `AuthPreference` lists `vendor.a` first; answering nothing
   fails `ErrACPAuthRequired`. It is seen failing with the hook ignored.
+* *A2: **`acpagent`'s compaction meta source** gets its own test, vendor names kept out: a Spec with a `MetaHandler`
+  for `vendor.a` receives that key's value from a `compaction_update` with `MetaFromCompaction`, after the
+  compaction's event; a key with no handler is still declined, and the compaction event is unchanged. It is seen
+  failing with the source not wired.*
 * **`live-gobble`,** against the installed tag, on the owner's word, since it spends quota: `/model` and `/thinking`
-  producing `session/set_config_option`, the grouped catalog, a phone rename and fork, `/compact` passed through, a turn
+  producing `session/set_config_option`, the grouped catalog, a phone rename and fork, `/compact` passed through (*A2:*
+  shown as a compaction, with one notice naming its reason and tokens before), a turn
   with a tool call, a recorded connection with no `fs/*` or `terminal/*`, `authenticate` after a stored key, and a
   phone key write that opens no session.
 
@@ -596,6 +654,9 @@ The second body's D13, with its facts updated.
 * This repository uses `AuthProviders()` and `ErrorData` (D3, D4), `MethodSetSessionName`, `SetSessionNameParams`,
   `MethodClone`, `SessionParams` and `CloneResult` (D9), `MethodRetry`, `RetryNotice`, `MethodCompaction`,
   `CompactionNotice` and their constants (D10), and `CapabilitiesMeta` and `MetaKey` in the fixture test (D12).
+  *A2 (2026-11-09): not `MethodCompaction` or `CompactionNotice`. In their place `CompactionMeta`, its
+  `CompactionReason` and `CompactionPause` constants, and `MetaKey` as the handler's key (D10). The tag is
+  `acpext/v0.2.0` (D5).*
 * Only `internal/provider/gobble` imports it (D12 item 10). `acpagent` stays agent-neutral.
 * The release fixtures stay: acpext says what gobble means to send, a capture shows what a release sends, and item 9
   ties the two.
@@ -608,14 +669,15 @@ gobble is registered when all of these hold:
 
 1. 0208 P7 on master. **Met.**
 2. A gobble release tag after `v0.1.1`. **Met: `v0.2.0`.** *A1: the release must also meet gate 3; it is A1's
-   target release.*
+   target release.* *A2 (2026-11-09): **met by `v0.4.0`**, which is also the supported minimum (D5).*
 3. Both repositories on one acp-go-sdk2 tag. ~~**Met: `v1.34.0`.**~~ A later bump on either side is 0184 D12's
    lockstep. **Not met since 2026-11-08 (A1):** this repository pins `v1.34.2` (0217 P3g), and every gobble release
    pins `v1.34.0`. gobble-cli's `main` pins `v1.34.2`, so the gate is met again at the first gobble release cut from
-   it.
+   it. *A2 (2026-11-09): **met again**: gobble `v0.4.0` and this repository both pin `v1.34.2`.*
 4. D12's unit tests pass, each seen failing first; `live-gobble` passes on the owner's word.
 5. grok's, opencode's, kilo's and codex's suites pass unchanged.
-6. An `acpext` tag on the proxy, the one the gate-2 release was built with. **Met: `acpext/v0.1.0`.**
+6. An `acpext` tag on the proxy, the one the gate-2 release was built with. **Met: `acpext/v0.1.0`.** *A2: for
+   `v0.4.0`, **met: `acpext/v0.2.0`**, served by the proxy (`253e366`, 2026-11-08).*
 7. D4's `AuthPreferenceFunc` is in `acpagent`, with its test.
 
 ### D15. Not in this registration
@@ -672,6 +734,78 @@ the PLAN's C11. If this repository's SDK pin moves again before P2, the target m
 **Not changed:** go-llmprovider-sdk is not a gate. The gobble package does not import it (D16), so gobble's pin of it
 does not have to match this repository's.
 
+### A2. Amendment, 2026-11-09: gobble sends compaction as standard updates (issue #37)
+
+Made on the owner's request ("amend 0179 for #37"). Issue #37 reports gobble-cli's `0016-PLAN` P3c (`3d6fb65`).
+The owner's comment on it adds that gobble-cli `v0.4.0` (`2e83cce`, 2026-11-08) is the first release that carries it.
+
+**The findings** [observed 2026-11-09; Baselines, A2's re-read]:
+
+* **What `v0.4.0` sends a client that offered `session.compaction`.** This repository's default capabilities offer it
+  (F1), and D2 keeps it. gobble picks one channel per connection: such a client gets ACP's `compaction_update` and
+  never `_gobble/compaction`. A live compaction is one `in_progress` update, then one terminal update with the same id.
+  A `completed` update carries the summary in its `summary` field, with no `compaction_summary_chunk`. A `failed` one
+  carries the error's first line. `cancelled` comes only when the cancel came before the entry was written. A
+  `session/load` replays the compaction as one `completed` update with the live id. A refusal ("Nothing to compact")
+  sends no update (issue #37).
+* **What this repository already does with it.** 0190's fold shows each compaction by id: a first-seen id is in
+  progress, and a terminal update's `summary` replaces the text (`acpagent/compaction.go:97-120`). A `_meta` on the
+  update is declined (`compaction.go:103-104`), so gobble's extra facts are dropped, harmlessly.
+* **gobble's extra facts.** `_meta.gobble` is `acpext.CompactionMeta` (acpext `v0.2.0`), always the whole object:
+  `reason` (`manual`, `threshold`, `overflow`) on each live update; `tokensBefore` on a `completed` one, live or
+  replayed; `paused` (`turn`, `session`) on a `failed` one that paused automatic compaction. A pausing failure is also
+  a `warning` notice, through `session.notices`.
+* **The versions.** `v0.4.0` pins acp-go-sdk2 `v1.34.2`, this repository's tag, and `acpext v0.2.0`, which the proxy
+  serves and which still requires no module. `v0.3.1` and earlier pin `v1.34.0` and send `_gobble/compaction`.
+  `v0.4.0` accepts a root `--version`.
+* **Where the record stood.** No gobble package exists yet (`internal/provider/gobble` is absent), so nothing built
+  has to change. F7 G3's compaction half, D10's `_gobble/compaction` handler, D11's `notify.go`, D12's live list,
+  D5's acpext note and D12's frame count are stale.
+
+**The owner's answers**, 2026-11-09, asked with options:
+
+* *D10's handler (#37 item 2): "No handler; v0.4.0 minimum (Recommended)". Not chosen: enforce `MinVersion = "0.4.0"`,
+  which refuses development builds; keep the handler for releases before `v0.4.0`.*
+* *`CompactionMeta` (#37 item 5, optional): "Decode it in registration". Not chosen (had been recommended): leave it
+  to a later record, beside D15's native surface.*
+
+**The decisions**, each written in place above and marked *A2*:
+
+* **No `_gobble/compaction` handler** (D10), and no compaction id in `Spec.NewSessionState`. gobble's compactions reach
+  the phone through 0190's standard path.
+* **gobble `v0.4.0` is the supported minimum** (D5), stated and not enforced. It is also, today, A1's target release:
+  the newest gobble release on this repository's SDK tag. If a later release is cut before P2 starts, A1's rule picks
+  it.
+* **D2 keeps `session.compaction` and `session.notices`,** and D12 item 1 checks that `initialize` advertises them.
+* **`CompactionMeta` is decoded, through one agent-neutral change to `acpagent`.** `MetaSource` gains
+  `MetaFromCompaction` (`"compaction_update"`). `onCompactionUpdate` passes the update's `_meta` to the Spec's
+  `MetaHandlers` after emitting the compaction's event, and declines only a key with no handler, as
+  `session_info_update` already does (`acpagent/session.go:2120-2121`). No Spec field is added, and the event the phone
+  receives is unchanged.
+* **gobble's handler** (D10) sends one notice for a live completed compaction, naming its reason and the tokens
+  before. Nothing else notifies: the card shows progress and errors, a replay must not repeat the notice, and a pause
+  is gobble's own warning.
+* **The rest follows:** acpext `v0.2.0` in `go.mod` (D11); D13's list of names; D12's frame count, release fixtures,
+  items 1, 5, 7 and 9, a new item 12, and a test for the `acpagent` change; D14's gates 2, 3 and 6, met again.
+
+**Options weighed for showing the facts**, within the owner's answer:
+
+* **One notice from the Spec's handler (chosen).** Good, because it needs one `MetaSource` constant and no change to
+  the event, the protocol or the phone. Bad, because the reason appears as a line beside the compaction's card, not on
+  it.
+* **New compaction fields on the event and the card** (`compaction_reason`, `compaction_tokens_before`). Good, because
+  the card would carry the facts. Bad, because it changes `protocol-v1.md`, the daemon's event and the phone, for one
+  agent's facts, which is D15's kind of work rather than registration's.
+
+**Consequences of A2:**
+
+* Good, because gobble's compactions show on the phone with no gobble code on the main path, and the code that would
+  have handled `_gobble/compaction` is never written.
+* Good, because the version D5 targets, the SDK gate and acpext's tag now line up on one released gobble.
+* Neutral, because an older gobble still runs, without compaction progress, and nothing refuses it.
+* Bad, because `acpagent` gains one `MetaSource` for one agent's need. It names no vendor, and any agent that puts
+  facts in a compaction's `_meta` can use it.
+
 ### Consequences
 
 * Good, because every gate outside this repository is met, and the work left is one package, one registration line,
@@ -701,6 +835,8 @@ does not have to match this repository's.
 1. `provider.IDGobble == "gobble"`, the daemon starts `gobble acp` for it, and `mcremote doctor` lists it with no
    version check.
 2. D12's eleven unit tests and the hook's test pass, each seen failing first on a planted break in a scratch copy.
+   *A2: twelve, with the `CompactionMeta` handler's, and the `acpagent` compaction meta source's test beside the
+   hook's.*
 3. `TestNoProviderIsNamedInAcpagent` passes unchanged. No file outside `internal/provider/gobble` and D11's places
    names gobble.
 4. A gobble session's `bypass` is confirmed on the phone.
@@ -872,3 +1008,11 @@ files there are gobble-cli's own pair, written on the owner's word (Q4, 2026-11-
     repository's acp-go-sdk2 tag (the target release), replacing `v0.2.0` in D5, D12, D14 and Confirmation 5.
 
   The Baselines gain a dated re-read. The third body's text is kept, with A1's changes marked in place.
+* **2026-11-09.** Amendment A2, on the owner's "amend 0179 for #37", with the owner's answers to two questions:
+  * gobble `v0.4.0` sends compaction as standard `compaction_update`, so D10 has no `_gobble/compaction` handler, and
+    `v0.4.0` is the supported minimum, stated and not enforced (D5);
+  * gobble's `CompactionMeta` is decoded in registration, through a `compaction_update` source for `MetaHandlers`
+    in `acpagent`, and named in one notice per live completed compaction (D10);
+  * acpext moves to `v0.2.0`, and gates 2, 3 and 6 are met again by `v0.4.0` (D5, D11, D13, D14).
+
+  The Baselines gain a second dated re-read. The text before A2 is kept, with A2's changes marked in place.

@@ -1,6 +1,6 @@
 ---
 status: proposed
-date: 2026-11-08
+date: 2026-11-09
 associated-madr: "0179-MADR-gobble-native-acp-provider.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -26,7 +26,9 @@ mcremote registers gobble as the provider `"gobble"`, as the MADR's D1 to D16 se
 * the standard model and thinking path, `ModelsFromOption` set, and a `ListModels` that starts no process (D7);
 * `bypass` marked dangerous (D8);
 * Rename and Fork bound to `_gobble/set_session_name` and `_gobble/clone`, and handlers for `_gobble/retry` and
-  `_gobble/compaction`, all through acpext's names and types (D9, D10, D13);
+  ~~`_gobble/compaction`~~ *A2:* gobble's `CompactionMeta` on the standard `compaction_update`, all through acpext's
+  names and types (D9, D10, D13);
+* *A2:* gobble `v0.4.0` stated as the supported minimum, not enforced (D5);
 * the turkey icon, fetched by `tools/vendor-icons/sync.sh` from gobble-cli at a pinned `v*` tag (D11, Q4);
 * the contract pinned by acpext's frames, by fixtures captured from ~~`v0.2.0`~~ the target release, and by
   `live-gobble` (D12).
@@ -34,7 +36,9 @@ mcremote registers gobble as the provider `"gobble"`, as the MADR's D1 to D16 se
 **The target release** (MADR A1, 2026-11-08) is the newest gobble release that pins the same acp-go-sdk2 tag as this
 repository when P2 starts. Wherever this plan names `v0.2.0` as the release to build, capture or test against, it now
 means the target release. On 2026-11-08 there is none: this repository pins `v1.34.2`, gobble-cli `v0.3.1` pins
-`v1.34.0`, and gobble-cli's `main` (`4970cca`) pins `v1.34.2` but is not released.
+`v1.34.0`, and gobble-cli's `main` (`4970cca`) pins `v1.34.2` but is not released. *A2 (2026-11-09): gobble-cli
+`v0.4.0` (`2e83cce`, released 2026-11-08) pins `v1.34.2` and `acpext v0.2.0`, so it is the target release today, and
+the supported minimum.*
 
 The plan is complete when the MADR's Confirmation 1 to 8 is met.
 
@@ -49,10 +53,11 @@ The plan is complete when the MADR's Confirmation 1 to 8 is met.
 
 * `internal/provider/acpagent/`: `acpagent.go` (the `AuthPreferenceFunc` field and its one use), and a test beside the
   existing selection tests (P1). `session.go` and `acpagent.go` again only if P1 step 4 finds the close bound loses an
-  entry (MADR Q6);
+  entry (MADR Q6); *A2:* `extensions.go` (`MetaFromCompaction`), `compaction.go` (`onCompactionUpdate`'s `_meta`) and
+  a test beside the compaction tests (P1 step 4a);
 * `internal/provider/gobble/` (new): the package, its tests, and `testdata/wire/<target version>/` (P2, P3);
 * `internal/provider/provider.go` and `provider_test.go`: `IDGobble` (P2);
-* `go.mod` and `go.sum`: `github.com/maccavelli/gobble-cli/acpext v0.1.0` alone (P2);
+* `go.mod` and `go.sum`: `github.com/maccavelli/gobble-cli/acpext` ~~`v0.1.0`~~ `v0.2.0` (A2) alone (P2);
 * registration (P4):
   * `internal/provider/registered/registered.go`;
   * `internal/config/prewarm_write.go` (`KnownProviderIDs`) and its test;
@@ -169,7 +174,8 @@ Files: this pair; `docs/decisions/0186-MADR-integrate-current-library-releases-a
 **Gate:** P0 committed. P1 touches `acpagent` only, and names no provider.
 
 Files: `internal/provider/acpagent/acpagent.go`; `internal/provider/acpagent/acptest/auth_test.go`, beside
-`TestAnAdvertisedKeyIsAuthenticated`; this plan.
+`TestAnAdvertisedKeyIsAuthenticated`; this plan. *A2:* `internal/provider/acpagent/extensions.go`, `compaction.go`,
+and a test beside `compaction_test.go`'s (step 4a).
 
 1. **The facts, re-read:** the Spec's auth fields (`acpagent.go:115-131`), the handshake's auth branch
    (`acpagent.go:746-787`), `selectACPAuthMethod` (`authselect.go:24-39`), and the close bound
@@ -200,6 +206,20 @@ Files: `internal/provider/acpagent/acpagent.go`; `internal/provider/acpagent/acp
    * **Yes:** the phase stops, and the owner is asked to approve Q6's fix, an agent-neutral `Spec.CloseTimeout`
      (zero keeps `closeTimeout`), with its own seen-failing test. The MADR's D6 and this plan are amended before it is
      built, and the gobble Spec sets it to 5 s in P2.
+
+   4a. *A2 (2026-11-09):* **the compaction meta source** (MADR D10, A2).
+   * Re-read `MetaSource`, `handleMeta` (`extensions.go:19-52`), `onCompactionUpdate` (`compaction.go:97-120`) and
+     its caller, and `session_info_update`'s use of `handleMeta` (`session.go:2120-2121`).
+   * `MetaFromCompaction MetaSource = "compaction_update"`, documented with the other two. `onCompactionUpdate` takes
+     the notification's context, emits the compaction's event as today, then passes a non-empty `_meta` to
+     `handleMeta(ctx, MetaFromCompaction, m)`, declining `compaction_update._meta` only when that reports a key with
+     no handler. `MetaHandler`'s doc comment names the new source and where it runs: the SDK's notification loop,
+     under `HandleExtensionMethod`'s rule.
+   * The test, on `acpagent/acptest` with vendor names kept out: a Spec whose `MetaHandlers` has `vendor.a` receives,
+     from a `compaction_update` with `_meta` `{"vendor.a": {...}, "vendor.b": 1}`, `vendor.a`'s value with
+     `MetaFromCompaction`, after the compaction event; `vendor.b` is still declined; the compaction event's fields are
+     the same as with no `_meta`. Seen failing (C4) with the `handleMeta` call removed (no value arrives), then with it
+     placed before the emit (the order fails).
 5. `TestNoProviderIsNamedInAcpagent` passes unchanged. Go gates (C5). **Commit.**
 
 ### P2 — the gobble package, unregistered (MADR D1 to D10, D13)
@@ -223,7 +243,12 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
      `session/list` and `authenticate` from a no-credential run, the `_gobble/*` methods D9 and D10 use, and the
      `acpext` version its `go.mod` requires. Whether its binary accepts `--version`, which decides D5's floor. A
      difference is a deviation (C11).
-2. **The module.** `go get github.com/maccavelli/gobble-cli/acpext@v0.1.0`. `go.mod` gains that one requirement, with
+   * *A2 (2026-11-09):* for `v0.4.0` the `go.mod` (acp-go-sdk2 `v1.34.2`, `acpext v0.2.0`) and `--version` are
+     already read (MADR Baselines, A2's re-read). This step re-reads the rest, and adds: with a credential, `/compact`
+     sends a `compaction_update` pair carrying `_meta.gobble`, and no `_gobble/compaction`, to a client offering
+     `session.compaction`. That run spends quota, so it waits for P3's word (C10) and is recorded there.
+2. **The module.** `go get github.com/maccavelli/gobble-cli/acpext@v0.1.0` (*A2: `@v0.2.0`, the version `v0.4.0`
+   requires*). `go.mod` gains that one requirement, with
    no `replace`. `go mod tidy` is clean, and `go list -m all` gains only that module (Confirmation 7).
 3. **The id.** `provider.IDGobble ID = "gobble"` in `provider.go`, and its row in `TestIDConstants`.
 4. **The Spec** (D1, D2, D5, D7, D8), built per provider from its `Config` in `gobble.go`, so the auth hooks run the
@@ -232,11 +257,12 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
    * `KnownGoodVersion:` ~~`"0.2.0"`~~ the target release's version (A1); no `MinVersion` unless step 1 finds the
      target accepts `--version`, which is then a deviation for the owner to decide;
    * `ClientCapabilities`: the default less `fs.readTextFile`, `fs.writeTextFile` and `terminal`, with
-     `auth.terminal` false;
+     `auth.terminal` false; *A2: `session.compaction` and `session.notices` kept (D2);*
    * `DefaultModeID: "default"`, `SynthesizeAutoMode: false`, `DangerousModeIDs: []string{"bypass"}`;
    * `Commands`: an empty table; `CommandCaveat`: gobble's skills run as `/skill:<name>` prompt text and are not
      listed;
-   * `NewSessionState`: the compaction id (D10);
+   * ~~`NewSessionState`: the compaction id (D10);~~ *A2: no `NewSessionState`: D10 keeps no compaction id;*
+   * *A2: `MetaHandlers`: `acpext.MetaKey` to the `CompactionMeta` handler (step 9);*
    * no `CredentialEnv`, `SetModelFallback`, `SetThinkingFallback`, `HarvestSessionMeta`, `ConfigureSession`,
      `SessionMeta`, `InitializeMeta`, `StaticModels` or `ModelProviders`.
 5. **The section** (D11), `section.go`, on grok's pattern (`grok/section.go`): a `Section` embedding
@@ -271,13 +297,19 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
    `acpext.CloneResult`, and returns `ForkResult{AgentSessionID, ForkedFromID}`, ignoring `LastTurnID`. No other op.
    The package holds no `"_gobble/…"` literal.
 9. **Notifications** (D10), `notify.go`: `acpext.MethodRetry` decodes `acpext.RetryNotice` into `Host.Notice` at
-   `start` and at an `end` with an `error`; `acpext.MethodCompaction` decodes `acpext.CompactionNotice` into
-   `Host.UpdateCompaction`, one id per start from the session state. *A1:* a `cause` outside acpext's twelve
+   `start` and at an `end` with an `error`; ~~`acpext.MethodCompaction` decodes `acpext.CompactionNotice` into
+   `Host.UpdateCompaction`, one id per start from the session state.~~ *A1:* a `cause` outside acpext's twelve
    constants produces the same notice, naming the cause as sent. Any friendlier wording for known causes falls back
    to the raw value, never to nothing.
-10. **The tests** (D12 items 1 to 6, 8, 10 and 11), on `acpagent/acptest` and `Provider.StartOn`, with frames built
+   * *A2 (2026-11-09): no `MethodCompaction` handler. The `CompactionMeta` handler, registered under
+     `acpext.MetaKey` with `MetaFromCompaction`, decodes the value as `acpext.CompactionMeta`. With both `Reason` and
+     `TokensBefore` set, a live completed compaction, it sends one `Host.Notice` naming the reason as gobble sent it
+     and the tokens before. Otherwise it sends nothing. A value that does not decode is declined through
+     `Host.Decline`. The notice's wording is fixed in this step and quoted in the record.*
+10. **The tests** (D12 items 1 to 6, 8, 10 and 11; *A2: and 12*), on `acpagent/acptest` and `Provider.StartOn`, with frames built
     from acpext's types and its `testdata/` shapes. Each is seen failing (C4) on its own planted break:
-    * item 1, `initialize` advertises no `fs`, `terminal` or `auth.terminal`: `fs` put back;
+    * item 1, `initialize` advertises no `fs`, `terminal` or `auth.terminal`: `fs` put back; *A2: and advertises
+      `session.compaction` and `session.notices`: `session.compaction` removed;*
     * item 2, a stub `gobble` reporting only `openai` ready makes the handshake authenticate `openai`; reporting none
       fails `ErrACPAuthRequired` with no `authenticate` and no `session/new`: `AuthPreferenceFunc` replaced by a fixed
       `AuthPreference` of acpext's ids (the first then authenticates `gemini`), then `HasHeadlessCredential` forced
@@ -288,7 +320,8 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
       prompt: the clone result read as `id`;
     * item 5, the two notifications produce D10's events: the retry handler unregistered. *A1:* plus a retry `start`
       with `cause` `"a-cause-gobble-adds-later"` produces its notice naming that cause: the cause mapped through a
-      table of the twelve constants with no fallback, so the unknown cause yields no notice or an empty cause;
+      table of the twelve constants with no fallback, so the unknown cause yields no notice or an empty cause; *A2:
+      one notification now, and a `_gobble/compaction` produces no event: a `MethodCompaction` handler added;*
     * item 6, a -32000 prompt is `KindAuth` with `ErrorData.Command` in the text: the data replaced by a bare message;
     * item 8, `AuthCatalogList` equals `acpext.AuthProviders()`; the stub records its argv and stdin, and the key is
       on stdin and absent from argv; `StartDeviceAuth` for `claude` is `ErrAuthMethodUnsupported`: the key moved to
@@ -296,6 +329,12 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
     * item 10, only `internal/provider/gobble` imports acpext, and it imports no go-llmprovider-sdk: an acpext import
       added to a scratch copy of `acpagent`;
     * item 11, `ListModels` starts no process: `ListModels` unset, so the adapter's harvest runs the stub;
+    * *A2:* item 12, the `CompactionMeta` handler, with metas built from acpext's three `compaction.meta.*` frames: a
+      live `completed` one (`manual`, a `tokensBefore`) sends one notice naming both, after the compaction event; a
+      reason outside acpext's constants is named as sent; a replayed `completed` one (no `reason`), the `start` one and
+      the `paused` one send none; an undecodable value is declined with no notice. Seen failing on: the notice sent
+      for any value with a `reason` (the `start` frame then notifies), then the `reason` check dropped (the replay
+      then notifies), then the reasons mapped through a table with no fallback;
     * the catalog keeps gobble's groups and order, `recent` first, with a model in both `recent` and its provider's
       group listed under each: the `recent` group filtered out;
     * `bypass` is confirmed on the phone like grok's `auto` (Confirmation 4), as
@@ -322,7 +361,9 @@ this plan.
    * `initialize`, `session/new`, `authenticate`;
    * a prompt with a tool call; `/model` and `/thinking`;
    * rename and clone, idle and mid-turn;
-   * a provider retry and a compaction (`/compact`);
+   * a provider retry and a compaction (`/compact`); *A2: the compaction as a `compaction_update` pair with
+     `_meta.gobble`, and its replayed `completed` update after the load below, with no `_gobble/compaction` (MADR
+     D12). Its absence is the P2 step 1 fact that waited for this capture;*
    * a close, then a load;
    * a prompt with no credential: a second scratch `GOBBLE_HOME` with no `auth.json` and the provider variables unset.
 2. **The cold start** (D1): the time from spawn to `session/new`'s answer, five times. A median over 15 s, half the
@@ -332,10 +373,12 @@ this plan.
    redacted and what the run did.
 4. **The fixture tests,** each seen failing (C4):
    * item 7, the recorded session sends nothing outside D6, D7 and D9: no other `_gobble/*`, no `_x.ai/*`, no `fs/*`
-     or `terminal/*` answer: a stray `_gobble/get_state` call added to Rename;
+     or `terminal/*` answer: a stray `_gobble/get_state` call added to Rename; *A2: and no `_gobble/compaction`: one
+     inserted into a scratch copy of the frames;*
    * item 9, every captured `_gobble/*` frame, and `initialize`'s `_meta.gobble`, decodes into its acpext type with
      unknown members refused, and encodes back to the same JSON: a captured retry frame given an extra member, and a
-     clone result's `sessionId` renamed `id`.
+     clone result's `sessionId` renamed `id`. *A2: each captured `compaction_update`'s `_meta.gobble` too, as
+     `acpext.CompactionMeta`: a captured one given an extra member.*
 5. Go gates (C5). **Commit.**
 
 ### P4 — registration (MADR D11)
@@ -354,7 +397,8 @@ this plan.
    block.
 4. **`docs/guides/config.md`:** gobble's rows in "Defaults" and "Environment variables"; `auth_method_id`'s allowed
    values; that the phone writes gobble's store through gobble's CLI, and `gobble auth login` on the host still works;
-   that `bypass` needs gobble's own `permissions.allowBypass`.
+   that `bypass` needs gobble's own `permissions.allowBypass`. *A2: that gobble `v0.4.0` is the supported minimum,
+   and an older gobble shows no compaction progress (MADR D5).*
 5. **The test lists:** gobble in `providerTables` (`resolve_order_test.go:21-27`), and an `auth_conformance_test.go`
    case with status, writer, catalog and device auth true, and no switcher.
 6. **`live-gobble`:** `go test -tags live_gobble ./internal/provider/gobble/ -count=1 -timeout 600s -v`, its `.PHONY`
@@ -414,7 +458,7 @@ Files: this plan, the MADR, `docs/README.md`.
 | MADR Confirmation | Phase | Check |
 | :--- | :--- | :--- |
 | 1 `IDGobble`; `gobble acp` started; `doctor` lists it with no version check | P2, P4, P6 | P2 step 3; P4 step 1; P6 steps 1 and 3 |
-| 2 D12's eleven tests and the hook's test, each seen failing | P1, P2, P3 | P1 step 3; P2 step 10; P3 step 4 |
+| 2 D12's eleven tests and the hook's test, each seen failing; *A2: twelve, and the meta source's test* | P1, P2, P3 | P1 steps 3 and 4a; P2 step 10; P3 step 4 |
 | 3 no gobble name outside its package and D11's places | P1, P4 | P1 step 5; P4 step 7 |
 | 4 `bypass` confirmed on the phone | P2 | step 10, the `bypass` test |
 | 5 `live-gobble` against the target release (A1) | P6 | step 1 |
@@ -569,4 +613,25 @@ On the owner's "amend 0179 for the two #36 gaps". The MADR's A1 states the findi
   pins `v1.34.0`. gobble-cli's `main` (`4970cca`) pins `v1.34.2`, go-llmprovider-sdk `v1.28.0` and `acpext v0.1.0`,
   the same as this repository, but has no release yet. P0 and P1 do not depend on the target release. P2 waits for
   it.
+* No phase has started, and no source is in this amendment. The status stays `proposed`.
+
+## Amendment, 2026-11-09 — MADR A2: gobble sends compaction as standard updates (issue #37)
+
+On the owner's "amend 0179 for #37", with the owner's answers: "No handler; v0.4.0 minimum (Recommended)", and
+"Decode it in registration". The MADR's A2 states the findings and the decisions. Here:
+
+* **The target release is gobble `v0.4.0`** today (`2e83cce`): it pins acp-go-sdk2 `v1.34.2`, this repository's tag,
+  and `acpext v0.2.0`. It is also the supported minimum, stated in `docs/guides/config.md` (P4 step 4) and not
+  enforced. A1's rule still picks a newer release if one is cut before P2 starts. P2's gate on a target release is
+  met.
+* **acpext `v0.2.0`** replaces `v0.1.0` in the Scope and P2 step 2. The proxy serves it, and it still requires no
+  module.
+* **P1 step 4a** is new: `MetaFromCompaction` and `onCompactionUpdate`'s `_meta` passed to `MetaHandlers`, with a
+  vendor-neutral test seen failing twice. P1's files gain `extensions.go`, `compaction.go` and that test.
+* **P2:** step 1 records what A2 already read and what waits for the P3 capture; step 4 keeps `session.compaction`
+  and `session.notices`, drops `NewSessionState` and registers the `CompactionMeta` handler; step 9 strikes the
+  `_gobble/compaction` handler and specifies the new one; step 10 extends items 1 and 5 and adds item 12.
+* **P3:** the capture records the `compaction_update` pair, its replay and the absence of `_gobble/compaction`; items 7
+  and 9 cover them.
+* **The Goal and the Verification table** say the same.
 * No phase has started, and no source is in this amendment. The status stays `proposed`.
