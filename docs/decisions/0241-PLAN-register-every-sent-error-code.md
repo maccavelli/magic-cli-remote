@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-11-08
 associated-madr: "0241-MADR-register-every-sent-error-code.md"
 ---
@@ -134,3 +134,50 @@ on those answers.
 * This pair, with the answers recorded in the MADR (Owner questions).
 * `check_records.py --write-index`; `make check-records`: exit 0; the redact preview: 0 files.
 * **Staged** for the owner's commit: this pair and `docs/README.md`. P1 starts on the owner's word.
+
+The owner committed P0 and approved the plan: "committed, proceed".
+
+### P1 and P2 — 2026-11-08: the checks, then the registry
+
+Scripts and logs are in the session scratchpad (`0241-p1-d3-failfirst.log`, `0241-p1-d4-failfirst.log`,
+`p2_0241_planted.py`, `0241-planted.log`, `0241-preadd.log`, `0241-race.log`).
+
+* **Start state (C1).** Clean tree. `master` was one commit ahead of `origin/master`: the owner's P0 commit, not yet
+  pushed.
+* **P1, the checks,** as steps 1 and 2 say:
+  * `internal/protocol/errors_registry_test.go`: `declaredErrorCodes` parses `errors.go` and collects the exported
+    `Err*` string constants; `TestEveryDeclaredErrorCodeIsRegistered` fails below 80 of them, and on each one
+    `ErrorCodes()` does not return;
+  * `internal/ws/error_codes_test.go`: the `errorCodeHelpers` set; the walk reads the first result of each `return`
+    in those functions, skipping closures; `TestErrorCodeEmittersStillExist` checks the set; the doc comment names
+    the third shape and why constants are left to D3.
+* **P1, seen failing on today's code,** exactly as step 3 expected, with no other failure:
+
+  ```text
+  errors_registry_test.go:79: ErrSessionCancelTimeout ("session_cancel_timeout") is declared in errors.go but not in ErrorCodes(): register it and document it in docs/guides/protocol-v1.md (MADR 0241 D3)
+  error_codes_test.go:161: unregistered error code not_found at codex_execution.go:138:10 — add it to protocol.ErrorCodes() and document it in docs/guides/protocol-v1.md
+  ```
+
+  `TestErrorCodeEmittersStillExist` passed: all three helpers exist.
+* **P2, the registry and the doc,** as steps 1 to 3 say: `ErrSessionCancelTimeout` registered after
+  `ErrRetryNoResult`; `ErrTerminalNotFound = "not_found"` declared after `ErrCodexExecutionWriteFailed`, with its
+  comment, and registered in the same place in `ErrorCodes()`; `executionErrorCode` returns the constant; one row in
+  `protocol-v1.md` after `outcome_unknown`.
+* **P2, checks:**
+  * `go test -count=1 ./internal/protocol/ ./internal/ws/`: both ok, `TestErrorCodesAreDocumented` included.
+  * **Planted breaks** (`p2_0241_planted.py`, a scratch clone of HEAD with the working tree's five changed files):
+    unplanted, both packages exit 0. Then each break, exit 1, with its own message:
+
+    | Break | Message |
+    | :--- | :--- |
+    | `ErrTerminalNotFound` removed from `ErrorCodes()` | `ErrTerminalNotFound ("not_found") is declared in errors.go but not in ErrorCodes()` |
+    | `ErrZz0241 = "zz_0241"` declared, not registered | `ErrZz0241 ("zz_0241") is declared in errors.go but not in ErrorCodes()` |
+    | `workspaceErrCode` returns `"zz_0241"` in one branch | `unregistered error code zz_0241 at server.go:3277:10` |
+    | `errorCodeHelpers` names `noSuchHelper` | `errorCodeHelpers names "noSuchHelper" but this package declares no such function` |
+
+    The clone was removed and checked gone.
+  * `make pre-add-check` on the four changed Go files: "4 file(s) clean (gofmt, golint, govulncheck)".
+  * `make race`: exit 0, 49 `ok` lines, no FAIL, panic or race line.
+  * `make check-records markdownlint-docs`: exit 0.
+  * The redact preview: 0 files.
+* **Staged together**, so `master` never carries a failing test: the four Go files, `protocol-v1.md`, and this plan.

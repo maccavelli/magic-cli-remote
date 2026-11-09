@@ -1075,6 +1075,7 @@ timed out, exceeded its bound, or returned no valid schema-v1 report.
 | `codex_execution_read_failed` | A bounded terminal or execution-environment read failed. Retain the current terminal view and retry explicitly. |
 | `codex_execution_write_failed` | An execution, terminal-control, or environment-selection request failed and is known **not** to have run. Safe to retry after fixing the request. |
 | `outcome_unknown` | A non-idempotent execution may already have reached the host before the connection failed. **Never** auto-retry: re-read `codex.execution.read`/`terminals` and let the user decide. |
+| `not_found` | The terminal a Codex execution request names does not exist: it ended, or the id is wrong. Re-read the terminal list (`codex.execution.read` action `terminals`) rather than retrying. |
 | `native_unavailable` | The provider exposes no terminal registry, or an optional native terminal catalog is absent. Daemon-owned terminals may still work. |
 | `provider_not_ready` | The flag was persisted but no engine could be started: the agent is not enabled on this daemon. Unlike `provider_unavailable` (a registered engine that failed to boot), there is no engine to pre-warm at all. |
 

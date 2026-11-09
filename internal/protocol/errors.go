@@ -128,6 +128,13 @@ const (
 	ErrCodexExecutionReadFailed     = "codex_execution_read_failed"
 	ErrCodexExecutionWriteFailed    = "codex_execution_write_failed"
 
+	// ErrTerminalNotFound means the terminal a codex.execution.read or
+	// codex.execution.write names does not exist: it ended, or the id is wrong.
+	// The value is generic for historical reasons (it was sent as a bare
+	// literal before it was registered) and changes only with a protocol
+	// version bump (MADR 0241 D2).
+	ErrTerminalNotFound = "not_found"
+
 	// ErrQuestionInvalid refuses a question.respond answer that breaks the
 	// form's rules. The form stays pending: correct the field and answer
 	// again (MADR 0191 D3).
@@ -257,6 +264,7 @@ func ErrorCodes() []string {
 		ErrRateLimited,
 		ErrDeadlineExceeded,
 		ErrRetryNoResult,
+		ErrSessionCancelTimeout,
 
 		ErrUnknownProvider,
 		ErrProviderUnavailable,
@@ -305,6 +313,7 @@ func ErrorCodes() []string {
 		ErrCodexThreadsWriteFailed,
 		ErrCodexExecutionReadFailed,
 		ErrCodexExecutionWriteFailed,
+		ErrTerminalNotFound,
 		ErrInvalidPath,
 		ErrPathEscape,
 		ErrPathSymlink,

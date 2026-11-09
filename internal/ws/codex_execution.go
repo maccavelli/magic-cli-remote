@@ -135,7 +135,7 @@ func executionErrorCode(err error, write bool) string {
 	case errors.Is(err, provider.ErrNativeUnavailable):
 		return protocol.ErrNativeUnavailable
 	case errors.Is(err, provider.ErrTerminalNotFound):
-		return "not_found"
+		return protocol.ErrTerminalNotFound
 	case errors.Is(err, session.ErrInvalidShellCommand):
 		return "bad_payload"
 	case write:
