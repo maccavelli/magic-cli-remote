@@ -204,3 +204,25 @@ The owner committed P1 and P2 as `711201e9`: "proceed, i committed".
   `in-progress` until CI on `711201e9` is green; the MADR was already `accepted` at P0 (step 3).
 * `check_records.py --write-index`; `make check-records markdownlint-docs`; the redact preview. **Staged:** this
   plan, the 0239 report, and `docs/README.md` if the index changed.
+
+The owner committed P3's first part and pushed all three commits: "committed, and pushed".
+
+### Deviation — 2026-11-09: CI on the push failed in a test outside this plan
+
+* **Found.** CI run `42631805993`, on `85865449` (which carries `711201e9`), failed in one job, Go (test), at the
+  step "Test (race, all packages)". That step is not retried (MADR 0143), so the failure stood. One test failed:
+
+  ```text
+  --- FAIL: TestSilentMarkMakesTheCanonicalCommandUnavailable
+      silent_test.go:265: /loop unavailable before any mark: {Name:loop … Available:false Reason:this agent doesn't offer it}
+  ```
+
+  Every other job passed, and `internal/protocol` and `internal/ws` passed inside the failed job. This plan changed
+  nothing in `internal/session`, `internal/provider` or `internal/command`: `git diff 739e5983 HEAD` over them is
+  empty. Run on HEAD with `-race -cpu=1 -count=500`, the test failed 127 times with the same message. With all CPUs
+  and `-count=300`, it failed none.
+* **Decision.** The owner chose option 1: a new pair,
+  [0242-MADR-wait-for-the-agents-commands-in-the-silent-command-tests.md](0242-MADR-wait-for-the-agents-commands-in-the-silent-command-tests.md),
+  fixes the test. Not re-running CI alone, which would only hide the flake on this run.
+* **Effect on this plan.** Confirmation 4's CI item waits for the first green CI run after 0242's fix is pushed.
+  This plan stays `in-progress` until then. No step, file or decision of this pair changes.

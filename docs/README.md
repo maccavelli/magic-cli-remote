@@ -473,6 +473,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0240 | PLAN | Implement making the shipped user units match the templates, and gating them | [0240-PLAN-make-the-shipped-user-units-match-the-templates-and-gate-them.md](decisions/0240-PLAN-make-the-shipped-user-units-match-the-templates-and-gate-them.md) |
 | 0241 | MADR | Register every error code the daemon sends, and close the registry guard's blind spots | [0241-MADR-register-every-sent-error-code.md](decisions/0241-MADR-register-every-sent-error-code.md) |
 | 0241 | PLAN | Implement registering every error code the daemon sends, and closing the registry guard's blind spots | [0241-PLAN-register-every-sent-error-code.md](decisions/0241-PLAN-register-every-sent-error-code.md) |
+| 0242 | MADR | Wait for the agent's commands before the silent-command tests read `/loop` | [0242-MADR-wait-for-the-agents-commands-in-the-silent-command-tests.md](decisions/0242-MADR-wait-for-the-agents-commands-in-the-silent-command-tests.md) |
+| 0242 | PLAN | Implement waiting for the agent's commands before the silent-command tests read `/loop` | [0242-PLAN-wait-for-the-agents-commands-in-the-silent-command-tests.md](decisions/0242-PLAN-wait-for-the-agents-commands-in-the-silent-command-tests.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
