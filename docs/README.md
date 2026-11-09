@@ -475,6 +475,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0241 | PLAN | Implement registering every error code the daemon sends, and closing the registry guard's blind spots | [0241-PLAN-register-every-sent-error-code.md](decisions/0241-PLAN-register-every-sent-error-code.md) |
 | 0242 | MADR | Wait for the agent's commands before the silent-command tests read `/loop` | [0242-MADR-wait-for-the-agents-commands-in-the-silent-command-tests.md](decisions/0242-MADR-wait-for-the-agents-commands-in-the-silent-command-tests.md) |
 | 0242 | PLAN | Implement waiting for the agent's commands before the silent-command tests read `/loop` | [0242-PLAN-wait-for-the-agents-commands-in-the-silent-command-tests.md](decisions/0242-PLAN-wait-for-the-agents-commands-in-the-silent-command-tests.md) |
+| 0243 | MADR | Show exactly which usage limit an agent hit and when it lifts | [0243-MADR-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md](decisions/0243-MADR-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md) |
+| 0243 | PLAN | Implement showing exactly which usage limit an agent hit and when it lifts | [0243-PLAN-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md](decisions/0243-PLAN-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
