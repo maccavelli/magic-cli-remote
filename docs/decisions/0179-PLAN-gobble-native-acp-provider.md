@@ -954,10 +954,29 @@ Scripts and logs are in the session scratchpad (`p3-capture/`: `zz_capture_test.
   repository makes is not in the frames. Item 7 here checks what gobble sends; what this repository sends for
   Rename and Fork is pinned by P2's item 4, which compares the exact params. The two breaks used instead are in the
   table. This is for the owner to accept or redirect.
+* **Deviation — 2026-11-09: item 7 in both directions (MADR A7).** Asked to assess the gap with three options, the
+  owner chose "Add a recorded-session test (Recommended)". Not chosen: capture both directions with agentproc's
+  `InputTap` (shared capture code, a recapture, and still a frozen record); accept as staged. The fixture checks
+  above stay as gobble's side. **Added:** `TestRecordedSessionSendsOnlyTheContract` in `fixture_test.go`, on
+  `acptest`. It drives a session through the gobble Spec: the model and thinking switches, a prompt with a
+  `compaction_update`, Rename, Fork, an `fs/read_text_file` request from the agent (for a probe file of the test's
+  own), a close, then a load on a second agent. Every request this repository sent must be in the contract
+  (`initialize`, `authenticate`, `session/new|load|close|set_config_option|prompt|cancel`,
+  `_gobble/set_session_name`, `_gobble/clone`), each of `session/prompt`, the two `_gobble/*` methods,
+  `session/close` and `session/load` must have been sent, and the `fs/*` request must be refused -32601. Seen
+  failing (`p3b_0179_planted.py`, a scratch clone; unplanted, exit 0):
+
+  | Break | Message |
+  | :--- | :--- |
+  | a stray `_gobble/get_state` call in `rename`, the plan's original break | `this repository sent gobble _gobble/get_state, outside the contract (MADR 0179 D12 item 7)` |
+  | client files offered (`c.Fs` left as the default) | `gobble's fs/read_text_file was answered {"content":"probe\n"} / <nil>; want -32601, since the Spec offers no files` |
+
+  `make pre-add-check` on `fixture_test.go`: clean.
 * `make pre-add-check` on `fixture_test.go`: clean.
 * **Step 5, the Go gates (C5),** each exit 0: `make test` and `go test -race -count=1 ./...` (50 `ok` lines, no FAIL,
   panic or race line), `make lint`, `make staticcheck`, `make vet-tags`. `TestCommittedFixturesCarryNoIdentifiers`
-  ran on `internal/provider/gobble/testdata/wire/0.4.0/frames.jsonl` and passed.
+  ran on `internal/provider/gobble/testdata/wire/0.4.0/frames.jsonl` and passed. Run again after A7's test was
+  added: each gate exit 0, 50 `ok` lines, no FAIL, panic or race line.
 * `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: the fixture
   (`frames.jsonl`, `meta.json`), `fixture_test.go` and this plan.
 

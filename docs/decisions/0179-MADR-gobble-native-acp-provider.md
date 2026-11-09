@@ -632,7 +632,11 @@ Unchanged from the second body.
   6. a no-credential prompt is presented `KindAuth`, ~~with `ErrorData.Command` in the text~~; *A6: and a handshake
      whose `authenticate` meets -32000 fails `Start` with text holding `ErrorData.Command`;*
   7. a recorded session sends nothing outside D6, D7 and D9: no other `_gobble/*`, no `_x.ai/*`, no `fs/*` or
-     `terminal/*` answer; *A2: and gobble sends no `_gobble/compaction`;*
+     `terminal/*` answer; *A2: and gobble sends no `_gobble/compaction`;* *A7 (2026-11-09): two checks, one per
+     direction. The release fixture holds only what gobble sent (wirecap taps the agent's output), so it checks
+     gobble's side. A unit test drives a whole session through the gobble Spec against `acptest`'s agent and checks
+     every request this repository sends, and that an `fs/*` request is refused -32601, so a stray call in the code
+     fails it, which no frozen fixture can;*
   8. `AuthCatalogList` equals `acpext.AuthProviders()`. `SetCredential` passes the key on stdin and never in argv.
      `StartDeviceAuth` for a provider without a login is `ErrAuthMethodUnsupported`. These run against a scratch
      `GOBBLE_HOME` and a stub `gobble` binary, never the host's store;
@@ -1104,6 +1108,9 @@ files there are gobble-cli's own pair, written on the owner's word (Q4, 2026-11-
   (gobble-cli#13), read from its help, its source (`internal/cli/auth.go:405-466`) and a scratch-home run with a
   dummy key. On the owner's answer ("Use auth status --json (Recommended)"), D3's `AuthStatus` uses it alone, and the
   `auth check` fallback is not built.
+* **2026-11-09.** Amendment A7, from the PLAN's P3: D12 item 7 is checked in both directions, gobble's side on the
+  fixture and this repository's by a unit test over a whole session, since a fixture cannot catch a code change
+  (owner's answer, "Add a recorded-session test").
 * **2026-11-09.** Amendment A6, from the same re-read: a prompt's -32000 carries no command, only `authenticate`'s
   does, and a failed start already shows it in its raw text. D4 and D12 item 6 are corrected, with no code (owner's
   answer, "Correct the record, no code").

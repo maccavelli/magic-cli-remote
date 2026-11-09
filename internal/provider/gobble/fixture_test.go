@@ -3,14 +3,20 @@ package gobble
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/maccavelli/gobble-cli/acpext"
+
+	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent/acptest"
 )
 
 // The release fixture, captured from gobble 0.4.0 (MADR 0179 D12, PLAN P3). It
@@ -212,6 +218,82 @@ func TestFixtureCompactionIsTheStandardUpdate(t *testing.T) {
 	}
 	if replay.Meta.Gobble.Reason != "" || replay.Meta.Gobble.TokensBefore != done.Meta.Gobble.TokensBefore {
 		t.Errorf("the replay's meta is %+v; want tokensBefore %d and no reason", replay.Meta.Gobble, done.Meta.Gobble.TokensBefore)
+	}
+}
+
+// contractMethods are the requests this repository may send gobble: the
+// handshake and session lifecycle (D6), model and thinking by config option
+// (D7), the prompt and its cancel, and D9's two operations.
+var contractMethods = map[string]bool{
+	"initialize": true, "authenticate": true,
+	"session/new": true, "session/load": true, "session/close": true,
+	"session/set_config_option": true, "session/prompt": true, "session/cancel": true,
+	acpext.MethodSetSessionName: true, acpext.MethodClone: true,
+}
+
+// Item 7, this repository's side (A7): a whole session through the gobble
+// Spec sends gobble only contractMethods, and refuses gobble's fs/* request
+// with -32601 rather than answering it. A fixture holds gobble's frames only,
+// and is frozen; this runs the code, so a stray call in it fails here.
+func TestRecordedSessionSendsOnlyTheContract(t *testing.T) {
+	replies := map[string]string{
+		"session/new":               sessionNew,
+		"session/set_config_option": `{"configOptions":[]}`,
+		acpext.MethodSetSessionName: `{}`,
+		acpext.MethodClone:          `{"sessionId":"agent-2"}`,
+	}
+	caps := json.RawMessage(`{"loadSession":true,"sessionCapabilities":{"close":{}}}`)
+	st, s, a := start(t, acptest.Options{AgentCapabilities: caps, Replies: replies})
+	ctx := context.Background()
+
+	_ = s.(provider.ModelSession).SetModel(ctx, "openai/gpt-y")
+	_ = s.(provider.ThinkingSession).SetThinkingLevel(ctx, "high")
+	if err := s.Prompt(ctx, []provider.Content{{Type: "text", Text: "go"}}); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+	m := a.Await("session/prompt")
+	a.Notify("session/update", compactionUpdate("c1", "completed", json.RawMessage(`{"reason":"manual","tokensBefore":10}`)))
+	a.Respond(m, map[string]any{"stopReason": "end_turn"})
+	acptest.Next(t, s, event.TypeTurnComplete)
+	if err := s.(provider.RenameSession).Rename(ctx, "A name"); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	if _, err := s.(provider.ForkSession).Fork(ctx, provider.ForkOptions{}); err != nil {
+		t.Fatalf("Fork: %v", err)
+	}
+	// A file of the test's own, so a client that did answer reads nothing of the host's.
+	probe := filepath.Join(t.TempDir(), "probe.txt")
+	if err := os.WriteFile(probe, []byte("probe\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fs := a.AnswerTo(a.Call("fs/read_text_file", map[string]any{"sessionId": "agent-1", "path": probe}))
+	if fs.Error == nil || fs.Error.Code != -32601 {
+		t.Errorf("gobble's fs/read_text_file was answered %s / %+v; want -32601, since the Spec offers no files", fs.Result, fs.Error)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	_, loadAgent := acptest.Start(t, newProvider(st), acptest.Options{AgentCapabilities: caps,
+		AuthMethods: safeAuthMethodIDs(), Start: provider.StartOptions{AgentSessionID: "agent-1"}})
+
+	var sent []string
+	for _, ag := range []*acptest.Agent{a, loadAgent} {
+		for _, r := range ag.Requests() {
+			if r.Method != "" {
+				sent = append(sent, r.Method)
+			}
+		}
+	}
+	for _, want := range []string{"session/prompt", acpext.MethodSetSessionName, acpext.MethodClone, "session/close", "session/load"} {
+		if !slices.Contains(sent, want) {
+			t.Errorf("the session sent %v; want %s among them, or the check would pass without the step", sent, want)
+		}
+	}
+	for _, method := range sent {
+		if !contractMethods[method] {
+			t.Errorf("this repository sent gobble %s, outside the contract (MADR 0179 D12 item 7)", method)
+		}
 	}
 }
 
