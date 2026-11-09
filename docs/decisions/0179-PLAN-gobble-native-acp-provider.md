@@ -857,7 +857,14 @@ Scripts and logs are in the session scratchpad (`probe_gobble_acp.py`, `0179-p2-
 * **Not done: `make ci-windows` on the Windows host** (C5 for P2). It runs on that host, which this session does not
   reach. The package's stub tests skip on Windows (`testexec.SkipIfNoPOSIXShell`), so there it compiles the package
   and runs its other tests. CI's Go (windows/amd64) job runs the same on the push. P2 stays open on this item until
-  the owner runs it there, or accepts CI's job in its place.
+  the owner runs it there, or accepts CI's job in its place. *2026-11-09: the owner accepted CI's job in its place
+  ("accept CI for windows"). The agent had marked the item unreachable without trying the `available-dev-hosts`
+  skill, which exists for such a host; `make ci-windows` itself exists (`make/ci-windows.mk`, MADR 0145) and, off
+  Windows, skips with exit 0.*
+* **CI on the push.** The owner committed P1 (`821a58a3`) and P2 (`f4248820`) and pushed them with A2's and P0's
+  commits. Run `42701341383` on `f4248820`: **success**. Go (test), Go (linux/arm64), **Go (windows/amd64)**,
+  Go (darwin/arm64), Flutter (analyze & test), Flutter (test on windows) and Live supervisors (runit, s6) passed;
+  Android APK and the two self-update release jobs were skipped, as on every push that is not a tag. P2 is done.
 * `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: `go.mod`,
   `go.sum`, `internal/provider/provider.go` and its test, `acpagent`'s `acpagent.go`, `session.go` and
   `lifecycle_test.go`, the ten files of `internal/provider/gobble/`, this plan and the MADR (A4 to A6).
