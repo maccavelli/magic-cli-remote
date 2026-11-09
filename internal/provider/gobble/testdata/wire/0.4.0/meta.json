@@ -1,0 +1,11 @@
+{
+  "provider": "gobble",
+  "version": "0.4.0",
+  "kind": "acp",
+  "source": "MCREMOTE_WIRE_CAPTURE_DIR (internal/wirecap), `gobble acp` driven by acpagent with the gobble package's Spec (0179 PLAN P3)",
+  "captured_at": "2026-11-09",
+  "capture_host": "",
+  "frames": 312,
+  "redacted": "the isolated home -> /home/user (wirecap); nothing else was found to redact: no account name, host name, email address or other absolute path",
+  "note": "what gobble 0.4.0 (2e83cce) sent, in two sessions of one capture. The first: an isolated HOME and GOBBLE_HOME whose own settings.yaml set defaultProvider opencode-zen, defaultModel deepseek-v4.1-flash and compaction.keepRecentTokens 1000, with OPENCODE_API_KEY alone; model opencode-zen/deepseek-v4.1-flash set by session/set_config_option, thought_level low; /model and /thinking; a turn reading notes.txt with gobble's read tool; _gobble/set_session_name and _gobble/clone idle, then each refused -32600 mid-turn; a counting turn; three prose turns; /compact (one compaction_update in_progress, then completed with its summary and _meta.gobble reason and tokensBefore); a close, then session/load (the compaction replayed as one completed update, the same id, tokensBefore without reason). The second: no credential at all, which fails before authenticate, so only initialize's answer. No retry occurred, and no permission was asked."
+}

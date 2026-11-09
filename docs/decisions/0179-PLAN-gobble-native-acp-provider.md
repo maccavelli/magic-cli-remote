@@ -865,6 +865,103 @@ Scripts and logs are in the session scratchpad (`probe_gobble_acp.py`, `0179-p2-
   commits. Run `42701341383` on `f4248820`: **success**. Go (test), Go (linux/arm64), **Go (windows/amd64)**,
   Go (darwin/arm64), Flutter (analyze & test), Flutter (test on windows) and Live supervisors (runit, s6) passed;
   Android APK and the two self-update release jobs were skipped, as on every push that is not a tag. P2 is done.
+
+The owner committed P2's CI record and approved P3: "committed, proceed". Asked for P3's provider and model (C10),
+the owner chose "opencode-zen, a free model (Recommended)".
+
+## P3 deviation — 2026-11-09: the first capture ran on a paid model
+
+* **Found.** The first capture run chose `opencode-zen/deepseek-v4-flash-free` from `gobble models list`, a list the
+  session's `model` option does not match. That option, gobble's live catalog, offers ten free opencode-zen models,
+  and not that one. gobble refused the switch (-32602, `unknown model`). The capture driver recorded the refusal and
+  went on, so the session stayed on gobble's default, `opencode-zen/claude-fable-5-2`, a paid model. Two model turns
+  ran on it, the tool-call prompt and the mid-turn prompt: 23,648 input tokens in all (15,702 of them cache reads,
+  7,936 cache writes) and 201 output tokens, which the prompts' `usage` reports; gobble sent no cost. `/model`,
+  `/thinking` and `/compact` ran in gobble without a model call, and `/compact` was refused, "Nothing to compact
+  (session too small)", so no compaction was captured. No retry occurred. This was the agent's fault: the owner had
+  approved a free model only, and the driver should have stopped at the refused switch.
+* **Decision.** The owner chose "Discard, fix, rerun free (Recommended)". Not chosen: stop P3 for now. The first
+  run's frames are discarded, not committed.
+* **Changed for the rerun:** the model is `opencode-zen/deepseek-v4.1-flash-free`, taken from the session's own
+  option; the driver stops before any prompt unless that switch succeeds; it sends longer prompts before `/compact`
+  so gobble has a session to compact, and fails the run if no compaction update arrives.
+* **The second run** switched to the free model, and every prompt then failed with -32603, data
+  `{"error":"llm: api status 429: … opencode-zen/chat_completions HTTP 429 FreeUsageLimitError (retry-after
+  1h33m21s): Free usage limit reached. …"}`. No prompt completed, so nothing was spent, and no compaction or tool call
+  was captured. Asked again, the owner chose "Approve a named paid model", then `opencode-zen/deepseek-v4.1-flash`, the
+  paid model of the same name, from the session's own option. The third run uses it, with the same guards.
+* **A finding outside this plan,** from the second run: `agenterr` presented gobble's quota error as a server error
+  ("The model provider had a server error…"). `ExtractText` takes the JSON-RPC `message`, "Internal error", and the
+  cause in `data.error` ("quota exhausted", HTTP 429) is not read. It is recorded here for its own record, and not
+  changed by this plan.
+* **The third run,** on `opencode-zen/deepseek-v4.1-flash`, captured everything but a compaction: `/compact` was again
+  "Nothing to compact (session too small)". gobble keeps the last `compaction.keepRecentTokens` (20,000 by default,
+  gobble `compaction/compaction.go:47`, `:99-112`) out of any compaction, and the session was 7,838 tokens. Asked,
+  the owner chose "Rerun the whole capture". The fourth run's scratch home has its own `settings.yaml`, which sets
+  `defaultProvider: opencode-zen`, `defaultModel: deepseek-v4.1-flash` (so gobble's default never reaches a paid
+  model unapproved) and `compaction.keepRecentTokens: 1000`. That is the throwaway gobble's own setting; nothing the
+  daemon sends changes. The fourth run is the fixture.
+* **Spend on the approved model:** the third run's five model turns, 36,462 input tokens (28,708 cache reads) and
+  2,093 output; the fourth run's, 36,513 input (28,686 cache reads) and 2,217 output, plus one compaction summary,
+  whose usage gobble does not report in a prompt result.
+
+## P3 — 2026-11-09: the release fixtures
+
+Scripts and logs are in the session scratchpad (`p3-capture/`: `zz_capture_test.go`, `run_capture.py`,
+`out4/steps.jsonl`, `out4/go-test-*.log`, `inspect.py`, `scan_ids.py`; `p3_0179_planted.py`, `0179-p3-*.log`).
+
+* **Start state (C1).** Clean tree, level with `origin/master` after P2's push.
+* **Step 1, the capture** (`run_capture.py`, the fourth run): a scratch clone of HEAD with the driver
+  (`zz_capture_test.go`, build tag `capture_gobble`, never committed) added; `HOME` and `GOBBLE_HOME` a scratch home;
+  `OPENCODE_API_KEY` alone, passed through and never printed; `MCREMOTE_WIRE_CAPTURE_DIR` set. The driver, through
+  `gobble.New` and `provider.Session`, as the daemon would: set the model by `session/set_config_option` (and stops
+  before any prompt if refused), thought level `low`; `/model`, `/thinking`; a turn reading `notes.txt` (a `tool_call`
+  and its update, no permission asked); Rename and Fork idle (the title updated; the clone named
+  `01a1c272-bda4-…`), then each refused mid-turn with -32600 "a prompt is already running"; a counting turn; three
+  prose turns; `/compact` (two compaction events and a notice, from A2's handler); a close; `session/load` (the
+  compaction replayed). A second phase, with no key and an empty `GOBBLE_HOME`: `Start` fails `ErrACPAuthRequired`
+  after `initialize` alone. No retry occurred; gobble cannot be made to retry on demand, as opencode's fixture notes
+  for its own. The clone was removed.
+* **Step 2, the cold start** (D1): spawn to `session/new`'s answer, five times: 445, 510, 489, 424 and 556 ms; median
+  489 ms, far under the 15 s limit.
+* **Step 3, redaction.** `wirecap` rewrote the scratch home to `/home/user`. `scan_ids.py` over the frames: no local
+  account name, no host name, no path under `/Users/`, `/private/`, `/var/folders/` or `/tmp/`; the one home path is
+  `/home/user/work/notes.txt`. The redact preview, with the fixture in the tree: 0 files. `meta.json` names the
+  provider, version, source, date, frame count (312), what was redacted and what the run did. `capture_host` is
+  empty: with a scratch `HOME`, `wirecap` had no host key and wrote no tag, so `TestCommittedFixturesCarryNoIdentifiers`
+  checks the running host's name in it, the strictest choice (MADR 0151 D12).
+* **Step 4, the fixture tests** (`fixture_test.go`): item 7, `TestFixtureSendsOnlyKnownMethods`; item 9 with A2,
+  `TestFixtureShapesAreAcpexts` (initialize's `_meta.gobble`, `_gobble/personality`, the clone result, every error's
+  data and each `compaction_update`'s `_meta.gobble`, each decoded with unknown members refused and encoded back
+  unchanged, and each kind required to be present); `TestFixtureCompactionIsTheStandardUpdate` (A2's pair and
+  replay); `TestFixtureIsTheKnownGoodRelease` (`meta.json` agrees with the file and `KnownGoodVersion`).
+* **Seen failing (C4),** `p3_0179_planted.py`, a scratch clone's copy of the frames, `meta.json`'s count kept in step
+  so the break, not the count, fails the test. Unplanted, exit 0. Each, exit 1:
+
+  | Break | Message |
+  | :--- | :--- |
+  | a `_gobble/compaction` notification inserted | `gobble sent [_gobble/compaction]; none is allowed (MADR 0179 D12 item 7)` |
+  | an `fs/read_text_file` request inserted | `gobble sent [fs/read_text_file]; none is allowed` |
+  | a personality frame given a member | `… does not decode as *acpext.PersonalityNotice: json: unknown field "planted"` |
+  | the clone result's `sessionId` renamed `id` | `the fixture holds no clone result; the check would pass without checking it` |
+  | a compaction meta given a member | `… does not decode as *acpext.CompactionMeta: json: unknown field "planted"` |
+  | the replayed update dropped | `2 compaction updates, want the live pair and the replay` |
+  | `meta.json`'s count off by one | `TestFixtureIsTheKnownGoodRelease` fails |
+
+  The clone was removed and checked gone.
+* **A gap in step 4 as written.** Its item 7 break, "a stray `_gobble/get_state` call added to Rename", cannot fail a
+  test on this fixture: `wirecap` taps only the agent's output (`internal/wirecap/wirecap.go:1-3`), so a call this
+  repository makes is not in the frames. Item 7 here checks what gobble sends; what this repository sends for
+  Rename and Fork is pinned by P2's item 4, which compares the exact params. The two breaks used instead are in the
+  table. This is for the owner to accept or redirect.
+* `make pre-add-check` on `fixture_test.go`: clean.
+* **Step 5, the Go gates (C5),** each exit 0: `make test` and `go test -race -count=1 ./...` (50 `ok` lines, no FAIL,
+  panic or race line), `make lint`, `make staticcheck`, `make vet-tags`. `TestCommittedFixturesCarryNoIdentifiers`
+  ran on `internal/provider/gobble/testdata/wire/0.4.0/frames.jsonl` and passed.
+* `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: the fixture
+  (`frames.jsonl`, `meta.json`), `fixture_test.go` and this plan.
+
+
 * `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: `go.mod`,
   `go.sum`, `internal/provider/provider.go` and its test, `acpagent`'s `acpagent.go`, `session.go` and
   `lifecycle_test.go`, the ten files of `internal/provider/gobble/`, this plan and the MADR (A4 to A6).
