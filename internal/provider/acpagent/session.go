@@ -61,6 +61,10 @@ type session struct {
 	// closeTimeout bounds session/close at teardown: the Spec's CloseTimeout
 	// or the package's, set by bindSpec; zero (no bindSpec) is the package's.
 	closeTimeout time.Duration
+	// procExited is closed once the agent's process has exited (agentproc's
+	// Done); nil when the session runs on a connection it was given. Close
+	// waits on it (MADR 0179 A5).
+	procExited <-chan struct{}
 	// ops and specState are the Spec's operations and its own state for this
 	// session (MADR 0208, amendment of 2026-11-01), set by bindSpec.
 	ops       Ops
@@ -1491,7 +1495,32 @@ func (s *session) Close(ctx context.Context) error {
 	// agentproc never signals an agent it has reaped, so an agent that exited
 	// during the bounded CloseSession above is left alone.
 	s.killProc()
+	// Then wait, bounded, for it to be gone. A caller that replaces this
+	// session starts its next process at once, and that process may load the
+	// same agent session, which an agent holding a per-session lock refuses
+	// while this one lives (MADR 0179 A5).
+	s.waitExited(ctx)
 	return nil
+}
+
+// exitWait bounds how long Close waits for a killed agent to exit.
+const exitWait = 2 * time.Second
+
+// waitExited waits until the agent's process has exited, exitWait has passed,
+// or ctx has ended. A session with no process of its own returns at once.
+func (s *session) waitExited(ctx context.Context) {
+	if s.procExited == nil {
+		return
+	}
+	t := time.NewTimer(exitWait)
+	defer t.Stop()
+	select {
+	case <-s.procExited:
+	case <-t.C:
+		s.log.Warn("acp: the agent's process had not exited when close stopped waiting",
+			slog.String("session_id", s.localID), slog.Duration("waited", exitWait))
+	case <-ctx.Done():
+	}
 }
 
 // emit delivers ev, coalescing high-frequency streaming text into ~one event

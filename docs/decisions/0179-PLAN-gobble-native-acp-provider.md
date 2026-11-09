@@ -247,6 +247,10 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
      already read (MADR Baselines, A2's re-read). This step re-reads the rest, and adds: with a credential, `/compact`
      sends a `compaction_update` pair carrying `_meta.gobble`, and no `_gobble/compaction`, to a client offering
      `session.compaction`. That run spends quota, so it waits for P3's word (C10) and is recorded there.
+   1a. *A5 (2026-11-09):* **`Close` waits for the exit.** In `acpagent/session.go`, after the kill, `Close` waits for
+   the agent's process to exit (`agentproc.Process.Done`), bounded at 2 s and by the caller's context. A test beside
+   `lifecycle_test.go`'s: `Close` does not return before the process has exited, and returns within the bound when it
+   never does. Seen failing (C4) with the wait removed.
 2. **The module.** `go get github.com/maccavelli/gobble-cli/acpext@v0.1.0` (*A2: `@v0.2.0`, the version `v0.4.0`
    requires*). `go.mod` gains that one requirement, with
    no `replace`. `go mod tidy` is clean, and `go list -m all` gains only that module (Confirmation 7).
@@ -281,12 +285,18 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
    * `StartDeviceAuth`: `gobble auth login <id> --method device --json`; the first `device_code` event fills the
      phone's `DeviceFlow`, then the process is waited for and an `error` event's message surfaced. A provider without
      a login is `ErrAuthMethodUnsupported`;
-   * `AuthStatus`: `gobble auth check --provider <id> --json` for each catalogued id, run concurrently, exit 0 ready,
+   * ~~`AuthStatus`: `gobble auth check --provider <id> --json` for each catalogued id, run concurrently, exit 0 ready,
      1 absent, 2 an error. The answer is cached for 15 s and dropped after every write, clear and finished device
-     flow. When gobble-cli#13 ships `auth status --json` in a release, the source changes under an amendment;
+     flow. When gobble-cli#13 ships `auth status --json` in a release, the source changes under an amendment;~~
+     *A4 (2026-11-09): `AuthStatus` runs one `gobble auth status --json`. Each row's `usable` is the upstream's
+     status (configured or missing); its `api_key` method is `Configured` when `source` is `auth.json` with `authType`
+     `api_key`, and its `oauth_device` method when `authType` is `oauth`. An `error` object (gobble's exit 2) makes the
+     state `error`, with gobble's message, never a value. The answer is cached for 15 s and dropped after every write,
+     clear and finished device flow;*
    * `SafeAuthMethodIDs`: the ids of `acpext.AuthProviders()`. `HasHeadlessCredential`: any upstream ready in the
      status. `KeyAuthMethodID` unset. `AuthPreferenceFunc`: the ready upstreams, in `AuthProviders()` order;
-   * a -32000's data is decoded as `acpext.ErrorData`, and the phone's message names `Command` when set.
+   * ~~a -32000's data is decoded as `acpext.ErrorData`, and the phone's message names `Command` when set.~~ *A6:
+     nothing is decoded; see item 6.*
 7. **Models** (D7), `catalog.go`: `ListModels` answers an empty catalog and starts nothing, as opencode's
    `acpNoHarvest` does. `ModelsFromOption` keeps every group gobble sends, in gobble's order: its `recent` group
    first, then one group per provider. `recent` stays, by the owner's word of 2026-11-07 ("i like having recents in
@@ -323,10 +333,15 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
       with `cause` `"a-cause-gobble-adds-later"` produces its notice naming that cause: the cause mapped through a
       table of the twelve constants with no fallback, so the unknown cause yields no notice or an empty cause; *A2:
       one notification now, and a `_gobble/compaction` produces no event: a `MethodCompaction` handler added;*
-    * item 6, a -32000 prompt is `KindAuth` with `ErrorData.Command` in the text: the data replaced by a bare message;
+    * item 6, a -32000 prompt is `KindAuth` ~~with `ErrorData.Command` in the text: the data replaced by a bare
+      message~~; *A6: and a handshake whose `authenticate` meets -32000 fails `Start` with text holding the
+      command. Seen failing: the agent's -32000 replaced by -32603 (the prompt is then not `KindAuth`), and the data's
+      `command` dropped (the start's text then lacks it);*
     * item 8, `AuthCatalogList` equals `acpext.AuthProviders()`; the stub records its argv and stdin, and the key is
       on stdin and absent from argv; `StartDeviceAuth` for `claude` is `ErrAuthMethodUnsupported`: the key moved to
-      argv, then `claude` given a login;
+      argv, then `claude` given a login; *A4: and `AuthStatus` maps a stub's `auth status --json` report: `usable`
+      to configured, only an `auth.json` `api_key` row's key method `Configured`, an `env` row ready but not
+      `Configured`, an `error` report to `error`. Seen failing with `env` treated as `Configured`;*
     * item 10, only `internal/provider/gobble` imports acpext, and it imports no go-llmprovider-sdk: an acpext import
       added to a scratch copy of `acpagent`;
     * item 11, `ListModels` starts no process: `ListModels` unset, so the adapter's harvest runs the stub;
@@ -345,7 +360,7 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
 
     Auth tests run against a scratch `GOBBLE_HOME` and a stub `gobble`, never the host's store or binary.
 11. **Measured:** one `AuthStatus` refresh against the installed `gobble` ~~`v0.2.0`~~ target release with a scratch `GOBBLE_HOME`,
-    nine concurrent `auth check`s, timed five times. A median over 1 s is a deviation (D3's fallback is too slow for
+    ~~nine concurrent `auth check`s,~~ *A4: one `auth status --json`,* timed five times. A median over 1 s is a deviation (D3's ~~fallback~~ source is too slow for
     every `providers.list`).
 12. `TestSDKIsImportedOnlyByGrok` and `TestNoProviderIsNamedInAcpagent` pass unchanged. Go gates (C5), and
     `make ci-windows`. **Commit.**
@@ -720,3 +735,129 @@ Scripts and logs are in the session scratchpad (`p1_0179_planted.py`, `0179-p1-p
   56 ignored findings, each an acp-go-sdk2 unstable-schema name, as before), `make vet-tags`.
 * `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: the eight Go
   files, this plan and the MADR (A3). P2 waits for the owner's word; its gate, a target release, is met by `v0.4.0`.
+
+The owner committed P1 and approved P2: "committed, proceed".
+
+## P2 deviation — 2026-11-09: `auth status --json` is released (MADR A4)
+
+* **Found.** P2 step 1's re-read at `v0.4.0`: `gobble auth status --help` lists `--json`, "every key provider's
+  credential source, never a credential". gobble-cli#13 was closed on 2026-11-07. Run against an empty scratch
+  `GOBBLE_HOME`, it prints `{"providers":[{"provider","source","usable"}…]}` for the nine key providers. With a dummy
+  `OPENAI_API_KEY` in the environment, `openai` reads `source: env`, `variable: OPENAI_API_KEY`, `usable: true`. With a
+  dummy key stored by `gobble auth login openai --api-key -` (then logged out), it reads `source: auth.json`,
+  `authType: api_key`, `usable: true`. Its source (`internal/cli/auth.go:352-400`, `405-466`) adds `models.json` as a
+  source, `oauth` as an `authType`, and an `error` object with exit 2 when a file cannot be read. Step 6 had been
+  written for the `auth check` fallback.
+* **Decision.** The owner chose "Use auth status --json (Recommended)". Not chosen: build the fallback as planned;
+  both, with a fallback. The MADR records it as A4 (D3, Q1, Consequences, History).
+* **Changed:** step 6's `AuthStatus` bullet, step 10 item 8's stub (it prints a status report), and step 11's
+  measurement. No file is added.
+
+## P2 deviation — 2026-11-09: a replace can load a session its old process still holds (MADR A5)
+
+* **Found.** P2 step 1's D6 check: `Manager.create`'s close-and-replace (`internal/session/manager.go:1241-1246`)
+  closes the old session and starts the new one, which `session/load`s the same agent session. `acpagent`'s `Close`
+  kills the process from a goroutine (`killProc`, `session.go:1289-1294`) and returns without waiting for it to
+  exit. When `session/close` did not complete, gobble's old process can still hold the writer lock when the new one
+  loads, and gobble refuses it with -32600. Step 1 says the phase stops.
+* **Decision.** The owner chose "Close waits for the exit (Recommended)". Not chosen: a Spec hook for gobble to retry
+  the load; accept the race. The MADR records it as A5 (D6, History).
+* **Added to P2, as step 1a:** in `acpagent`'s `Close`, after the kill, wait for the process to exit, bounded at 2 s
+  and by the caller's context. A test, seen failing with the wait removed. Files: `internal/provider/acpagent/session.go`
+  and a test beside `lifecycle_test.go`'s.
+
+## P2 deviation — 2026-11-09: no gobble prompt error carries a command (MADR A6)
+
+* **Found.** P2 step 1's re-read: gobble `v0.4.0` sends a prompt's -32000 with data `{error}` alone
+  (`acpserver/prompt.go:274-275`); only `authenticate`'s -32000 carries `command` (the probe above). A failed start
+  reaches the phone as `session_create_failed` with the raw error text (`internal/ws/server.go:2165-2170`), which
+  already holds the command. Step 6's last bullet and step 10's item 6 assumed a command on a prompt's error.
+* **Decision.** The owner chose "Correct the record, no code (Recommended)". Not chosen: a new `acpagent` hook to
+  rewrite a handshake auth error as prose. The MADR records it as A6 (D4, D12 item 6, History).
+* **Changed:** step 6's last bullet (nothing decoded) and step 10's item 6 (two facts, tested with no new code).
+
+## P2 — 2026-11-09: the gobble package, unregistered
+
+Scripts and logs are in the session scratchpad (`probe_gobble_acp.py`, `0179-p2-probe.json`, `gobble-v0.4.0/`,
+`time_auth_status.py`, `p2_0179_planted.py`, `0179-p2-planted.log`, `run_gates.py`, `0179-p2-*.log`).
+
+* **Start state (C1).** Clean tree. `master` three commits ahead of `origin/master` (A2, P0, P1), not yet pushed.
+  The installed `gobble version`: `gobble 0.4.0`, commit `2e83cce`, the target release; P2's gate holds.
+* **Step 1, the facts re-read.** The Spec's hooks, the default client capabilities (with `session.compaction` and
+  `session.notices`), `ModelsFromOption`, `Ops.Rename`/`Fork`, `Host.CallExtension`, `ForkOptions`/`ForkResult`, as
+  the MADR has them. acpext `v0.2.0`'s `go doc` lists every name D9, D10 and D13 (as A2 changed it) use. A
+  no-credential run of the installed `gobble acp` (`probe_gobble_acp.py`: `HOME` and `GOBBLE_HOME` a scratch folder,
+  no other environment, no prompt) matches F3: twenty `_gobble/*` requests in `_meta.gobble.extensions`;
+  `agentInfo.version` `0.4.0`; nine auth methods; `authenticate` of `openai` -32000 with data
+  `{command, provider, reason: "no credential"}`, of an unknown id -32602; `session/new` with `thought_level` alone and
+  three modes; `available_commands_update`, `current_mode_update`, `usage_update` and `_gobble/personality` before
+  the answer; exit 0 12 ms after stdin closed, stderr empty. Three differences from F3, none a decision's:
+  `agentCapabilities.auth: {}` is new; `session/list` lists an open session before its first message; with no model,
+  `thought_level` ends at `xhigh`. `v0.4.0` accepts `--version` (A2). Three findings stopped the phase, each recorded
+  above as a deviation: `auth status --json` (A4), the replace overlap (A5), no command on a prompt's error (A6).
+* **Step 1a (A5).** `acpagent`'s `Close` waits, after the kill, for the process to exit (`agentproc.Process.Done`),
+  bounded at 2 s (`exitWait`) and by the caller's context, with a warning when the bound ends it. The session keeps
+  the process's `Done` channel, set beside `s.proc`. Tests: `TestCloseWaitsForTheAgentToExit`,
+  `TestCloseStopsWaitingForAStuckExit`.
+* **Step 2, the module.** `go get github.com/maccavelli/gobble-cli/acpext@v0.2.0`, then `go mod tidy`: `go.mod` requires
+  it directly, with no `replace`; `go.sum` gains two lines; `go list -m all` gains that module alone (Confirmation 7).
+* **Step 3.** `provider.IDGobble ID = "gobble"`, and its row in `TestIDConstants`.
+* **Steps 4 to 9,** `internal/provider/gobble/`: `doc.go`; `gobble.go` (the Spec: `gobble acp`, `KnownGoodVersion`
+  `0.4.0`, `CloseTimeout` 6 s, the default capabilities less `fs`, `terminal` and `auth`, the auth hooks,
+  `ListModels`, `ModelsFromOption`, modes with `bypass` dangerous, the caveat, the retry handler, the
+  `CompactionMeta` handler under `acpext.MetaKey`, `Ops.Rename` and `Ops.Fork`); `section.go` (the section, its
+  defaults, the `auth_method_id` rule, `Descriptor()` with no `Floor` and no `Credentials`, not listed); `auth.go`
+  (A4's `auth status --json`, cached 15 s and dropped after each write; `auth login --api-key - --json` with the key
+  on stdin; `auth logout`; `auth login --method device --json`, its `device_code` the phone's flow); `catalog.go`;
+  `ops.go`; `notify.go`. No `"_gobble/…"` literal in the package; the tests name methods through acpext too.
+* **Step 10, the tests** (`gobble_test.go`, `auth_test.go`, `helpers_test.go`: a stub `gobble` that records argv and
+  stdin and answers `auth status --json` from a file, and a small agent for starts that must fail). Items 1 to 6, 8,
+  10, 11 and 12, the catalog, `bypass`, the `auth_method_id` rule, A3's 6 s, A4's status mapping and its cache.
+* **Seen failing (C4),** `p2_0179_planted.py`, a scratch clone of HEAD with P2's files copied in. Unplanted, both
+  packages exit 0. Each of 23 breaks, exit 1, failing the named test with its own message:
+
+  | Break | Failed test, message |
+  | :--- | :--- |
+  | 1a: `Close` does not wait | `TestCloseWaitsForTheAgentToExit`: `Close returned after 116.166µs, before the process exited at 300ms` |
+  | item 1: `fs` put back | `fs = map[readTextFile:true writeTextFile:true], want neither read nor write` |
+  | item 1 (A2): `session.compaction` dropped | `session.compaction not advertised; gobble would fall back to its own notification` |
+  | item 2: a fixed `AuthPreference` of acpext's ids | `authenticate methodId = gemini, want openai, the one ready upstream` |
+  | item 2: key forced, the func answering every id | `StartOn err = <nil>, want ErrACPAuthRequired` |
+  | item 3: `Ops.Compact` added | `declared [compact fork rename set_model set_thinking_level], want [fork rename set_model set_thinking_level]` |
+  | item 4: the clone result read as `id` | `Fork: gobble's clone named no session` |
+  | item 5: causes through a table, no fallback | `notices = [… "gobble is retrying (attempt 3)." …]`, the unknown cause lost |
+  | item 5 (A2): a `_gobble/compaction` handler | `a _gobble/compaction produced {Type:compaction …}` |
+  | item 6: -32603 for -32000 | `error kind = "server" (…), want auth` |
+  | item 6: the data's `command` dropped | `StartOn err = acp authenticate (openai): {…"data":{"provider":"openai","reason":"no credential"}}, want it to name gobble's command` |
+  | item 8: the key in argv | `argv = ["auth login claude --api-key - --json sk-test-not-a-real-key --workspace ws-1"]` |
+  | item 8: `claude` given a login | `err = <nil>, want ErrAuthMethodUnsupported` |
+  | A4: an `env` key `Configured` | `an env key: openai = "configured", Configured true; want configured and not removable` |
+  | item 10: an acpext import in `acpagent` | `…/acpagent/zz_acpext_planted.go imports acpext; only internal/provider/gobble may` |
+  | item 11: `ListModels` unset | `spawning a short-lived agent to read the model catalog`, and the test fails |
+  | item 12: any reason notifies | `notices = ["Context compacted (manual), from 0 tokens." …]` |
+  | item 12: the reason check dropped | `notices = [… "Context compacted (), from 110101 tokens." …]` |
+  | item 12: reasons through a table, no fallback | `notices = ["Context compacted (threshold), from 110101 tokens."]`, the future reason lost |
+  | the `recent` group filtered | `models = [{ID:openai/gpt-x … Group:openai …} …], want gobble's` |
+  | `bypass` not dangerous | `mode "bypass" dangerous = false, want bypass alone dangerous` |
+  | the `auth_method_id` check removed | `auth_method_id "gobble": err = <nil>, want ok false` |
+  | A3: `CloseTimeout` zero | `CloseTimeout = 0s, want 6s` |
+
+  The first run caught 19. Four breaks did not compile, a fault in the break script (a missing import, an unused
+  variable), not in the tests; they were fixed and rerun. The second run caught 22, and its one miss was a fault in
+  a test: `waitNotices` drained every event and kept only the notices, so the `_gobble/compaction` break's event was
+  discarded before the check read it. The test now keeps every event and sends that notification first, and the
+  third run caught all 23. The clone was removed and checked gone.
+* **Step 11, measured.** `gobble auth status --json` against the installed `v0.4.0` and a scratch `GOBBLE_HOME`, five
+  runs: 135.4, 52.6, 53.8, 55.1 and 56.1 ms; median 55.1 ms, under the 1 s limit.
+* **Step 12.** `make pre-add-check` on the fifteen Go files: clean (gofmt, golint, govulncheck). The Go gates (C5),
+  each exit 0: `make test` and `go test -race -count=1 ./...` (50 `ok` lines, `internal/provider/gobble` among them,
+  no FAIL, panic or race line in either; `TestSDKIsImportedOnlyByGrok` and `TestNoProviderIsNamedInAcpagent` pass
+  unchanged), `make lint`, `make staticcheck` (linux, darwin and windows; 56 ignored findings, as before),
+  `make vet-tags`.
+* **Not done: `make ci-windows` on the Windows host** (C5 for P2). It runs on that host, which this session does not
+  reach. The package's stub tests skip on Windows (`testexec.SkipIfNoPOSIXShell`), so there it compiles the package
+  and runs its other tests. CI's Go (windows/amd64) job runs the same on the push. P2 stays open on this item until
+  the owner runs it there, or accepts CI's job in its place.
+* `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: `go.mod`,
+  `go.sum`, `internal/provider/provider.go` and its test, `acpagent`'s `acpagent.go`, `session.go` and
+  `lifecycle_test.go`, the ten files of `internal/provider/gobble/`, this plan and the MADR (A4 to A6).

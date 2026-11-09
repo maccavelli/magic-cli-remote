@@ -426,6 +426,13 @@ by gobble, not by this repository.
     table (`internal/cli/auth.go:324-336`). This is a request to gobble-cli, not a change here (Q1).
   * **Until then:** `gobble auth check --provider <id> --json` for each catalogued upstream, run concurrently, with
     the answer cached for a short TTL and refreshed after every write. The PLAN measures it.
+  * *A4 (2026-11-09): gobble `v0.4.0`, the supported minimum, has `auth status --json`, so the preferred source is
+    the only one, and the fallback above is not built. One call per refresh, cached for a short TTL and dropped after
+    every write. A row's `usable` is the upstream's status. A method is `Configured` (removable from the phone) only
+    for a credential in `auth.json` of that method's kind: `authType` `api_key` for the key, `oauth` for the device
+    login. A key from an environment variable or `models.json` makes the upstream ready but is not the daemon's to
+    remove. An `error` object, which gobble prints with exit 2 when it cannot read its files, makes the whole state
+    `error`.*
 * **`CredentialEnv`** is not set. gobble's variables end in `_API_KEY` or `_TOKEN`, which the stderr tail already
   scrubs by name (`internal/provider/stderrtail/stderrtail.go:49`).
 
@@ -447,9 +454,13 @@ This closes G8.
 * `SafeAuthMethodIDs` is the `ID`s of `acpext.AuthProviders()`. `HasHeadlessCredential` reports whether D3's status
   has any credential. `KeyAuthMethodID` is not set.
 * `providers.gobble.auth_method_id`, when set, must be one of those ids. Validation refuses any other value by name.
-* The data of a -32000 is read as `acpext.ErrorData`. The phone's message names `ErrorData.Command` when it is set.
+* ~~The data of a -32000 is read as `acpext.ErrorData`. The phone's message names `ErrorData.Command` when it is set.~~
+  *A6 (2026-11-09): only `authenticate`'s -32000 carries `command` (F3). A handshake that meets it, because a key was
+  removed between the status read and the handshake, fails `Start`. The phone gets `session_create_failed` with the
+  error's raw text, which holds the command (`internal/ws/server.go:2165-2170`). Nothing is decoded for it.*
 * A prompt that still meets -32000 (a key removed after the handshake) is presented `KindAuth` by `agenterr`, as for
-  any agent.
+  any agent. *A6: its data is `{error}` alone (gobble `acpserver/prompt.go:274-275`), so it names no command; the
+  phone shows `agenterr`'s fixed copy.*
 
 ### D5. Version
 
@@ -478,7 +489,8 @@ What the adapter already does with any Spec. With gobble's capabilities, that is
 * `session/new` with `cwd` and the configured MCP servers. gobble advertises `http`, so the SDK keeps `sse` out.
 * `session/load`, since `loadSession` is true. A fork loads the clone's own session id in a new process (F1). The
   source's process still holds only the source's lock, so gobble's lock does not refuse it. The PLAN confirms that no
-  other path loads a session whose process is still open.
+  other path loads a session whose process is still open. *A5 (2026-11-09): one did: replacing a live session
+  closes it, and `Close` returned before its process exited. `Close` now waits for the exit, bounded (A5).*
 * `session/list` and `session/close`. `session/delete` falls back to close.
 * Not called: `session/resume` and `session/fork`.
 * **The close bound (G11).** The PLAN reads what gobble writes between a cancel and the lock's release. If a kill at
@@ -617,7 +629,8 @@ Unchanged from the second body.
   5. the two notifications produce D10's events, including a `_gobble/retry` whose `cause` is none of acpext's twelve
      constants, which still produces its notice naming that cause (A1); *A2: one notification, `_gobble/retry`. A
      `_gobble/compaction` produces no event;*
-  6. a no-credential prompt is presented `KindAuth`, with `ErrorData.Command` in the text;
+  6. a no-credential prompt is presented `KindAuth`, ~~with `ErrorData.Command` in the text~~; *A6: and a handshake
+     whose `authenticate` meets -32000 fails `Start` with text holding `ErrorData.Command`;*
   7. a recorded session sends nothing outside D6, D7 and D9: no other `_gobble/*`, no `_x.ai/*`, no `fs/*` or
      `terminal/*` answer; *A2: and gobble sends no `_gobble/compaction`;*
   8. `AuthCatalogList` equals `acpext.AuthProviders()`. `SetCredential` passes the key on stdin and never in argv.
@@ -841,6 +854,36 @@ built under the PLAN: the field and its test in P1, the gobble value in P2.
 * Neutral, because every other agent keeps the 2 s bound.
 * Bad, because closing a gobble session that never answers `session/close` takes up to 6 s before the kill, not 2 s.
 
+### A5. Amendment, 2026-11-09: `Close` waits for the agent to exit
+
+The PLAN's P2 step 1 asks whether the adapter can load a session while an earlier process for it still runs, since
+gobble's writer lock refuses that load with -32600 (F3). It can:
+
+* replacing a live session, `Manager.create` closes the old one, then starts the new one, which loads the same agent
+  session (`internal/session/manager.go:1241-1246`);
+* `Close` sends `session/close` within its bound (D6, A3), then kills the process from a goroutine and returns
+  (`acpagent/session.go:1289-1294`, and the end of `Close`). The process may still be alive when the new one runs
+  `session/load`.
+
+When `session/close` completed, gobble has already closed the session's log and released the lock, so nothing
+overlaps. When it did not, because the agent was wedged or the bound ran out, the old process can still hold the lock,
+and the resume fails with gobble's refusal. The other agent paths are safe: a restart (`restart.go`) kills the agent
+and reports the session disconnected, and a later load comes long after.
+
+**The owner's answer**, 2026-11-09, asked with options: *"Close waits for the exit (Recommended)". Not chosen: a Spec
+hook so gobble retries the load; accept the race and record it.*
+
+**The decision.** After the kill, `Close` waits for the agent's process to exit (acp-go-sdk2 `agentproc.Process.Done`),
+bounded at 2 s and by the caller's context, before it returns. So a replace never starts the new process while the
+old one lives. It names no vendor and applies to every ACP agent. It is built in the PLAN's P2, with its own
+seen-failing test.
+
+**Consequences of A5:**
+
+* Good, because replacing a session never overlaps two processes on one agent session, for any agent.
+* Neutral, because every ACP `Close` now includes the time a killed process takes to exit, normally milliseconds.
+* Bad, because a process that does not die within 2 s of the kill (a stuck exit) delays `Close` by those 2 s.
+
 ### Consequences
 
 * Good, because every gate outside this repository is met, and the work left is one package, one registration line,
@@ -858,7 +901,8 @@ built under the PLAN: the field and its test in P1, the gobble value in P2.
   grok. gobble's steer waits for D15's record.
 * Neutral, because grok stays the default provider until 0208 P9.
 * Neutral, because `AuthStatus` costs nine short `gobble auth check` processes per refresh until gobble-cli adds
-  `auth status --json` (Q1). The cache bounds how often.
+  `auth status --json` (Q1). The cache bounds how often. *A4: one `auth status --json` process per refresh, since
+  `v0.4.0` has it.*
 * Bad, because the phone's Fork copies the whole session; a fork before an earlier message is `/fork [entry]`, typed.
 * Bad, because gobble's wire and CLI are owned by another repository. A change there reaches this provider at the next
   acpext bump or release, which the fixtures and acpext's types catch but do not prevent.
@@ -929,7 +973,8 @@ Each has a recommended answer, which the decisions above assume.
 * *Q1: open an issue in gobble-cli. It is [maccavelli/gobble-cli#13](https://github.com/maccavelli/gobble-cli/issues/13),
   "auth status: add --json, so a remote client can read every provider's credential presence in one call". It offers
   three ways: `auth status --json` (recommended), `auth check --all --json`, and a `_gobble/auth_status` request. Until
-  a release carries one, D3's fallback (`auth check` per upstream, concurrent and cached) applies.*
+  a release carries one, D3's fallback (`auth check` per upstream, concurrent and cached) applies.* *gobble-cli#13 was
+  closed on 2026-11-07, and `v0.4.0` has `auth status --json` (A4).*
 * *Q2: a follow-up record, after registration.*
 * *Q3: 0208 P9 step 2, as its own phase after registration.*
 * *Q4 and Q5: ask gobble-cli for its mark, with the generic icon until it arrives; register gobble right after `fake`.*
@@ -1055,3 +1100,12 @@ files there are gobble-cli's own pair, written on the owner's word (Q4, 2026-11-
 * **2026-11-09.** Amendment A3, from the PLAN's P1 step 4 read of gobble `v0.4.0`'s close: a 2 s kill can lose a
   cancelled turn's last entries, so D6's fix is taken, `Spec.CloseTimeout`, at 6 s for gobble (owner's answer). Q6 is
   decided.
+* **2026-11-09.** Amendment A4, from the PLAN's P2 step 1 re-read: gobble `v0.4.0` has `auth status --json`
+  (gobble-cli#13), read from its help, its source (`internal/cli/auth.go:405-466`) and a scratch-home run with a
+  dummy key. On the owner's answer ("Use auth status --json (Recommended)"), D3's `AuthStatus` uses it alone, and the
+  `auth check` fallback is not built.
+* **2026-11-09.** Amendment A6, from the same re-read: a prompt's -32000 carries no command, only `authenticate`'s
+  does, and a failed start already shows it in its raw text. D4 and D12 item 6 are corrected, with no code (owner's
+  answer, "Correct the record, no code").
+* **2026-11-09.** Amendment A5, from the same re-read: replacing a live session could load it while its old process
+  still ran, so `Close` waits, bounded, for the process to exit (owner's answer, "Close waits for the exit").

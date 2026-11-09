@@ -75,6 +75,40 @@ func TestCloseTimeoutDefaults(t *testing.T) {
 	}
 }
 
+// TestCloseWaitsForTheAgentToExit is MADR 0179 A5: Close does not return
+// while the agent's process still lives, so a caller that replaces the
+// session never starts its next process beside this one.
+func TestCloseWaitsForTheAgentToExit(t *testing.T) {
+	s, _ := newWireSession(t, "{}")
+	exited := make(chan struct{})
+	s.procExited = exited
+	const exitAfter = 300 * time.Millisecond
+	time.AfterFunc(exitAfter, func() { close(exited) })
+
+	start := time.Now()
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < exitAfter-50*time.Millisecond {
+		t.Fatalf("Close returned after %s, before the process exited at %s", elapsed, exitAfter)
+	}
+}
+
+// TestCloseStopsWaitingForAStuckExit: a process that never exits holds Close
+// for exitWait, no longer.
+func TestCloseStopsWaitingForAStuckExit(t *testing.T) {
+	s, _ := newWireSession(t, "{}")
+	s.procExited = make(chan struct{})
+
+	start := time.Now()
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > exitWait+time.Second {
+		t.Fatalf("Close took %s with a process that never exits, want about %s", elapsed, exitWait)
+	}
+}
+
 // TestCloseSendsNothingWithAnEndedContext is PLAN 0184 A2 step 10. A close the
 // caller abandoned must not reach the agent. v0.17.1 wrote the request anyway
 // (its B9), so Close checked first; since acp-go-sdk2 v1.14.0 the SDK writes

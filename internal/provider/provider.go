@@ -70,6 +70,8 @@ const (
 	IDCodex ID = "codex"
 	// IDKilo is the Kilo CLI provider (shared `kilo serve` engine, MADR 0075).
 	IDKilo ID = "kilo"
+	// IDGobble is gobble, the platform's own ACP agent (MADR 0179).
+	IDGobble ID = "gobble"
 )
 
 // StartOptions configure a new agent session.

@@ -623,6 +623,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
 	}
 	s.proc = proc
+	s.procExited = proc.Done()
 	conn := proc.Conn()
 	s.conn = conn
 	// killTree ends the agent and reaps it, before the exit watcher exists. It
