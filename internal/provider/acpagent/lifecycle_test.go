@@ -39,6 +39,42 @@ func TestCloseIsBoundedWhenTheAgentStopsReading(t *testing.T) {
 	}
 }
 
+// TestSpecCloseTimeoutBoundsClose is MADR 0179 A3: a Spec's CloseTimeout,
+// not the package's 2 s, bounds session/close. A short one is used so the
+// test is fast: against an agent that stopped reading, Close returns well
+// before the package's bound would let it.
+func TestSpecCloseTimeoutBoundsClose(t *testing.T) {
+	const bound = 200 * time.Millisecond
+	s, a := newWireSessionFor(t, agentWithClose, &Provider{spec: Spec{CloseTimeout: bound}})
+	a.stopReading()
+
+	start := time.Now()
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed >= closeTimeout/2 {
+		t.Fatalf("Close took %s with CloseTimeout %s; want well under the package's %s", elapsed, bound, closeTimeout)
+	}
+}
+
+// TestCloseTimeoutDefaults: zero keeps the package's bound, and a set value is
+// what a session gets (MADR 0179 A3).
+func TestCloseTimeoutDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		spec Spec
+		want time.Duration
+	}{
+		{Spec{}, closeTimeout},
+		{Spec{CloseTimeout: 6 * time.Second}, 6 * time.Second},
+	} {
+		s := &session{}
+		(&Provider{spec: tc.spec}).bindSpec(s)
+		if s.closeTimeout != tc.want {
+			t.Errorf("CloseTimeout %s: the session's bound is %s, want %s", tc.spec.CloseTimeout, s.closeTimeout, tc.want)
+		}
+	}
+}
+
 // TestCloseSendsNothingWithAnEndedContext is PLAN 0184 A2 step 10. A close the
 // caller abandoned must not reach the agent. v0.17.1 wrote the request anyway
 // (its B9), so Close checked first; since acp-go-sdk2 v1.14.0 the SDK writes

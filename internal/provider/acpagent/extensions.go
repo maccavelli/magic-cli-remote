@@ -23,13 +23,18 @@ type MetaSource string
 const (
 	MetaFromSessionInfo  MetaSource = "session_info_update"
 	MetaFromPromptResult MetaSource = "prompt_result"
+	// MetaFromCompaction is a compaction_update's `_meta`, such as an agent's
+	// own facts about that compaction (MADR 0179 A2).
+	MetaFromCompaction MetaSource = "compaction_update"
 )
 
 // MetaHandler is invoked with the value of a `_meta` key a Spec registered, as
 // the agent sent it: a key the agent clears with null arrives as `null`. It
-// runs where the message is handled: a session_info_update's on the SDK's
-// notification loop, under HandleExtensionMethod's rule, and a prompt
-// result's on the turn goroutine, before turn_complete.
+// runs where the message is handled: a session_info_update's and a
+// compaction_update's on the SDK's notification loop, under
+// HandleExtensionMethod's rule, a compaction_update's after that
+// compaction's event; and a prompt result's on the turn goroutine, before
+// turn_complete.
 type MetaHandler func(ctx context.Context, h Host, from MetaSource, value json.RawMessage)
 
 // handleMeta passes each key of meta the Spec registered a handler for to that

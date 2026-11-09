@@ -1,6 +1,7 @@
 package acpagent
 
 import (
+	"context"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -99,10 +100,11 @@ func blockKind(b acp.ContentBlock) string {
 // the value, a null clears it, and a value replaces it. acp-go-sdk2 v1.14.0
 // keeps the three apart (Patch[T]), so Magic follows all three (MADR 0190 D1,
 // MADR 0184 amendment of 2026-10-15, E2). An empty summary also clears.
-func (s *session) onCompactionUpdate(u *acp.SessionCompactionUpdate, now time.Time) {
-	if m, ok := u.Meta.Value(); ok && len(m) > 0 {
-		s.declineUpdate("compaction_update._meta")
-	}
+//
+// The update's `_meta` goes to the Spec's MetaHandlers after the compaction's
+// event, so a handler's own output follows the compaction it is about; a key
+// with no handler is declined (MADR 0179 A2).
+func (s *session) onCompactionUpdate(ctx context.Context, u *acp.SessionCompactionUpdate, now time.Time) {
 	e, _ := s.compactions.entry(u.CompactionId)
 	e.status = string(u.Status)
 	if blocks, ok := u.Summary.Value(); ok {
@@ -117,6 +119,9 @@ func (s *session) onCompactionUpdate(u *acp.SessionCompactionUpdate, now time.Ti
 		e.err = ""
 	}
 	s.emitCompaction(u.CompactionId, e, now)
+	if m, ok := u.Meta.Value(); ok && len(m) > 0 && s.handleMeta(ctx, MetaFromCompaction, m) {
+		s.declineUpdate("compaction_update._meta")
+	}
 }
 
 // onCompactionChunk appends a summary chunk. Only a chunk that creates the

@@ -263,6 +263,7 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
      listed;
    * ~~`NewSessionState`: the compaction id (D10);~~ *A2: no `NewSessionState`: D10 keeps no compaction id;*
    * *A2: `MetaHandlers`: `acpext.MetaKey` to the `CompactionMeta` handler (step 9);*
+   * *A3 (2026-11-09): `CloseTimeout: 6 * time.Second`, gobble's 5 s `closeWait` plus 1 s (MADR D6, A3);*
    * no `CredentialEnv`, `SetModelFallback`, `SetThinkingFallback`, `HarvestSessionMeta`, `ConfigureSession`,
      `SessionMeta`, `InitializeMeta`, `StaticModels` or `ModelProviders`.
 5. **The section** (D11), `section.go`, on grok's pattern (`grok/section.go`): a `Section` embedding
@@ -339,7 +340,8 @@ Files: `go.mod`, `go.sum`; `internal/provider/provider.go`, `provider_test.go`; 
       group listed under each: the `recent` group filtered out;
     * `bypass` is confirmed on the phone like grok's `auto` (Confirmation 4), as
       `TestDangerousModeIDsMarkTheAgentsModes` checks it: `DangerousModeIDs` emptied;
-    * the `auth_method_id` rule: the check removed.
+    * the `auth_method_id` rule: the check removed;
+    * *A3:* the Spec's `CloseTimeout` is 6 s: set to zero.
 
     Auth tests run against a scratch `GOBBLE_HOME` and a stub `gobble`, never the host's store or binary.
 11. **Measured:** one `AuthStatus` refresh against the installed `gobble` ~~`v0.2.0`~~ target release with a scratch `GOBBLE_HOME`,
@@ -651,3 +653,70 @@ A2 was posted on issue #37 (`issuecomment-6747718973`).
 * **Step 3.** `make check-records markdownlint-docs`: exit 0. The redact preview: 0 files.
 * **Staged** for the owner's commit: this plan and the 0186 MADR. The status is `in-progress`: P0 is done, and P1
   waits for the owner's word ("do P1").
+
+The owner committed P0 and approved P1: "committed proceed".
+
+## P1 deviation — 2026-11-09: the close bound loses entries (step 4's "Yes")
+
+* **Found.** Step 4's read of gobble `v0.4.0` (`acpserver/agent.go`, fetched through the GitHub API into the
+  scratchpad): a turn writes with `context.WithoutCancel` (line 662); a cancelled turn's `agent.End` writes the
+  results of calls the cancel cut short (line 981) before the turn releases `idle` (line 805); `CloseSession` waits
+  for `idle` up to `closeWait` = 5 s (lines 39-42, 1293). This repository kills 2 s after sending `session/close`.
+  So a kill can lose a cancelled turn's last entries. The phase stopped, as step 4 says.
+* **Decision.** The owner chose "CloseTimeout, gobble 6 s (Recommended)": an agent-neutral `Spec.CloseTimeout`,
+  zero keeping 2 s, set to 6 s by the gobble Spec. Not chosen: 5 s; keeping 2 s. The MADR records it as A3 (D6, Q6,
+  History), amended before the field is built.
+* **Added to P1:** step 4's "Yes" branch. The field in `acpagent.go`, its use in `session.go`'s
+  `closeAgentSession`, and a test seen failing with the field ignored. Files: `internal/provider/acpagent/acpagent.go`,
+  `session.go`, `lifecycle_test.go`.
+* **Added to P2:** step 4 sets `CloseTimeout: 6 * time.Second`, and step 10 checks it, seen failing at zero.
+
+## P1 — 2026-11-09: the handshake hook, the compaction meta source, and the close bound
+
+Scripts and logs are in the session scratchpad (`p1_0179_planted.py`, `0179-p1-planted.log`, `fetch_gobble.py`,
+`gobble-v0.4.0/`, `run_gates.py`, `0179-p1-*.log`).
+
+* **Start state (C1).** Clean tree. `master` two commits ahead of `origin/master`: A2's `654b5a39` and P0's commit,
+  not yet pushed.
+* **Step 1, the facts re-read.** As the plan states them. The Spec's auth fields are still at `acpagent.go:115-131`,
+  `selectACPAuthMethod` at `authselect.go:24-39`, and the close bound at `session.go:1365-1366`. The handshake's auth
+  branch is now `acpagent.go:748-768`. No fact differs.
+* **Step 2, the hook.** `Spec.AuthPreferenceFunc func(ctx context.Context) []string`, documented beside
+  `AuthPreference`. The handshake passes its answer, called with the handshake's `initCtx`, to `selectACPAuthMethod`
+  when the field is set, else `AuthPreference`. Nothing else changed.
+* **Step 3, the test** (`acptest/auth_test.go`): `TestAuthPreferenceFuncChoosesTheUpstream` (the func's `vendor.b`
+  is authenticated, and the func's context has ended once `Start` returns), `TestAnEmptyAuthPreferenceFuncRequiresAuth`
+  (`ErrACPAuthRequired`, the agent receives only `initialize`), `TestAPinnedMethodWinsOverAuthPreferenceFunc`.
+* **Step 4, the close bound:** "Yes", recorded in the deviation entry above. Then the fix:
+  `Spec.CloseTimeout time.Duration` beside `StartTimeout`; `Provider.closeTimeout()` (the Spec's value, else
+  `closeTimeout`); `bindSpec` sets the session's bound; `closeAgentSession` waits that bound. Tests in
+  `lifecycle_test.go`: `TestSpecCloseTimeoutBoundsClose` (a 200 ms bound against an agent that stopped reading)
+  and `TestCloseTimeoutDefaults` (zero keeps 2 s; 6 s is kept).
+* **Step 4a, the compaction meta source.** `MetaFromCompaction` in `extensions.go`, with `MetaHandler`'s doc naming
+  where it runs. `onCompactionUpdate` takes the notification's context, emits the compaction's event, then passes a
+  non-empty `_meta` to `handleMeta`, declining `compaction_update._meta` only for a key with no handler. Its caller
+  in `session.go` passes `ctx`. The test, `TestCompactionMetaReachesItsHandler`, is in package `acpagent`'s
+  `compaction_test.go`, as P1's Files line names it, not on `acpagent/acptest` as step 4a's text says. Package
+  `acpagent` is where the meta-handler tests already are (`metaext_test.go`), and where the queue a handler sees can
+  be read to check the order. The existing `TestCompactionDeclinesWhatItCannotShow` passes unchanged: with no
+  handler, `_meta` is still declined.
+* **Seen failing (C4),** `p1_0179_planted.py`, a scratch clone of HEAD with the eight changed Go files copied in.
+  Unplanted, the three test sets exit 0. Each break, exit 1, failing the named test with its own message:
+
+  | Break | Failed | Message |
+  | :--- | :--- | :--- |
+  | the func's answer ignored | `TestAuthPreferenceFuncChoosesTheUpstream` | `authenticate methodId = vendor.a, want vendor.b, the func's answer` |
+  | the same | `TestAnEmptyAuthPreferenceFuncRequiresAuth` | `StartOn err = <nil>, want ErrACPAuthRequired` |
+  | the func given `context.Background()` | `TestAuthPreferenceFuncChoosesTheUpstream` | `the func's context is still live after Start returned; it must end with the handshake` |
+  | `handleMeta` not called | `TestCompactionMetaReachesItsHandler` | `the handler was called 0 time(s), want 1` |
+  | `handleMeta` before the emit | `TestCompactionMetaReachesItsHandler` | `0 event(s) queued when the handler ran, want 1: the compaction's event comes first` |
+  | `closeAgentSession` ignores the bound | `TestSpecCloseTimeoutBoundsClose` | `Close took 2.00136075s with CloseTimeout 200ms; want well under the package's 2s` |
+  | `bindSpec` drops the bound | `TestCloseTimeoutDefaults` | `CloseTimeout 0s: the session's bound is 0s, want 2s` |
+
+  The clone was removed and checked gone.
+* **Step 5.** `TestNoProviderIsNamedInAcpagent`: PASS, unchanged. `make pre-add-check` on the eight files: "8 file(s)
+  clean (gofmt, golint, govulncheck)". The Go gates (C5), each exit 0: `make test` and `go test -race -count=1 ./...`
+  (49 `ok` lines, no FAIL, panic or race line in either), `make lint`, `make staticcheck` (linux, darwin and windows;
+  56 ignored findings, each an acp-go-sdk2 unstable-schema name, as before), `make vet-tags`.
+* `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: the eight Go
+  files, this plan and the MADR (A3). P2 waits for the owner's word; its gate, a target release, is met by `v0.4.0`.

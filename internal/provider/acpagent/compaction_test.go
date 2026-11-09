@@ -1,6 +1,7 @@
 package acpagent
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -208,5 +209,50 @@ func TestCompactionDeclinesWhatItCannotShow(t *testing.T) {
 	want := []string{"compaction_summary_chunk._meta", "compaction.summary.image", "compaction_update._meta"}
 	if silent != 0 || !reflect.DeepEqual(variants, want) {
 		t.Fatalf("declined %v (silent %d), want %v once each", variants, silent, want)
+	}
+}
+
+// TestCompactionMetaReachesItsHandler is MADR 0179 A2: a compaction_update's
+// `_meta` key a Spec registered goes to its handler, from MetaFromCompaction
+// and after the compaction's event; a key with no handler is still declined;
+// and the compaction event is the one the same update makes with no `_meta`.
+func TestCompactionMetaReachesItsHandler(t *testing.T) {
+	update := func(meta map[string]any) string {
+		u := acp.SessionCompactionUpdate{CompactionId: "c8", Status: acp.CompactionStatusCompleted,
+			Summary: acp.PatchValue([]acp.ContentBlock{textBlock("Summary.")})}
+		if meta != nil {
+			u.Meta = acp.PatchValue(meta)
+		}
+		return compactionFrame(t, u)
+	}
+
+	plain, _ := newUpdateSession()
+	deliver(t, plain, update(nil))
+	want := drainCompactions(plain)
+
+	s, h := newUpdateSession()
+	rec := &metaRecorder{}
+	queuedAtCall := -1
+	s.metaHandlers = map[string]MetaHandler{"vendor.a": func(ctx context.Context, host Host, from MetaSource, value json.RawMessage) {
+		queuedAtCall = len(s.events)
+		rec.handle(ctx, host, from, value)
+	}}
+	deliver(t, s, update(map[string]any{"vendor.a": map[string]any{"k": "v"}, "vendor.b": 1}))
+
+	calls := rec.got()
+	if len(calls) != 1 {
+		t.Fatalf("the handler was called %d time(s), want 1", len(calls))
+	}
+	if calls[0].from != MetaFromCompaction || !jsonEqual(t, calls[0].value, json.RawMessage(`{"k":"v"}`)) {
+		t.Errorf("call = %s %s, want %s {\"k\":\"v\"}", calls[0].from, calls[0].value, MetaFromCompaction)
+	}
+	if queuedAtCall != 1 {
+		t.Errorf("%d event(s) queued when the handler ran, want 1: the compaction's event comes first", queuedAtCall)
+	}
+	if variants, _ := h.declined(); !reflect.DeepEqual(variants, []string{"compaction_update._meta"}) {
+		t.Errorf("declined %v, want compaction_update._meta for vendor.b", variants)
+	}
+	if got := drainCompactions(s); !reflect.DeepEqual(got, want) {
+		t.Errorf("compaction events = %+v, want %+v, as with no _meta", got, want)
 	}
 }

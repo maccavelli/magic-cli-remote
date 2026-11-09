@@ -174,6 +174,7 @@ func (p *Provider) bindSpec(s *session) {
 	s.metaHandlers = p.spec.MetaHandlers
 	s.extRequestHandlers = p.spec.ExtensionRequests
 	s.ops = p.spec.Ops
+	s.closeTimeout = p.closeTimeout()
 	if p.spec.NewSessionState != nil {
 		s.specState = p.spec.NewSessionState()
 	}

@@ -90,6 +90,10 @@ type Spec struct {
 	// startTimeout. An agent whose cold start is slower sets it from measurement
 	// (0214 MADR D1, amended).
 	StartTimeout time.Duration
+	// CloseTimeout bounds session/close at teardown, before the process kill;
+	// zero is closeTimeout. An agent that finishes writing a cancelled turn
+	// while it closes sets it longer than its own wait (MADR 0179 A3).
+	CloseTimeout time.Duration
 	// StaticModels is the fallback model picker catalog when ListModels is
 	// nil or fails. Empty + AllowCustom on ListModels default still lets the
 	// user type a free-text model id.
@@ -119,6 +123,14 @@ type Spec struct {
 	// AuthPreference is the order in which advertised, safe methods are
 	// tried when no method is pinned (MADR 0085 D2; MADR 0208 D2).
 	AuthPreference []string
+	// AuthPreferenceFunc, when set, answers the preference for one handshake
+	// in place of AuthPreference: for an agent that advertises one method per
+	// upstream whatever is stored, the upstreams that hold a credential. The
+	// selection rule is unchanged: the pin, else the first advertised and
+	// safe id of this answer, else the key method. An empty answer with no key
+	// method selects nothing, and Start fails ErrACPAuthRequired before
+	// session/new (MADR 0179 D4). ctx ends with the handshake.
+	AuthPreferenceFunc func(ctx context.Context) []string
 	// KeyAuthMethodID is the safe method used when HasHeadlessCredential
 	// reports a key and the agent advertised the method (MADR 0234 D2).
 	KeyAuthMethodID string
@@ -750,8 +762,12 @@ func (p *Provider) handshake(ctx context.Context, s *session, conn *acp.ClientSi
 		if p.spec.HasHeadlessCredential != nil {
 			hasKey = p.spec.HasHeadlessCredential()
 		}
+		preference := p.spec.AuthPreference
+		if p.spec.AuthPreferenceFunc != nil {
+			preference = p.spec.AuthPreferenceFunc(initCtx)
+		}
 		id, err := selectACPAuthMethod(advertised, p.cfg.AuthMethodID, p.spec.SafeAuthMethodIDs,
-			p.spec.AuthPreference, p.spec.KeyAuthMethodID, hasKey)
+			preference, p.spec.KeyAuthMethodID, hasKey)
 		if err != nil {
 			return fail(err)
 		}
@@ -1190,6 +1206,14 @@ func (p *Provider) startTimeout() time.Duration {
 		return p.spec.StartTimeout
 	}
 	return startTimeout
+}
+
+// closeTimeout is the Spec's CloseTimeout, or the package's when it sets none.
+func (p *Provider) closeTimeout() time.Duration {
+	if p.spec.CloseTimeout > 0 {
+		return p.spec.CloseTimeout
+	}
+	return closeTimeout
 }
 
 // StartOn is Start on a connection it is given instead of a spawned agent:

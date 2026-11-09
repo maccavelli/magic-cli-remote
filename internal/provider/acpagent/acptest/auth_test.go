@@ -93,3 +93,65 @@ func TestAnAdvertisedKeyIsAuthenticated(t *testing.T) {
 		t.Fatalf("authenticate methodId = %v, want vendor.key", got)
 	}
 }
+
+// upstreamSpec is a Spec whose agent advertises one method per upstream,
+// whatever is stored, and whose AuthPreferenceFunc answers the upstreams
+// that hold a credential (MADR 0179 D4). seen records each call's context.
+func upstreamSpec(answer []string, seen *[]context.Context) acpagent.Spec {
+	return acpagent.Spec{
+		ID:                provider.ID("fixture"),
+		SafeAuthMethodIDs: []string{"vendor.a", "vendor.b"},
+		AuthPreference:    []string{"vendor.a", "vendor.b"},
+		AuthPreferenceFunc: func(ctx context.Context) []string {
+			*seen = append(*seen, ctx)
+			return answer
+		},
+	}
+}
+
+// TestAuthPreferenceFuncChoosesTheUpstream: the func's answer replaces the
+// fixed preference, so the handshake authenticates the upstream that has a
+// credential, not the first one listed (MADR 0179 D4, G8).
+func TestAuthPreferenceFuncChoosesTheUpstream(t *testing.T) {
+	var seen []context.Context
+	p := acpagent.New(upstreamSpec([]string{"vendor.b"}, &seen), acpagent.Config{})
+	_, a := Start(t, p, Options{AuthMethods: []string{"vendor.a", "vendor.b"}})
+	if got := methods(a); !slices.Equal(got, []string{"initialize", "authenticate", "session/new"}) {
+		t.Fatalf("the agent received %v, want initialize, authenticate, session/new", got)
+	}
+	if got := a.ParamsFor("authenticate")["methodId"]; got != "vendor.b" {
+		t.Fatalf("authenticate methodId = %v, want vendor.b, the func's answer", got)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("AuthPreferenceFunc called %d times, want once", len(seen))
+	}
+	if seen[0].Err() == nil {
+		t.Fatal("the func's context is still live after Start returned; it must end with the handshake")
+	}
+}
+
+// TestAnEmptyAuthPreferenceFuncRequiresAuth: no upstream with a credential
+// selects nothing, and Start fails ErrACPAuthRequired with no authenticate
+// and no session/new, though AuthPreference lists advertised methods.
+func TestAnEmptyAuthPreferenceFuncRequiresAuth(t *testing.T) {
+	var seen []context.Context
+	p := acpagent.New(upstreamSpec(nil, &seen), acpagent.Config{})
+	_, a, err := startOn(t, p, Options{AuthMethods: []string{"vendor.a", "vendor.b"}})
+	if !errors.Is(err, acpagent.ErrACPAuthRequired) {
+		t.Fatalf("StartOn err = %v, want ErrACPAuthRequired", err)
+	}
+	if got := methods(a); !slices.Equal(got, []string{"initialize"}) {
+		t.Fatalf("the agent received %v, want initialize only", got)
+	}
+}
+
+// TestAPinnedMethodWinsOverAuthPreferenceFunc: an operator's auth_method_id
+// is still the first rule; the func only replaces the preference.
+func TestAPinnedMethodWinsOverAuthPreferenceFunc(t *testing.T) {
+	var seen []context.Context
+	p := acpagent.New(upstreamSpec([]string{"vendor.b"}, &seen), acpagent.Config{AuthMethodID: "vendor.a"})
+	_, a := Start(t, p, Options{AuthMethods: []string{"vendor.a", "vendor.b"}})
+	if got := a.ParamsFor("authenticate")["methodId"]; got != "vendor.a" {
+		t.Fatalf("authenticate methodId = %v, want the pinned vendor.a", got)
+	}
+}

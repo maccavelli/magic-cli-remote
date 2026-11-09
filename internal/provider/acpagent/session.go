@@ -58,6 +58,9 @@ type session struct {
 	extNotificationHandlers map[string]ExtensionNotificationHandler
 	metaHandlers            map[string]MetaHandler
 	extRequestHandlers      map[string]ExtensionRequestHandler
+	// closeTimeout bounds session/close at teardown: the Spec's CloseTimeout
+	// or the package's, set by bindSpec; zero (no bindSpec) is the package's.
+	closeTimeout time.Duration
 	// ops and specState are the Spec's operations and its own state for this
 	// session (MADR 0208, amendment of 2026-11-01), set by bindSpec.
 	ops       Ops
@@ -1362,10 +1365,12 @@ func (s *session) watchConnClose(conn interface {
 	s.signalDisconnected(fmt.Sprintf("%s agent connection lost: %v", s.providerID, conn.Err()))
 }
 
-// closeTimeout bounds the best-effort session/close on teardown.
+// closeTimeout bounds the best-effort session/close on teardown, unless the
+// Spec sets its own CloseTimeout (MADR 0179 A3).
 const closeTimeout = 2 * time.Second
 
-// closeAgentSession sends session/close and waits at most closeTimeout for it.
+// closeAgentSession sends session/close and waits at most the session's close
+// bound for it: the Spec's CloseTimeout, else closeTimeout.
 //
 // The call's context is the whole bound. acp-go-sdk2 v1.14.0 returns a send
 // when its context ends, even against an agent that has stopped reading
@@ -1383,7 +1388,11 @@ func (s *session) closeAgentSession(ctx context.Context) {
 	if n, ok := s.conn.Negotiated(); !ok || n.Allows(acp.AgentMethodSessionClose) != nil {
 		return
 	}
-	closeCtx, cancel := context.WithTimeout(ctx, closeTimeout)
+	bound := s.closeTimeout
+	if bound <= 0 {
+		bound = closeTimeout
+	}
+	closeCtx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
 	if _, err := s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{SessionId: acp.SessionId(s.agentID)}); err != nil && closeCtx.Err() != nil {
 		s.log.Debug("session/close did not complete in time; tearing down regardless",
@@ -2163,7 +2172,7 @@ func (s *session) SessionUpdate(ctx context.Context, params acp.SessionNotificat
 		})
 	case u.CompactionUpdate != nil:
 		// The agent compacted, or is compacting, its context (MADR 0190 D1).
-		s.onCompactionUpdate(u.CompactionUpdate, now)
+		s.onCompactionUpdate(ctx, u.CompactionUpdate, now)
 	case u.CompactionSummaryChunk != nil:
 		s.onCompactionChunk(u.CompactionSummaryChunk, now)
 	case u.Unknown != nil:

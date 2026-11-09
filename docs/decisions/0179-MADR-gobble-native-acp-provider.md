@@ -483,7 +483,8 @@ What the adapter already does with any Spec. With gobble's capabilities, that is
 * Not called: `session/resume` and `session/fork`.
 * **The close bound (G11).** The PLAN reads what gobble writes between a cancel and the lock's release. If a kill at
   2 s can lose a cancelled turn's last entry, the fix is an agent-neutral `Spec.CloseTimeout` set to 5 s for gobble
-  (Q6). Otherwise the 2 s bound stands.
+  (Q6). Otherwise the 2 s bound stands. *A3 (2026-11-09): it can (A3), so the fix is taken: `Spec.CloseTimeout`, zero
+  keeping the 2 s bound, set to ~~5 s~~ **6 s** for gobble, gobble's own 5 s wait plus 1 s for its close work.*
 * Prompts carry text only. gobble advertises no image or audio, so the SDK's gate drops them.
 * The daemon's FIFO never sends a second `session/prompt` during a turn, so gobble's -32600 overlap refusal is never
   met.
@@ -634,6 +635,8 @@ Unchanged from the second body.
 * **`acpagent`'s new hook** (D4) gets its own test, with vendor names kept out: a Spec with `AuthPreferenceFunc`
   answering `["vendor.b"]` authenticates `vendor.b` though `AuthPreference` lists `vendor.a` first; answering nothing
   fails `ErrACPAuthRequired`. It is seen failing with the hook ignored.
+* *A3: **`acpagent`'s `CloseTimeout`** gets its own test: a Spec's bound replaces the 2 s one, and zero keeps it. It
+  is seen failing with the field ignored. The gobble Spec's 6 s is checked in its package (P2).*
 * *A2: **`acpagent`'s compaction meta source** gets its own test, vendor names kept out: a Spec with a `MetaHandler`
   for `vendor.a` receives that key's value from a `compaction_update` with `MetaFromCompaction`, after the
   compaction's event; a key with no handler is still declined, and the compaction event is unchanged. It is seen
@@ -806,6 +809,38 @@ The owner's comment on it adds that gobble-cli `v0.4.0` (`2e83cce`, 2026-11-08) 
 * Bad, because `acpagent` gains one `MetaSource` for one agent's need. It names no vendor, and any agent that puts
   facts in a compaction's `_meta` can use it.
 
+### A3. Amendment, 2026-11-09: the close bound (Q6), from the PLAN's P1 read
+
+The PLAN's P1 step 4 read gobble `v0.4.0`'s close and cancel paths (`acpserver/agent.go`), as D6 and Q6 asked:
+
+* a turn writes its entries with `context.WithoutCancel` (line 662), so a cancel does not stop its writes;
+* when a cancelled turn ends, the writer's `agent.End` case writes "the results of calls a cancel cut short"
+  (line 981), and only then does the turn release, closing `idle` (line 805);
+* `CloseSession` waits for `idle` up to `closeWait`, 5 s (lines 39-42), so that, in its comment's words, "its last
+  entries are written before the log closes" (line 1293);
+* this repository sends `session/close`, waits at most 2 s (`acpagent/session.go:1365-1366`), then kills the process
+  group.
+
+So a cancelled turn that takes 2 to 5 s to unwind loses its cut-short tool results when the daemon closes it, and a
+later `session/load` finds tool calls with no results. A write that returned before the kill is kept: the kill ends
+the process, and the kernel still holds what it wrote [inferred from how a process kill works; not tested]. So the
+risk is the entries not yet written, not the ones already written.
+
+**The owner's answer**, 2026-11-09, asked with options: *"CloseTimeout, gobble 6 s (Recommended)". Not chosen:
+`CloseTimeout` at 5 s, Q6's number, which can kill during gobble's own close work after its wait; keep 2 s for
+every agent.*
+
+**The decision.** `acpagent.Spec` gains `CloseTimeout time.Duration`: the bound on `session/close` at teardown, zero
+keeping `closeTimeout` (2 s). It names no vendor. The gobble Spec sets it to 6 s: gobble's 5 s `closeWait`, plus 1 s
+for what `CloseSession` does after it (closing MCP servers and the title job, closing the log, replying). Both are
+built under the PLAN: the field and its test in P1, the gobble value in P2.
+
+**Consequences of A3:**
+
+* Good, because a close no longer kills gobble while it is writing a cancelled turn's last entries.
+* Neutral, because every other agent keeps the 2 s bound.
+* Bad, because closing a gobble session that never answers `session/close` takes up to 6 s before the kill, not 2 s.
+
 ### Consequences
 
 * Good, because every gate outside this repository is met, and the work left is one package, one registration line,
@@ -914,6 +949,7 @@ Each has a recommended answer, which the decisions above assume.
 
   *D11's phone bullet says how the file is fetched.*
 * *Q6: decide after the PLAN reads gobble's close, with `Spec.CloseTimeout` as the fix if a kill can lose an entry.*
+  *Decided 2026-11-09 (A3): the read found a kill can lose entries; `Spec.CloseTimeout`, 6 s for gobble.*
 
 * **Q1. `AuthStatus`'s source.** Options: ask gobble-cli for `gobble auth status --json`, and use `auth check` per
   upstream until it lands; `auth check` per upstream only; read `auth.json` and the variables here (option E).
@@ -1016,3 +1052,6 @@ files there are gobble-cli's own pair, written on the owner's word (Q4, 2026-11-
   * acpext moves to `v0.2.0`, and gates 2, 3 and 6 are met again by `v0.4.0` (D5, D11, D13, D14).
 
   The Baselines gain a second dated re-read. The text before A2 is kept, with A2's changes marked in place.
+* **2026-11-09.** Amendment A3, from the PLAN's P1 step 4 read of gobble `v0.4.0`'s close: a 2 s kill can lose a
+  cancelled turn's last entries, so D6's fix is taken, `Spec.CloseTimeout`, at 6 s for gobble (owner's answer). Q6 is
+  decided.
