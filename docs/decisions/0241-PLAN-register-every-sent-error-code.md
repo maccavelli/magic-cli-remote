@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-11-08
+status: complete
+date: 2026-11-09
 associated-madr: "0241-MADR-register-every-sent-error-code.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -226,3 +226,14 @@ The owner committed P3's first part and pushed all three commits: "committed, an
   fixes the test. Not re-running CI alone, which would only hide the flake on this run.
 * **Effect on this plan.** Confirmation 4's CI item waits for the first green CI run after 0242's fix is pushed.
   This plan stays `in-progress` until then. No step, file or decision of this pair changes.
+
+### P3, completed — 2026-11-09: CI, and the plan closed
+
+* 0242's fix landed as `13ab62ed`. CI run `42661561990` on it, which also covers this plan's `711201e9`: success,
+  on its second attempt. The first attempt's jobs all passed except Go (darwin/arm64), which GitHub cancelled
+  before it started for want of a macOS runner; the owner had that one job re-run, and it passed. The detail is in
+  [0242-PLAN-wait-for-the-agents-commands-in-the-silent-command-tests.md](0242-PLAN-wait-for-the-agents-commands-in-the-silent-command-tests.md),
+  P2.
+* **Confirmation 4, completed:** its last item, CI on the push, is met by run `42661561990`, success. The P3
+  table's row, "CI: pending the push", is left as written, since it records the state at the time.
+* This plan `complete`. The MADR has been `accepted` since P0.

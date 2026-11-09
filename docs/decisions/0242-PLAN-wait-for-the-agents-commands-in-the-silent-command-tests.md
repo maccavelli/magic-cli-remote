@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-09
 associated-madr: "0242-MADR-wait-for-the-agents-commands-in-the-silent-command-tests.md"
 ---
@@ -160,3 +160,31 @@ Scripts and logs are in the session scratchpad (`0242-p1-failfirst.log`, `0242-o
   tests. No decision, step or file changes: D1 covers both paths, and the four-test run above is the evidence.
 * After the amendment: `check_records.py --write-index`; `make check-records markdownlint-docs`; the redact preview.
   **Staged:** the test file, this pair.
+
+The owner committed P0 as `33a4a6c3` and P1 as `13ab62ed`, and pushed both.
+
+### P2 — 2026-11-09: close-out
+
+* **CI on the push** (step 1): run `42661561990`, on `13ab62ed`.
+  * **Attempt 1:** every job that ran passed. That includes Go (test), whose step "Test (race, all packages)" is
+    the one that failed on `85865449`. Go (darwin/arm64) never started: GitHub cancelled it after 15 minutes
+    queued, with "The job was not acquired by Runner of type hosted even after multiple attempts" and a notice on
+    macOS arm64 runner capacity. No step ran, so no test result was hidden.
+  * **Attempt 2:** on the owner's word ("re-run the job"), `gh run rerun 42661561990 --failed` re-ran that one job.
+    It waited about 10 minutes for a runner, then passed. The run's conclusion: **success**.
+  * Passed: Go (test), Go (linux/arm64), Go (windows/amd64), Go (darwin/arm64), Flutter (analyze & test),
+    Flutter (test on windows), Live supervisors (runit, s6). Skipped, as on every push that is not a tag:
+    Android APK (release arm64), Build self-update release, Publish self-update release.
+* **The MADR's Confirmation:**
+
+  | Confirmation | Evidence |
+  | :--- | :--- |
+  | 1 fails on HEAD one-CPU, passes with D1 | P1: 140 of 500 failed before; the four tests, 2,000 runs, none after |
+  | 2 planted breaks fail on their own messages | P1 step 3's table; neither hit the setup's timeout |
+  | 3 tests, race, pre-add | P1: package ok, `make race` 49 `ok`, pre-add clean |
+  | 4 records, CI | `make check-records` exit 0; CI run `42661561990` success |
+
+* This plan `complete`, the MADR `accepted`. The 0241 PLAN `complete`, with its Confirmation 4 row updated
+  (step 2).
+* `check_records.py --write-index`, which left `docs/README.md` unchanged; `make check-records markdownlint-docs`:
+  exit 0; the redact preview: 0 files. **Staged:** this pair and the 0241 PLAN.

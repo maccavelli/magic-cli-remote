@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-09
 decision-makers: Project Owner
 consulted: "the CI log of run 42631805993, job Go (test); internal/session/silent_test.go, manager.go, commands.go and silent.go; internal/command/command.go; local repeat runs on HEAD"
