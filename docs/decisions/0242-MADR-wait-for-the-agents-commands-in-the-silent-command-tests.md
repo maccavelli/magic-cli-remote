@@ -14,6 +14,7 @@ informed: anyone writing a test against remote_commands in internal/session
 `TestSilentMarkMakesTheCanonicalCommandUnavailable` (`internal/session/silent_test.go:262`) failed in CI on the push
 that carried [0241-MADR-register-every-sent-error-code.md](0241-MADR-register-every-sent-error-code.md). 0241 changed
 nothing in this package. The question this record answers: why does the test fail on timing, and what should change?
+Line numbers in `silent_test.go` are as of `85865449`, before the fix.
 
 ### F1. The failure [observed 2026-11-09]
 
@@ -51,11 +52,26 @@ written to `ci-flakes.tsv`. The ledger has no row for this test or for `internal
 
 One CPU makes the pump's goroutine wait for the test's, which is the order a loaded CI runner can produce.
 
-### F4. A second test has the same read [observed]
+The other three tests in the file, run the same way on HEAD (`-race -cpu=1 -count=300`, stopped by `go test`'s
+10-minute limit before the count was reached) [observed 2026-11-09, A1]:
 
-`TestMarkFromAnotherHostIsIgnored` (`silent_test.go:285`) reads `/loop` right after the same setup
-(`silent_test.go:293`) and expects it available. It can fail the same way. The other two tests in the file,
-`TestSilentCommandIsMarked` and `TestCommandsWithOutputAreNotMarked`, do not read `/loop`'s availability.
+| Test | Failures | Message |
+| :--- | :--- | :--- |
+| `TestSilentCommandIsMarked` | 92 | `timed out waiting for /quiet turn` |
+| `TestCommandsWithOutputAreNotMarked` | 81 | `timed out waiting for /loud turn` |
+| `TestMarkFromAnotherHostIsIgnored` | 70 | `/loop was made unavailable by another host's mark: … Reason:this agent doesn't offer it` |
+
+### F4. All four tests share the race, through two paths [observed; amended 2026-11-09, A1]
+
+* **Reading `/loop`.** `TestMarkFromAnotherHostIsIgnored` (`silent_test.go:285`) reads `/loop` right after the same
+  setup and expects it available, as `TestSilentMarkMakesTheCanonicalCommandUnavailable` does.
+* **Sending an agent command.** `TestSilentCommandIsMarked` and `TestCommandsWithOutputAreNotMarked` send `/quiet`,
+  `/loud` and `/modeonly` right after the setup. Those are the agent's commands, not canonical ones, so the daemon
+  forwards one only once the agent has advertised it. Before then, `Prompt` sends an "isn't available over the
+  remote" notice and starts no turn (`internal/session/manager.go:2753-2762`), and the test's `run` helper times
+  out waiting for the turn to end (`silent_test.go:215-221`).
+
+The setup's wait is the one cause, and D1 removes it for all four.
 
 ### F5. Earlier failures [observed]
 
@@ -140,6 +156,15 @@ tests' assertions read, needs one line of test code, and changes no daemon code.
 * Bad, because the race step is not retried, so about one run in four on a loaded runner fails (F3), on any push.
 
 ## More Information
+
+### Amendments
+
+* **A1, 2026-11-09, during P1.** F4 as accepted read: "`TestMarkFromAnotherHostIsIgnored` … can fail the same way.
+  The other two tests in the file, `TestSilentCommandIsMarked` and `TestCommandsWithOutputAreNotMarked`, do not read
+  `/loop`'s availability." The second sentence was true, but implied those two were safe. A one-CPU run on HEAD
+  showed them failing too, through the refusal of an agent command not yet advertised (F3's second table, F4 as
+  amended). No decision changes: D1 waits for the agent's commands, which both paths need. The owner chose to amend
+  the record ("Amend MADR + PLAN").
 
 ### Related
 

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-11-09
 associated-madr: "0242-MADR-wait-for-the-agents-commands-in-the-silent-command-tests.md"
 ---
@@ -13,9 +13,8 @@ Associated MADR: [0242-MADR-wait-for-the-agents-commands-in-the-silent-command-t
 
 When this plan is done:
 
-* `newSilentManager` waits until `/loop` shows the agent's commands (MADR D1), so neither
-  `TestSilentMarkMakesTheCanonicalCommandUnavailable` nor `TestMarkFromAnotherHostIsIgnored` depends on goroutine
-  order;
+* `newSilentManager` waits until `/loop` shows the agent's commands (MADR D1), so none of the four tests in
+  `silent_test.go` depends on goroutine order (MADR F4, as amended by A1 on 2026-11-09; this line first named two);
 * both tests' assertions are unchanged, and each still fails on its own message when its behaviour breaks (D2);
 * CI is green on the push, which also closes
   [0241-PLAN-register-every-sent-error-code.md](0241-PLAN-register-every-sent-error-code.md)'s last open item.
@@ -106,4 +105,58 @@ When this plan is done:
 
 ## Execution record
 
-Nothing executed yet.
+### P0 — 2026-11-09: the records
+
+* This pair, `proposed`; the 0241 PLAN's deviation entry naming it.
+* `check_records.py --write-index`; `make check-records markdownlint-docs`: exit 0; the redact preview: 0 files.
+* **Staged** for the owner's commit: this pair, the 0241 PLAN and `docs/README.md`.
+
+The owner committed P0 and approved the plan: "committed, proceed".
+
+### P1 — 2026-11-09: the wait
+
+Scripts and logs are in the session scratchpad (`0242-p1-failfirst.log`, `0242-other-silent.log`,
+`0242-p1-fixed.log`, `p1_0242_planted.py`, `0242-planted.log`, `0242-preadd.log`, `0242-session.log`,
+`0242-race.log`).
+
+* **Start state (C1).** Clean tree. `master` one commit ahead of `origin/master`: the owner's P0 commit, not yet
+  pushed.
+* **Seen failing on today's code** (step 1): `-race -cpu=1 -count=500` on
+  `TestSilentMarkMakesTheCanonicalCommandUnavailable`, exit 1, 140 of 500 failed, every one with:
+
+  ```text
+  silent_test.go:265: /loop unavailable before any mark: {Name:loop … Available:false Reason:this agent doesn't offer it}
+  ```
+
+* **The change** (step 2), as written: the wait in `newSilentManager`, its label and comment. Nothing else in the
+  file changed.
+* **Checks** (step 3):
+  * the four tests, `-race -cpu=1 -count=500`, with the change: exit 0, no `--- FAIL`, panic or race line
+    (2,000 runs);
+  * **planted breaks** (`p1_0242_planted.py`, a scratch clone of HEAD with the changed test file): unplanted, exit 0.
+    Then each break, exit 1, failing only the expected test, never with the setup's "timed out waiting for the
+    agent's commands resolved":
+
+    | Break | Failed | Message |
+    | :--- | :--- | :--- |
+    | `silentMarks.commands` ignores the host | `TestMarkFromAnotherHostIsIgnored` | `/loop was made unavailable by another host's mark: … Reason:it produced nothing over the remote connection` |
+    | `silentMarks.commands` returns nothing | `TestSilentMarkMakesTheCanonicalCommandUnavailable` | `timed out waiting for /loop unavailable` |
+
+    The clone was removed and checked gone.
+  * `make pre-add-check FILES="internal/session/silent_test.go"`: "1 file(s) clean (gofmt, golint, govulncheck)".
+  * `go test -race -count=1 ./internal/session/`: ok.
+  * `make race`: exit 0, 49 `ok` lines, no FAIL, panic or race line.
+
+### Deviation — 2026-11-09: two more tests share the race (MADR A1)
+
+* **Found.** A one-CPU run on HEAD of the other three tests (`-race -cpu=1 -count=300`, started during P0 and
+  stopped by `go test`'s 10-minute limit) failed all three: `TestSilentCommandIsMarked` 92 times ("timed out waiting
+  for /quiet turn"), `TestCommandsWithOutputAreNotMarked` 81 times ("timed out waiting for /loud turn"),
+  `TestMarkFromAnotherHostIsIgnored` 70 times. The MADR's F4 had implied the first two were safe. They fail because
+  an agent command sent before the agent has advertised it is refused with a notice and starts no turn
+  (`manager.go:2753-2762`).
+* **Decision.** The owner chose "Amend MADR + PLAN": F3 gains the three tests' table, F4 is corrected and marked
+  A1, and the MADR's More Information records A1 with the original wording. This plan's Goal now names all four
+  tests. No decision, step or file changes: D1 covers both paths, and the four-test run above is the evidence.
+* After the amendment: `check_records.py --write-index`; `make check-records markdownlint-docs`; the redact preview.
+  **Staged:** the test file, this pair.

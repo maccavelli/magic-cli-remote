@@ -201,7 +201,13 @@ func newSilentManager(t *testing.T, dir string) (*Manager, *silentProvider, *sil
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitUntil(t, "commands advertised", func() bool { _, ok := sink.advertised("loop"); return ok })
+	// Wait for the agent's own commands, not just a list: Create sends one
+	// before they arrive, with /loop unavailable (0242-MADR F2). Once they
+	// are resolved, /loop is available or carries a silent mark.
+	waitUntil(t, "the agent's commands resolved", func() bool {
+		c, ok := sink.advertised("loop")
+		return ok && (c.Available || c.Reason == command.ReasonSilent)
+	})
 	return m, p, sink, meta.ID
 }
 
