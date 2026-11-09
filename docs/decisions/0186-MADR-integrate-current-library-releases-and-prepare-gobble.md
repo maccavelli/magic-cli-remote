@@ -500,6 +500,12 @@ decision above, this amendment governs, and the original text stays as what was 
     as it does for grok's auth methods.
   * Magic adds no per-provider environment for gobble's keys.
   * gobble is not registered until it advertises an auth method.
+  * *Note, 2026-11-09:
+    [0179-MADR-gobble-native-acp-provider.md](0179-MADR-gobble-native-acp-provider.md) D3 and D4 implement this
+    answer. gobble advertises one ACP agent method per key provider. The phone's provider-auth writes gobble's
+    credential store through gobble's own CLI (`gobble auth login`, the key on stdin), not through ACP. The handshake
+    authenticates an upstream that has a credential, through an agent-neutral `acpagent` hook. The answer above is
+    kept as given.*
 * **Q5 — Magic only warns about gobble's version.** The version pin, on D8's full-SemVer comparison,
   reports a gobble that does not match its known-good release. The operator runs `gobble update`,
   and Magic never runs it.

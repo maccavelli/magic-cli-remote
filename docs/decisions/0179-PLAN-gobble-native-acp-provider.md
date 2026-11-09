@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-11-09
 associated-madr: "0179-MADR-gobble-native-acp-provider.md"
 ---
@@ -635,3 +635,19 @@ On the owner's "amend 0179 for #37", with the owner's answers: "No handler; v0.4
   and 9 cover them.
 * **The Goal and the Verification table** say the same.
 * No phase has started, and no source is in this amendment. The status stays `proposed`.
+
+The owner committed A2 as `654b5a39`, then asked: "update the issue, and post. then proceed." A comment summarizing
+A2 was posted on issue #37 (`issuecomment-6747718973`).
+
+## P0 — 2026-11-09: the records
+
+* **Start state (C1).** Clean tree. `master` one commit ahead of `origin/master`: A2's `654b5a39`, not yet pushed.
+* **Step 1.** `0186-MADR-integrate-current-library-releases-and-prepare-gobble.md`'s Q4 answer gains a dated italic
+  note, as its last bullet: 0179 D3 and D4 implement it; gobble advertises one agent method per key provider; the
+  phone writes gobble's store through gobble's own CLI, with the key on stdin; the handshake authenticates an
+  upstream that has a credential, through an agent-neutral hook. Q4's answer is unchanged.
+* **Step 2.** `docs/README.md` had no uncommitted change (`git diff --quiet`, exit 0). `check_records.py
+  --write-index` then left it unchanged: the index already lists this pair and 0186 as they stand.
+* **Step 3.** `make check-records markdownlint-docs`: exit 0. The redact preview: 0 files.
+* **Staged** for the owner's commit: this plan and the 0186 MADR. The status is `in-progress`: P0 is done, and P1
+  waits for the owner's word ("do P1").
