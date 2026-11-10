@@ -256,8 +256,10 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
               // Switching is only meaningful with somewhere to switch to, so
               // the control appears only when at least two upstreams are
               // configured (MADR 0074 D14). This is the no-credentials escape
-              // from a quota-blocked vendor that MADR 0073 needed.
-              if (_configuredUpstreams(p).length > 1)
+              // from a quota-blocked vendor that MADR 0073 needed. An agent
+              // that cannot switch says so, and gets no control (MADR 0244 D4).
+              if (_configuredUpstreams(p).length > 1 &&
+                  !auth.upstreamSwitchUnsupported)
                 ListTile(
                   key: Key('provider-active-upstream-${p.id}'),
                   leading: const Icon(Icons.swap_horiz),

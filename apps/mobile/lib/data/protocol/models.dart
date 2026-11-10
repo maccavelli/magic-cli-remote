@@ -1593,11 +1593,17 @@ class ProviderAuthInfo {
     required this.status,
     this.activeUpstream,
     this.upstreams = const [],
+    this.upstreamSwitchUnsupported = false,
   });
 
   final String status;
   final String? activeUpstream;
   final List<UpstreamAuth> upstreams;
+
+  /// True when the agent cannot switch its active upstream, so the phone
+  /// offers no switch (MADR 0244 D4). An older daemon never sends it, which
+  /// reads as false: today's "may switch".
+  final bool upstreamSwitchUnsupported;
 
   static ProviderAuthInfo? tryParse(Object? raw) {
     if (raw is! Map) return null;
@@ -1609,6 +1615,7 @@ class ProviderAuthInfo {
           .whereType<Map<dynamic, dynamic>>()
           .map((u) => UpstreamAuth.fromJson(Map<String, dynamic>.from(u)))
           .toList(),
+      upstreamSwitchUnsupported: m['upstream_switch_unsupported'] == true,
     );
   }
 }

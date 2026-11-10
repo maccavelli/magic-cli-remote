@@ -112,6 +112,7 @@ ProviderInfo providerWith(
   String? active,
   bool ready = true,
   bool? prewarm,
+  bool switchUnsupported = false,
 }) => ProviderInfo(
   id: id,
   ready: ready,
@@ -120,6 +121,7 @@ ProviderInfo providerWith(
     status: AuthStatus.configured,
     activeUpstream: active,
     upstreams: ups,
+    upstreamSwitchUnsupported: switchUnsupported,
   ),
 );
 

@@ -166,3 +166,36 @@ Scripts and logs are in the session scratchpad (`p1_0244_planted.py`, `0244-p1-*
   seven Go files (`internal/provider/auth.go`, `auth_conformance_test.go`, `acpagent/acpagent.go`,
   `httpagent/httpagent.go`, `internal/ws/server.go`, `credential_write_test.go`, `internal/protocol/messages.go`),
   `docs/guides/protocol-v1.md`, and this plan.
+
+The owner committed P1 (`33bffce8`) and accepted the MADR: "accept madr 0244. committed staged, proceed". The MADR is
+`accepted`.
+
+### P2 — 2026-11-10: the phone
+
+Scripts and logs are in the session scratchpad (`p2_0244_planted.py`, `0244-p2-*.log`, `0244-p2b-*.log`).
+
+* **Start state (C1).** HEAD `33bffce8`; 0179 P4's files unstaged, as C1 names, and untouched.
+* **Step 1.** `ProviderAuthInfo.upstreamSwitchUnsupported` (`lib/data/protocol/models.dart`), read as
+  `upstream_switch_unsupported == true`, so an absent field is false. Nothing else builds or copies the class.
+* **Step 2.** `provider_detail_screen.dart`: the "Active upstream" control needs two or more configured upstreams and
+  the flag unset.
+* **Step 3, the tests** (`test/provider_detail_screen_test.dart`): two configured upstreams with the flag show no
+  control; the parse reads the flag, and reads an absent one, as an older daemon sends, as false. The test helper
+  `providerWith` (`test/provider_test_fakes.dart`) gains `switchUnsupported`, false by default, so the existing switch
+  tests send no flag and pass unchanged.
+* **Seen failing (C2),** a scratch clone of HEAD with the four files. Unplanted, exit 0. Each break, exit 1:
+
+  | Break | Failing test |
+  | :--- | :--- |
+  | the screen ignores the flag | `two configured upstreams on an agent that cannot switch: no control (MADR 0244 D4) [E]` |
+  | the field is not read | `the auth block reads upstream_switch_unsupported; absent, as from an older daemon, is false (MADR 0244 D4) [E]` |
+  | absent reads as unsupported | the same test |
+
+  The clone was removed.
+* **The Dart gates (C3),** on that clone. The first run's `flutter analyze` found one issue, mine:
+  `unnecessary_import` for the `models.dart` import added to the screen test, whose names `app_providers.dart` already
+  provides. The import was removed, and the whole run repeated: breaks caught as above, `dart format
+  --output=none --set-exit-if-changed .` exit 0, `flutter analyze` "No issues found!", `flutter test` "+1523 ~3: All
+  tests passed!" (two more than before, three skipped as before).
+* `make check-records markdownlint-docs` and the redact preview, then **staged** by path for the owner's commit: the
+  four Dart files, the MADR (`accepted`), and this plan. No Go file changed in this phase.

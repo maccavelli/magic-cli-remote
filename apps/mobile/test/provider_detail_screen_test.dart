@@ -150,6 +150,44 @@ void main() {
     );
   });
 
+  testWidgets(
+    'two configured upstreams on an agent that cannot switch: no control (MADR 0244 D4)',
+    (tester) async {
+      await pump(
+        tester,
+        providers: [
+          providerWith(
+            'kilo',
+            const [configuredTogether, configuredDeepseek],
+            active: 'together',
+            switchUnsupported: true,
+          ),
+        ],
+      );
+      expect(
+        find.byKey(const Key('provider-active-upstream-kilo')),
+        findsNothing,
+      );
+    },
+  );
+
+  test('the auth block reads upstream_switch_unsupported; '
+      'absent, as from an older daemon, is false (MADR 0244 D4)', () {
+    expect(
+      ProviderAuthInfo.tryParse({
+        'status': 'configured',
+        'upstream_switch_unsupported': true,
+      })!.upstreamSwitchUnsupported,
+      isTrue,
+    );
+    expect(
+      ProviderAuthInfo.tryParse({
+        'status': 'configured',
+      })!.upstreamSwitchUnsupported,
+      isFalse,
+    );
+  });
+
   testWidgets('switching upstreams goes through the client', (tester) async {
     final (client, _) = await pump(
       tester,

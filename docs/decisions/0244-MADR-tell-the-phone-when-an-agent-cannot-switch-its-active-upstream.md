@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-10
 decision-makers: Project Owner
 consulted: "this repository at the commit after 0243 P5 (master, level with origin/master), read from code: internal/provider/auth.go, acpagent/acpagent.go, httpagent/httpagent.go, kilo/upstream.go, auth_conformance_test.go, internal/ws/server.go and credential_write_test.go, internal/protocol/messages.go, docs/guides/protocol-v1.md, apps/mobile/lib/features/settings/provider_detail_screen.dart, apps/mobile/lib/data/protocol/models.dart and apps/mobile/test/provider_detail_screen_test.dart; 0074, 0083 and 0214's MADRs; 0179's PLAN P4"
