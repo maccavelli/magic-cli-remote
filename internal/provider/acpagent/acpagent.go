@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/acp-go-sdk2/agentproc"
+	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -212,6 +213,12 @@ type Spec struct {
 	// marker (MADR 0214 D14, as corrected). A session_info_update
 	// `_meta` key with no handler is declined, as every key was before.
 	MetaHandlers map[string]MetaHandler
+	// ErrorLimit, when set, reads a failed prompt's raw error for the
+	// agent's own structured limit data, which wins over what
+	// internal/agenterr reads from the text: each non-empty field of limit
+	// replaces the text's, and a non-zero resetAt replaces its reset. ok
+	// false leaves the text's reading alone (MADR 0243 D3 source 1).
+	ErrorLimit func(raw string) (limit agenterr.Limit, resetAt time.Time, ok bool)
 	// ClientCapabilities, when non-nil, is what initialize advertises to this
 	// agent in place of defaultClientCapabilities: an agent can be given less
 	// than Magic implements, such as no fs or terminal for an agent that runs

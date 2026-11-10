@@ -731,10 +731,24 @@ type Event struct {
 	// internal/agenterr.Kind; docs/guides/protocol-v1.md documents the wire
 	// contract.
 	ErrorKind string `json:"error_kind,omitempty"`
+	// See also the Limit fields below, which say which limit a quota or
+	// rate_limit error hit.
 
 	// RetryAt is when a quota/rate limit is expected to lift, when the
 	// provider's error message said so. Zero (omitted) when unknown.
 	RetryAt time.Time `json:"retry_at,omitzero"`
+
+	// The Limit fields describe a quota or rate limit on an error event, as
+	// far as the agent's error states it (MADR 0243 D3, D5); each is omitted
+	// when unknown. LimitScope is one of internal/agenterr's Scope constants
+	// (rate, window, daily, weekly, monthly, credits, free_tier, plan), an
+	// open set; LimitWindowMinutes is a rolling window's stated length;
+	// LimitProvider is the upstream the agent named; LimitCode is the
+	// provider's own error code.
+	LimitScope         string `json:"limit_scope,omitempty"`
+	LimitWindowMinutes int    `json:"limit_window_minutes,omitempty"`
+	LimitProvider      string `json:"limit_provider,omitempty"`
+	LimitCode          string `json:"limit_code,omitempty"`
 
 	// SteerMessage is a provider-supplied instruction to submit as the NEXT
 	// turn's user input if the operator confirms continuation. It is set only

@@ -175,6 +175,7 @@ func (p *Provider) bindSpec(s *session) {
 	s.extRequestHandlers = p.spec.ExtensionRequests
 	s.ops = p.spec.Ops
 	s.closeTimeout = p.closeTimeout()
+	s.errorLimit = p.spec.ErrorLimit
 	if p.spec.NewSessionState != nil {
 		s.specState = p.spec.NewSessionState()
 	}

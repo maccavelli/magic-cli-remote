@@ -42,6 +42,27 @@ func TestGobbleQuotaEndToEnd(t *testing.T) {
 	}
 }
 
+// TestRefineGivesAScopeItsKind is D3 source 1: an agent's structured scope
+// makes an unclassified error a quota, or a rate limit for ScopeRate, and
+// leaves an auth error alone.
+func TestRefineGivesAScopeItsKind(t *testing.T) {
+	for _, tc := range []struct {
+		from  Kind
+		scope string
+		want  Kind
+	}{
+		{KindNone, ScopeWeekly, KindQuota},
+		{KindServer, ScopeFreeTier, KindQuota},
+		{KindNone, ScopeRate, KindRateLimit},
+		{KindAuth, ScopeCredits, KindAuth},
+	} {
+		got := Refine(Classification{Kind: tc.from}, Limit{Scope: tc.scope}, time.Time{}, now)
+		if got.Kind != tc.want || got.Limit.Scope != tc.scope {
+			t.Errorf("Refine(%q, %q) = kind %q scope %q, want %q", tc.from, tc.scope, got.Kind, got.Limit.Scope, tc.want)
+		}
+	}
+}
+
 // TestRetryAfterGoDuration is D2: the SDK's Go-duration retry-after, compound
 // and fractional, sets the reset; the older formats still parse.
 func TestRetryAfterGoDuration(t *testing.T) {

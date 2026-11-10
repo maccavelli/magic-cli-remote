@@ -61,6 +61,8 @@ type session struct {
 	// closeTimeout bounds session/close at teardown: the Spec's CloseTimeout
 	// or the package's, set by bindSpec; zero (no bindSpec) is the package's.
 	closeTimeout time.Duration
+	// errorLimit is the Spec's ErrorLimit, set by bindSpec (MADR 0243).
+	errorLimit func(raw string) (agenterr.Limit, time.Time, bool)
 	// procExited is closed once the agent's process has exited (agentproc's
 	// Done); nil when the session runs on a connection it was given. Close
 	// waits on it (MADR 0179 A5).
@@ -727,19 +729,21 @@ func (s *session) tryDrainQueue() {
 	// is long gone; cancel/close remain the stop paths.
 	if err := s.beginTurn(context.Background(), next, false); err != nil {
 		s.log.Warn("queued prompt failed", slog.String("err", err.Error()))
-		cls := agenterr.Present(err.Error(), time.Now())
+		cls := s.present(err.Error(), time.Now())
 		msg := cls.Message
 		if msg == "" {
 			msg = sanitizeUserFacingErr(err)
 		}
-		s.emit(event.Event{
+		ev := event.Event{
 			Type:      event.TypeError,
 			SessionID: s.localID,
 			Timestamp: time.Now().UTC(),
 			Error:     msg,
 			ErrorKind: string(cls.Kind),
 			RetryAt:   cls.ResetAt,
-		})
+		}
+		withLimit(&ev, cls.Limit)
+		s.emit(ev)
 		// Keep draining remaining items so one failure does not strand the queue.
 		s.tryDrainQueue()
 	}
@@ -779,7 +783,7 @@ func (s *session) emitClassifiedTurnErrorConfirmed(raw string) {
 }
 
 func (s *session) emitClassifiedTurnErrorWith(raw, planUsage string) {
-	cls := agenterr.Present(raw, time.Now())
+	cls := s.present(raw, time.Now())
 	msg := cls.Message
 	if msg == "" {
 		msg = strings.TrimSpace(raw)
@@ -798,20 +802,46 @@ func (s *session) emitClassifiedTurnErrorWith(raw, planUsage string) {
 		StopReason: "error",
 		Status:     "error",
 	})
-	s.emit(event.Event{
+	ev := event.Event{
 		Type:      event.TypeError,
 		SessionID: s.localID,
 		Timestamp: now,
 		Error:     msg,
 		ErrorKind: string(cls.Kind),
 		RetryAt:   cls.ResetAt,
-	})
+	}
+	withLimit(&ev, cls.Limit)
+	s.emit(ev)
 	s.emit(event.Event{
 		Type:      event.TypeSessionStatus,
 		SessionID: s.localID,
 		Timestamp: now,
 		Status:    "error",
 	})
+}
+
+// present classifies a failed prompt's raw error: agenterr's reading of the
+// text, with the Spec's structured limit data over it when the agent sent
+// some (MADR 0243 D3).
+func (s *session) present(raw string, now time.Time) agenterr.Classification {
+	cls := agenterr.Present(raw, now)
+	if s.errorLimit == nil {
+		return cls
+	}
+	l, reset, ok := s.errorLimit(raw)
+	if !ok {
+		return cls
+	}
+	return agenterr.Refine(cls, l, reset, now)
+}
+
+// withLimit copies a classification's limit onto an error event (MADR 0243
+// D5).
+func withLimit(ev *event.Event, l agenterr.Limit) {
+	ev.LimitScope = l.Scope
+	ev.LimitWindowMinutes = l.WindowMinutes
+	ev.LimitProvider = l.Provider
+	ev.LimitCode = l.Code
 }
 
 // noteEngineLogLine is invoked for each complete agent stderr line. When the

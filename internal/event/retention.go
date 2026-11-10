@@ -137,6 +137,7 @@ func Bytes(ev *Event) int {
 	n += len(ev.SessionID) + len(string(ev.Type)) + len(ev.Status) + len(ev.Text)
 	n += len(ev.ToolID) + len(ev.ToolName) + len(ev.ToolKind) + len(ev.Error)
 	n += len(ev.Title) + len(ev.ErrorKind) + len(ev.PermissionID) + len(ev.SteerMessage)
+	n += len(ev.LimitScope) + len(ev.LimitProvider) + len(ev.LimitCode)
 	n += len(ev.DeviceID) + len(ev.OptionID) + len(ev.QuestionID)
 	n += len(ev.ApprovalGroupID) + len(ev.AgentSessionID) + len(ev.StopReason)
 	n += len(ev.CurrentModeID) + len(ev.ApprovalsReviewer)

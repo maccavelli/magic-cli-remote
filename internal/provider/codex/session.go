@@ -1745,36 +1745,29 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 		// approaching" as a notice at >= 90.
 		var p struct {
 			RateLimits struct {
-				Primary *struct {
-					UsedPercent        int   `json:"usedPercent"`
-					WindowDurationMins int   `json:"windowDurationMins"`
-					ResetsAt           int64 `json:"resetsAt"`
-				} `json:"primary"`
+				Primary   *codexRateWindow `json:"primary"`
+				Secondary *codexRateWindow `json:"secondary"`
 			} `json:"rateLimits"`
 		}
-		if err := json.Unmarshal(params, &p); err != nil || p.RateLimits.Primary == nil {
+		if err := json.Unmarshal(params, &p); err != nil {
 			break
 		}
-		prim := p.RateLimits.Primary
-		var resetAt time.Time
-		if prim.ResetsAt > 0 {
-			resetAt = time.Unix(prim.ResetsAt, 0).UTC()
+		// Both windows (MADR 0243 D6): codex's primary is its short window
+		// (5 hours) and its secondary a long one (a week). The one at 100%
+		// is the limit hit; when both are, the later reset is the one that
+		// binds.
+		w := hitWindow(p.RateLimits.Primary, p.RateLimits.Secondary)
+		if w != nil {
+			s.emit(w.limitError(s.localID, now))
+			break
 		}
-		if prim.UsedPercent >= 100 {
-			s.emit(event.Event{
-				Type:      event.TypeError,
-				SessionID: s.localID,
-				Timestamp: now,
-				ErrorKind: "rate_limit",
-				RetryAt:   resetAt,
-				Error: fmt.Sprintf(
-					"Codex rate limit reached (%d%% of the current window). Wait for the window to reset, or try again later.",
-					prim.UsedPercent),
-			})
-		} else if prim.UsedPercent >= 90 {
-			text := fmt.Sprintf("Approaching codex rate limit (%d%% of the current window).", prim.UsedPercent)
-			if !resetAt.IsZero() {
-				text += fmt.Sprintf(" Resets at %s.", resetAt.Local().Format(time.Kitchen))
+		for _, w := range []*codexRateWindow{p.RateLimits.Primary, p.RateLimits.Secondary} {
+			if w == nil || w.UsedPercent < 90 {
+				continue
+			}
+			text := fmt.Sprintf("Approaching codex %s limit (%d%% used).", w.name(), w.UsedPercent)
+			if r := w.resetAt(); !r.IsZero() {
+				text += fmt.Sprintf(" Resets at %s.", r.Local().Format(time.Kitchen))
 			}
 			s.emit(event.Event{
 				Type:      event.TypeNotice,

@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Limit describes the usage limit a quota or rate-limit error hit, from the
@@ -162,6 +163,48 @@ func describeLimit(msg string, kind Kind) Limit {
 		l.Scope = ScopeRate
 	}
 	return l
+}
+
+// Refine is c with an agent's own structured limit data over what the text
+// gave (MADR 0243 D3 source 1): each non-empty field of l replaces c's, and a
+// non-zero reset replaces c's reset. A scope makes a classification with no
+// kind a quota, or a rate limit for ScopeRate. The message is rebuilt from
+// the provider's words, with when the limit lifts, when there are some.
+func Refine(c Classification, l Limit, reset, now time.Time) Classification {
+	if l.Scope != "" {
+		c.Limit.Scope = l.Scope
+		if c.Kind == KindNone || c.Kind == KindServer {
+			c.Kind = KindQuota
+			if l.Scope == ScopeRate {
+				c.Kind = KindRateLimit
+			}
+		}
+	}
+	if l.WindowMinutes > 0 {
+		c.Limit.WindowMinutes = l.WindowMinutes
+	}
+	if l.Provider != "" {
+		c.Limit.Provider = l.Provider
+	}
+	if l.Code != "" {
+		c.Limit.Code = l.Code
+	}
+	if l.ProviderMessage != "" {
+		c.Limit.ProviderMessage = l.ProviderMessage
+	}
+	if !reset.IsZero() {
+		c.ResetAt = reset
+	}
+	if c.Kind != KindQuota && c.Kind != KindRateLimit {
+		return c
+	}
+	if pm := cleanRaw(c.Limit.ProviderMessage); isUsefulProse(pm) {
+		if !c.ResetAt.IsZero() && !containsResetHint(pm) {
+			pm += " " + resetSuffix(c.ResetAt, now)
+		}
+		c.Message = pm
+	}
+	return c
 }
 
 // stripWrappers removes leading agent and SDK prefixes from msg.

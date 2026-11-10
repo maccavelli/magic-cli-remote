@@ -1448,6 +1448,22 @@ replace the card detail with non-empty incoming text snapshots.
 - `retry_at`: on classified `error` events, an RFC 3339 instant for when the
   limit is expected to lift, when the provider's message carried one. Absent
   when unknown.
+- `limit_scope`, `limit_window_minutes`, `limit_provider`, `limit_code`: on
+  `error` events whose `error_kind` is `quota` or `rate_limit`, which limit was
+  hit, as far as the agent's error states it (MADR 0243). Each is absent when
+  unknown; the daemon never infers a window from how long the wait is.
+  - `limit_scope`: `rate` (throttling), `window` (a rolling window of stated
+    length, such as 5 hours), `daily`, `weekly`, `monthly`, `credits` (a balance
+    or billing limit that does not lift by time), `free_tier`, or `plan` (a
+    plan's usage limit whose window is not stated). The set is additive:
+    clients must treat an unknown value as no scope.
+  - `limit_window_minutes`: a `window` scope's stated length, such as `300`.
+  - `limit_provider`: the upstream the agent named, such as `opencode-zen`.
+  - `limit_code`: the provider's own error code, such as
+    `FreeUsageLimitError`.
+
+  On these events `error` is the provider's own words when the agent passed
+  them on, with when the limit lifts.
 - `steer_message`: on `error` events where the agent refused a turn and supplied
   both an explanation and a way forward, the instruction a client may submit as
   the **next turn's user input** if the operator confirms continuation. Present

@@ -203,3 +203,62 @@ Scripts and logs are in the session scratchpad (`agenterr-probe/`, `p1_0243_plan
   `make vet-tags`.
 * `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit:
   `internal/agenterr/agenterr.go`, `limit.go`, `limit_test.go`, this pair.
+
+The owner committed P1: "committed, proceed".
+
+### P2 — 2026-11-09: the wire, `acpagent` and codex
+
+Scripts and logs are in the session scratchpad (`p2_0243_planted.py`, `0243-p2-*.log`).
+
+* **Start state (C1).** Clean tree, five commits ahead of `origin/master`, none of them this phase's.
+* **Step 1.** `event.Event` gains `LimitScope`, `LimitWindowMinutes`, `LimitProvider`, `LimitCode` (`limit_scope`,
+  `limit_window_minutes`, `limit_provider`, `limit_code`, each `omitempty`). The event is serialized to the phone as it
+  is, so no other mapping needed them.
+* **Step 2.** `acpagent.Spec.ErrorLimit`, bound onto the session by `bindSpec`. **Its signature differs from step 2's:**
+  `func(raw string) (limit agenterr.Limit, resetAt time.Time, ok bool)`, a reset time beside the limit, because P4
+  must map gobble's `resetAt` and `retryAfterMs` (P4 step 2) and `Limit` has no reset. Both prompt-error paths
+  (`emitClassifiedTurnErrorWith` and the queued prompt's) now classify through `session.present`, which applies the
+  hook through a new `agenterr.Refine`, and copy the limit onto the event (`withLimit`). `Refine` merges the agent's
+  fields over the text's, and rebuilds the message from the provider's words with the reset. A scope makes an
+  unclassified or server error a quota (a rate limit for `rate`); an auth error stays auth. No Spec sets the hook yet.
+* **Step 3, codex (D6).** `internal/provider/codex/ratelimit.go`: both windows read; the one at 100% (the later reset
+  when both are) is the error, with `limit_scope` `window` and its minutes, `weekly` for 10,080 and `daily` for 1,440,
+  `limit_provider` `codex`, and the window named in its text ("Codex 5-hour limit reached (100% used)…"); each window
+  at 90% or more is a notice naming it. The existing codex rate-limit tests pass unchanged.
+* **Step 4.** `docs/guides/protocol-v1.md`: the four fields beside `retry_at`, the scope values, the
+  degrade-unknown rule, and that `error` is the provider's words.
+* **Step 5, the tests:** `TestErrorEventCarriesTheLimit`, `TestBindSpecCarriesErrorLimit` and `TestErrorLimitHookWins`
+  (`internal/provider/acpagent/limit_test.go`); `TestRefineGivesAScopeItsKind` (`internal/agenterr`);
+  `TestRateLimitWindowsAreNamed` (`internal/provider/codex/ratelimit_test.go`: the 5-hour window, the weekly window,
+  both with the later reset, and the 90% notice).
+* **A guard caught the first draft.** `acpagent`'s test first used gobble's captured error, and
+  `TestNoProviderIsNamedInAcpagent` failed on it: that package names no vendor, in tests too. It now uses an error of
+  the same shape with neutral names (`vendor-a`); gobble's own string stays in `internal/agenterr`'s test.
+* **Seen failing (C2),** `p2_0243_planted.py`, a scratch clone. Unplanted, the three packages exit 0. Each break, exit
+  1:
+
+  | Break | Message |
+  | :--- | :--- |
+  | the turn error carries no limit | `event = kind "quota" scope "" provider "" code "" …; want the free-tier limit` |
+  | the hook ignored | `event = scope "free_tier" provider "vendor-a" …; want the hook's weekly, vendor, …` |
+  | `bindSpec` drops the hook | `scope = "free_tier", want the bound hook's monthly` |
+  | `Refine` gives a scope no kind | `Refine("", "weekly") = kind "" scope "weekly", want "quota"` |
+  | codex reads the primary window only | `events = [{Type:notice … Approaching codex weekly limit (100% used)…`, not an error |
+  | codex: a week is not weekly | `limit = "window"/10080/"codex", want "weekly"/0/codex` |
+  | codex: the earlier reset wins | `--- FAIL: TestRateLimitWindowsAreNamed/both,_the_later_reset` |
+  | codex: the notice names no window | `… Approaching codex limit (93% used)…`, want one naming the weekly window |
+
+  `TestBindSpecCarriesErrorLimit` was added when planning these breaks: the hook test sets the session's hook
+  directly, so a `bindSpec` that dropped it would have passed. The clone was removed.
+* `make pre-add-check` on the ten changed Go files: clean.
+* **The first gate run failed,** in a guard: `TestBytesTracksStructGrowth` (`internal/event`), `string fields Bytes
+  does not count: [LimitScope LimitProvider LimitCode]`. `event.Bytes`, which sizes event retention, must count every
+  string field; the three new ones are added to it (`internal/event/retention.go`). The package then passes; pre-add on
+  `retention.go`: clean.
+* **The Go gates (C3), run again,** each exit 0: `make test` and `go test -race -count=1 ./...` (50 `ok` lines, no
+  FAIL, panic or race line), `make lint`, `make staticcheck`, `make vet-tags`.
+* `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: the eleven Go
+  files (`internal/agenterr/limit.go`, `limit_test.go`; `internal/event/event.go`, `retention.go`;
+  `internal/provider/acpagent/acpagent.go`, `host.go`, `session.go`, `limit_test.go`;
+  `internal/provider/codex/session.go`, `ratelimit.go`, `ratelimit_test.go`), `docs/guides/protocol-v1.md`, this
+  plan.
