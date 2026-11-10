@@ -3,6 +3,7 @@ package ws_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -318,6 +319,78 @@ func TestSetActiveUpstreamOverWire(t *testing.T) {
 	}
 	if p.lastSwitch() != "gemini_oauth" {
 		t.Fatalf("provider switched to %q", p.lastSwitch())
+	}
+}
+
+// unwiredSwitchProvider has SetActiveUpstream, as both shared transports do
+// for every agent, and a probe that says the switch is not wired.
+type unwiredSwitchProvider struct{ switchableProvider }
+
+func (p *unwiredSwitchProvider) SupportsUpstreamSwitch() bool { return false }
+
+// newUnwired is an unwiredSwitchProvider named id.
+func newUnwired(id provider.ID) *unwiredSwitchProvider {
+	p := &unwiredSwitchProvider{}
+	p.id, p.state = id, sampleState()
+	return p
+}
+
+// MADR 0244 D2: a switch the probe says is not wired is refused, with
+// today's error, and never reaches the provider.
+func TestSetActiveUpstreamRefusedByTheProbe(t *testing.T) {
+	p := newUnwired("opencode")
+	w, _ := startAuthServer(t, []int{1, 2}, p)
+	defer w.close()
+
+	got := sendAndAwait(t, w, protocol.TypeProviderSetActiveUpstrm, protocol.SetActiveUpstreamPayload{
+		ProviderID: "opencode", UpstreamID: "gemini_oauth",
+	})
+	if got.Type != protocol.TypeError || !strings.Contains(string(got.Payload), "switch upstream") {
+		t.Fatalf("want the unsupported error, got %s %s", got.Type, got.Payload)
+	}
+	if s := p.lastSwitch(); s != "" {
+		t.Fatalf("the provider was asked to switch to %q; the probe said it cannot", s)
+	}
+}
+
+// MADR 0244 D3: the auth block says upstream_switch_unsupported for an agent
+// that cannot switch, whether by its probe or by having no method, and sends
+// no such key for one that can.
+func TestAuthBlockSaysWhenTheSwitchIsNotWired(t *testing.T) {
+	can := &switchableProvider{}
+	can.id, can.state = "kilo", sampleState()
+	cannot := newUnwired("opencode")
+	none := &authProbeProvider{id: "codex", state: sampleState()}
+	w, _ := startAuthServer(t, []int{1, 2}, can, cannot, none)
+	defer w.close()
+
+	_, raw := listProviders(t, w, protocol.V2)
+	var res struct {
+		Providers []struct {
+			ID   string                     `json:"id"`
+			Auth map[string]json.RawMessage `json:"auth"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal([]byte(raw), &res); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"kilo": "", "opencode": "true", "codex": "true"}
+	for _, p := range res.Providers {
+		exp, ok := want[p.ID]
+		if !ok {
+			continue
+		}
+		delete(want, p.ID)
+		got, present := p.Auth["upstream_switch_unsupported"]
+		switch {
+		case exp == "" && present:
+			t.Errorf("%s can switch, and its auth block carries upstream_switch_unsupported=%s", p.ID, got)
+		case exp != "" && string(got) != exp:
+			t.Errorf("%s cannot switch; upstream_switch_unsupported = %q (present %v), want %s", p.ID, got, present, exp)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("providers.list lacks %v: %s", want, raw)
 	}
 }
 

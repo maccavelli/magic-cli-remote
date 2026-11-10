@@ -321,6 +321,13 @@ type UpstreamSwitchDialect interface {
 	SetActiveUpstream(ctx context.Context, api API, upstreamID string) error
 }
 
+// SupportsUpstreamSwitch implements [provider.UpstreamSwitchCapable]: true
+// only when the dialect wires the switch (MADR 0244 D1).
+func (p *Provider) SupportsUpstreamSwitch() bool {
+	_, ok := p.dialect.(UpstreamSwitchDialect)
+	return ok
+}
+
 // SetActiveUpstream implements [provider.UpstreamSwitcher].
 func (p *Provider) SetActiveUpstream(ctx context.Context, upstreamID string) error {
 	d, ok := p.dialect.(UpstreamSwitchDialect)

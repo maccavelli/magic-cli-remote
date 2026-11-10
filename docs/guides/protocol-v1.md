@@ -1098,6 +1098,14 @@ is refused with `unsupported` and is never sent an auth frame.
 | `oauth.device_flow_result` | daemon → phone | `{flow_id, ok, error?, error_kind?, state?, retryable?, backup_state?, recovery_available?}` |
 | `oauth.cancel` | phone → daemon | `{flow_id}` |
 
+An `auth` block (in `providers.list_result` and `provider.auth_status`) is
+`{status, active_upstream?, upstreams[]?, upstream_switch_unsupported?}`.
+`upstream_switch_unsupported` is `true` when the agent cannot switch its active
+upstream, and absent otherwise ([MADR 0244](../decisions/0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md)
+D3). A phone offers `provider.set_active_upstream` only when it is absent; an
+older daemon never sends it, which reads as today's "may switch". A switch the
+agent cannot make is refused with `unsupported`.
+
 The fields after `error_kind` on `oauth.device_flow_result` come from providers on
 the owned, transactional path (MADR 0074 D27). `state` is one of `completed`,
 `cancelled`, `expired`, `failed`, `conflict`, `ready_to_activate`,

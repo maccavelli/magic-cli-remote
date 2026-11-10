@@ -247,6 +247,29 @@ type UpstreamSwitcher interface {
 	SetActiveUpstream(ctx context.Context, upstreamID string) error
 }
 
+// UpstreamSwitchCapable is optionally implemented by providers whose transport
+// declares SetActiveUpstream unconditionally (httpagent, acpagent) to report
+// whether the switch is actually wired for this agent: the type assertion
+// alone would promise a switch that returns ErrAuthUnsupported (MADR 0244 D1,
+// as DeviceAuthCapable is for device flows, MADR 0083 D4).
+type UpstreamSwitchCapable interface {
+	SupportsUpstreamSwitch() bool
+}
+
+// UpstreamSwitchWired reports whether p can actually switch its active
+// upstream: false when p has no SetActiveUpstream, the probe's answer when p
+// has one, and true for an UpstreamSwitcher without a probe (MADR 0244 D1).
+// The daemon, its tests and the phone's flag all read this one answer.
+func UpstreamSwitchWired(p any) bool {
+	if _, ok := p.(UpstreamSwitcher); !ok {
+		return false
+	}
+	if c, ok := p.(UpstreamSwitchCapable); ok {
+		return c.SupportsUpstreamSwitch()
+	}
+	return true
+}
+
 // DeviceAuth is optionally implemented by agents that can run an
 // RFC 8628 device flow headlessly (MADR 0074 Strategy A).
 type DeviceAuth interface {

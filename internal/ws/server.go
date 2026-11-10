@@ -2229,11 +2229,12 @@ func (s *Server) handleProvidersList(ctx context.Context, c *client, env protoco
 			}
 		}
 		if withAuth {
-			deviceOK := false
+			deviceOK, switchOK := false, false
 			if inst, err := s.registry.Get(info.ID); err == nil {
 				deviceOK = deviceAuthWired(inst)
+				switchOK = provider.UpstreamSwitchWired(inst)
 			}
-			entry.Auth = authStatePayload(info.Auth, deviceOK)
+			entry.Auth = authStatePayload(info.Auth, deviceOK, switchOK)
 		}
 		providers = append(providers, entry)
 	}
@@ -2327,14 +2328,15 @@ func (s *Server) clientWantsProviderAuth(c *client) bool {
 
 // authStatePayload converts the domain auth state to its wire form. Returns
 // nil for a provider that reported nothing, so the entry stays byte-identical
-// to v1 (D4).
-func authStatePayload(st *provider.AuthState, deviceOK bool) *protocol.ProviderAuthPayload {
+// to v1 (D4). switchOK false sets upstream_switch_unsupported (MADR 0244 D3).
+func authStatePayload(st *provider.AuthState, deviceOK, switchOK bool) *protocol.ProviderAuthPayload {
 	if st == nil {
 		return nil
 	}
 	out := &protocol.ProviderAuthPayload{
-		Status:         st.Status,
-		ActiveUpstream: st.ActiveUpstream,
+		Status:                    st.Status,
+		ActiveUpstream:            st.ActiveUpstream,
+		UpstreamSwitchUnsupported: !switchOK,
 	}
 	if out.Status == "" {
 		out.Status = protocol.AuthStatusMissing
@@ -2596,8 +2598,10 @@ func (s *Server) handleSetActiveUpstream(ctx context.Context, c *client, env pro
 	if err != nil {
 		return s.writeError(ctx, c, env.ID, "unknown_provider", "unknown provider")
 	}
+	// The probe, not the type: both shared transports declare the method for
+	// every agent (MADR 0244 D2).
 	sw, ok := prov.(provider.UpstreamSwitcher)
-	if !ok {
+	if !ok || !provider.UpstreamSwitchWired(prov) {
 		return s.writeError(ctx, c, env.ID, "unsupported", "provider cannot switch upstream")
 	}
 	if err := sw.SetActiveUpstream(ctx, p.UpstreamID); err != nil {
@@ -2831,7 +2835,7 @@ func (s *Server) pushProviderAuthStatus(ctx context.Context, providerID string) 
 	if err != nil {
 		payload.Auth = &protocol.ProviderAuthPayload{Status: protocol.AuthStatusError}
 	} else {
-		payload.Auth = authStatePayload(&st, deviceAuthWired(p))
+		payload.Auth = authStatePayload(&st, deviceAuthWired(p), provider.UpstreamSwitchWired(p))
 	}
 	out, err := protocol.NewEnvelope(protocol.TypeProviderAuthStatus, "", payload)
 	if err != nil {

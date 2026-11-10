@@ -32,6 +32,10 @@ func TestProviderAuthInterfaceConformance(t *testing.T) {
 		wantCatalog     bool
 		wantSwitcher    bool
 		wantDeviceOAuth bool
+		// wantSwitchWired is the runtime answer, UpstreamSwitchWired: the
+		// type side above is true for every acpagent and httpagent agent
+		// (MADR 0244 D5).
+		wantSwitchWired bool
 	}{
 		{
 			name: "opencode", p: opencode.NewACP(acpagent.Config{}),
@@ -41,7 +45,7 @@ func TestProviderAuthInterfaceConformance(t *testing.T) {
 		{
 			name: "kilo", p: kilo.NewHTTP(kilo.Config{}),
 			wantStatus: true, wantWriter: true, wantCatalog: true,
-			wantSwitcher: true, wantDeviceOAuth: true,
+			wantSwitcher: true, wantDeviceOAuth: true, wantSwitchWired: true,
 		},
 		{
 			name: "codex", p: codex.New(codex.Config{}),
@@ -70,6 +74,9 @@ func TestProviderAuthInterfaceConformance(t *testing.T) {
 			}
 			if _, ok := tc.p.(provider.DeviceAuth); ok != tc.wantDeviceOAuth {
 				t.Errorf("DeviceAuth: got %v, want %v", ok, tc.wantDeviceOAuth)
+			}
+			if got := provider.UpstreamSwitchWired(tc.p); got != tc.wantSwitchWired {
+				t.Errorf("UpstreamSwitchWired: got %v, want %v (MADR 0244 D5)", got, tc.wantSwitchWired)
 			}
 		})
 	}

@@ -407,6 +407,12 @@ func (p *Provider) SetActiveUpstream(ctx context.Context, upstreamID string) err
 	return p.spec.SetActiveUpstream(ctx, upstreamID)
 }
 
+// SupportsUpstreamSwitch implements [provider.UpstreamSwitchCapable]: true
+// only when the Spec wires SetActiveUpstream (MADR 0244 D1).
+func (p *Provider) SupportsUpstreamSwitch() bool {
+	return p.spec.SetActiveUpstream != nil
+}
+
 // SupportsDeviceAuth implements [provider.DeviceAuthCapable] (MADR 0083 D4).
 func (p *Provider) SupportsDeviceAuth() bool {
 	return p.spec.StartDeviceAuth != nil

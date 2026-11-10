@@ -799,6 +799,11 @@ type ProviderAuthPayload struct {
 	Status         string                `json:"status"`
 	ActiveUpstream string                `json:"active_upstream,omitempty"`
 	Upstreams      []UpstreamAuthPayload `json:"upstreams,omitempty"`
+	// UpstreamSwitchUnsupported is true when the agent cannot switch its
+	// active upstream, so the phone offers no switch (MADR 0244 D3). It is
+	// omitted when false: an agent that can switch, and an older daemon,
+	// send nothing, which reads as today's "may switch".
+	UpstreamSwitchUnsupported bool `json:"upstream_switch_unsupported,omitempty"`
 }
 
 // AuthCatalogRequestPayload asks for one agent's full upstream catalog
