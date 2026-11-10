@@ -935,7 +935,9 @@ Scripts and logs are in the session scratchpad (`p3-capture/`: `zz_capture_test.
   `/home/user/work/notes.txt`. The redact preview, with the fixture in the tree: 0 files. `meta.json` names the
   provider, version, source, date, frame count (312), what was redacted and what the run did. `capture_host` is
   empty: with a scratch `HOME`, `wirecap` had no host key and wrote no tag, so `TestCommittedFixturesCarryNoIdentifiers`
-  checks the running host's name in it, the strictest choice (MADR 0151 D12).
+  checks the running host's name in it, the strictest choice (MADR 0151 D12). *Corrected 2026-11-10 by the P3
+  deviation of that date:* that choice fails on the Linux test host, whose name is an ordinary word in a public model
+  id. `capture_host` is now this Mac's tag.
 * **Step 4, the fixture tests** (`fixture_test.go`): item 7, `TestFixtureSendsOnlyKnownMethods`; item 9 with A2,
   `TestFixtureShapesAreAcpexts` (initialize's `_meta.gobble`, `_gobble/personality`, the clone result, every error's
   data and each `compaction_update`'s `_meta.gobble`, each decoded with unknown members refused and encoded back
@@ -1024,3 +1026,57 @@ On "committed and pushed, proceed" after 0243's close-out, P4 started on a clean
 *is `complete` (CI run 42841924687 passed on `15b8d9d5`). `provider.UpstreamSwitchWired` and the conformance test's
 `wantSwitchWired` column are on master, so P4 may resume: step 5's gobble case goes back in with the type side true
 and `wantSwitchWired` false (MADR A8).*
+
+## P3 deviation — 2026-11-10: the fixture names no capture host, and fails on the Linux test host
+
+**Found** at
+[0217-PLAN-update-every-pin-to-its-current-release.md](0217-PLAN-update-every-pin-to-its-current-release.md)'s P3h,
+step 5, in its Linux host run. `TestCommittedFixturesCarryNoIdentifiers` fails on the Linux test host. The fixture is
+`internal/provider/gobble/testdata/wire/0.4.0/frames.jsonl`, at lines 7, 8, 9, 12 and 310: "this host's name,
+unredacted (MADR 0151 F9)".
+
+* **It predates 0217's move.** The same test fails on that host at plain `37aebdcb`, with none of P3h's files applied.
+  P3h changes neither the fixture nor the test.
+* **Nothing identifying is in the fixture.** Each hit is one of opencode-zen's public model ids, listed in gobble's
+  catalog. It holds the Linux test host's short name as an ordinary word. This is the case
+  [0151-MADR-wirecap-redaction-does-not-know-what-the-wire-carries.md](0151-MADR-wirecap-redaction-does-not-know-what-the-wire-carries.md)
+  F11 found in opencode's fixture.
+* **The cause is P3 step 3's choice.** The capture ran on this Mac under a scratch `HOME`, so `os.UserConfigDir`
+  held no wirecap host key and `wirecap.For` wrote no tag. P3 then recorded `"capture_host": ""`, "the strictest
+  choice". By 0151 D12, an empty `capture_host` applies the host-name rule on every host, so a host whose name is an
+  ordinary word in public data fails.
+* **Why CI did not see it.** No CI runner's name occurs in the fixture. The Windows test host's does not either.
+* **It would recur.** P4's `live_gobble_test.go` sets a scratch `HOME` (`newLiveEnv`) before it captures through
+  `wirecap` (`TestLiveGobbleSession`). So P6's live run would write no tag again.
+
+**Decision (owner, 2026-11-10): "follow recommendations and proceed",** on the first of three resolutions. The other
+two were staging 0217's P3h with the Linux gate failing and fixing afterwards, and folding the fix into P3h. 0217's P3h
+is pins only, and the fixture is this plan's.
+
+1. **The fixture, in its own commit, before 0217's P3h.** `meta.json`'s `capture_host` becomes this Mac's wirecap tag,
+   `06e8a1e8…`, the full 64-hex value. It was computed with `wirecap.HostTag(false)` in a scratch clone. It equals
+   the `capture_host` of opencode 2.2.3's fixture, which 0151 F11 says was captured on this Mac. No frame changes.
+2. **The live test, in P4.** Before it swaps `HOME`, `newLiveEnv` points `wirecap.EnvHostKey` at this host's real
+   key. It then checks that the path gives the same tag as wirecap's own lookup did. After the capture,
+   `TestLiveGobbleSession` requires the capture's `capture_host` file to hold that tag, when the host has a key. So
+   P6's recapture records its host, and a key path that drifts fails loudly. Both helpers live in a new, untagged
+   `internal/provider/gobble/wirecap_host_test.go`, with a unit test that runs without quota. That test is seen
+   failing on planted breaks in a scratch clone (C4). **P4's files gain** that file.
+
+**Option 1 tested before the decision** (`fixcheck_local.py`, `fixcheck_hosts.py` in the session scratchpad; each
+a scratch clone of `37aebdcb` with only `meta.json` changed, removed afterwards; read per subtest from `go test
+-json`):
+
+| Host | Unfixed | Fixed | `go test` of `internal/provider/gobble` and `internal/wirecap`, fixed |
+| :--- | :--- | :--- | :--- |
+| This Mac, the capture host | pass, host-name rule applied | pass, rule **still applied** | exit 0 |
+| The Linux test host | **fail**, the five lines above | pass, rule skipped: "captured on another host" | exit 0 |
+| The Windows test host | pass, rule applied | pass, rule skipped: "captured on another host" | exit 0 |
+
+* **Seen failing on the capture host:** with the fix, this Mac's own name planted in frame 15 of a scratch copy fails
+  the gobble subtest on this Mac, with "line 15: this host's name, unredacted". So the guard still holds where the
+  frames were taken.
+* The email-address and Windows-path checks apply on every host either way.
+
+**Not done here:** the grok, codex and kilo fixtures record no `capture_host` either. They pass on every host today,
+but a later public model id could collide in the same way. Each is its own provider's record.
