@@ -477,6 +477,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0242 | PLAN | Implement waiting for the agent's commands before the silent-command tests read `/loop` | [0242-PLAN-wait-for-the-agents-commands-in-the-silent-command-tests.md](decisions/0242-PLAN-wait-for-the-agents-commands-in-the-silent-command-tests.md) |
 | 0243 | MADR | Show exactly which usage limit an agent hit and when it lifts | [0243-MADR-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md](decisions/0243-MADR-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md) |
 | 0243 | PLAN | Implement showing exactly which usage limit an agent hit and when it lifts | [0243-PLAN-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md](decisions/0243-PLAN-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md) |
+| 0244 | MADR | Tell the phone when an agent cannot switch its active upstream | [0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md](decisions/0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md) |
+| 0244 | PLAN | Implement telling the phone when an agent cannot switch its active upstream | [0244-PLAN-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md](decisions/0244-PLAN-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

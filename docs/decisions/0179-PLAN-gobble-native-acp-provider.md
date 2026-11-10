@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-11-09
+date: 2026-11-10
 associated-madr: "0179-MADR-gobble-native-acp-provider.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -990,3 +990,31 @@ Scripts and logs are in the session scratchpad (`p3-capture/`: `zz_capture_test.
 * `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: `go.mod`,
   `go.sum`, `internal/provider/provider.go` and its test, `acpagent`'s `acpagent.go`, `session.go` and
   `lifecycle_test.go`, the ten files of `internal/provider/gobble/`, this plan and the MADR (A4 to A6).
+
+## P4 deviation — 2026-11-10: "no switcher", and a fourth shipped config (MADR A8)
+
+On "committed and pushed, proceed" after 0243's close-out, P4 started on a clean tree level with `origin/master`
+(C1), its gate met (P3 committed). Steps 1 to 4, 6 and 7 were written; two facts differed from the plan (C2, C11).
+
+* **Step 5: "no switcher" is not what the test checks.** With gobble's case added to
+  `TestProviderAuthInterfaceConformance`, it failed: `auth_conformance_test.go:78: UpstreamSwitcher: got true, want
+  false`. The test asserts Go types, and `acpagent.Provider.SetActiveUpstream` (`acpagent.go:402-408`) exists for every
+  ACP agent, answering `ErrAuthUnsupported` when the Spec sets no hook, as gobble's does. Read on: no ACP Spec sets the
+  hook (`git grep SetActiveUpstream`), so opencode and grok cannot switch either, and the phone shows its "Active
+  upstream" control to any provider with two configured upstreams (`provider_detail_screen.dart:256-271`), with no
+  wire flag to say otherwise (`protocol/messages.go:798-802`). Asked three times, the owner chose a capability probe
+  in `acpagent`, carried to the phone, in a record of its own, with this phase waiting: MADR A8, and
+  [0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md](0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md)
+  with its PLAN. Step 5's gobble case is taken out of `auth_conformance_test.go`, which is back at HEAD, so 0244 can
+  change that file alone; it returns after 0244 with 0244's `UpstreamSwitchWired` column (false for gobble).
+* **Step 3: a fourth shipped config.** The service seed `internal/cli/service/defaults_mcremote.yaml`, which
+  `setup-service` writes and `TestTheShippedConfigFilesLoadThroughTheSections` loads, has a block for every other
+  provider. The owner chose "Add it to the seed (Recommended)": it gets the same gobble block, and joins this phase's
+  files.
+* **The state P4 waits in.** Unstaged in the working tree: `Makefile`, the four configs, `docs/guides/config.md`,
+  `internal/command/resolve_order_test.go`, `internal/config/prewarm_write.go` and its test,
+  `internal/provider/registered/registered.go`, and the new `internal/provider/gobble/live_gobble_test.go`. Four planted
+  breaks were caught (`p4_0179_planted.py`; gobble unregistered, prewarm refusing gobble, an unknown key in gobble's
+  block, `config.md` documenting a key gobble lacks), and `go vet -tags live_gobble` is clean; the live suite skips
+  without the owner's model and key, so nothing was spent. The gates (step 8) and `make ci-windows` have not run.
+  The record of these steps is written when P4 resumes.

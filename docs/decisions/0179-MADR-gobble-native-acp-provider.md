@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-09
+date: 2026-11-10
 decision-makers: Project Owner
 consulted: "this repository at 938b0002, read from code; gobble-cli at v0.2.0 (0da1f2d, 2026-11-06) and acpext/v0.1.0 (4d1eb01), read from code and, for initialize, session/new, session/list and authenticate, from a no-credential run of the installed binary; acp-go-sdk2 v1.34.0, the pin of both; the module proxy for acpext/v0.1.0; this record's previous body (e020cd54); 0074, 0184, 0185, 0186, 0208, 0234 and 0235; gobble-cli's 0008, 0017, 0042 and 0043 records and its 0009-REPORT. For amendment A1 (2026-11-08): issue #36; this repository at 5b3533fc; gobble-cli's go.mod at v0.2.0, v0.3.0, v0.3.1 and main (4970cca), and acpext/v0.1.0's types.go, read through the GitHub API. For amendment A2 (2026-11-09): issue #37 and the owner's comment on it; this repository at 15cec5a8; gobble-cli v0.4.0 (2e83cce): its go.mod and internal/cli/version.go; acpext/v0.2.0 (253e366): methods.go, types.go, doc.go, go.mod and testdata/, and its diff from acpext/v0.1.0, read through the GitHub API"
 informed: gobble-cli, acp-go-sdk2
@@ -888,6 +888,31 @@ seen-failing test.
 * Neutral, because every ACP `Close` now includes the time a killed process takes to exit, normally milliseconds.
 * Bad, because a process that does not die within 2 s of the kill (a stuck exit) delays `Close` by those 2 s.
 
+### A8. Amendment, 2026-11-10: "no switcher" is a runtime fact, decided in 0244
+
+The PLAN's P4 step 5 expected gobble's auth-conformance case to have no `UpstreamSwitcher`. The test answered true:
+it checks Go types, and `acpagent.Provider` declares `SetActiveUpstream` for every ACP agent, returning
+`ErrAuthUnsupported` when the Spec sets no hook (`acpagent.go:402-408`). gobble's Spec sets none, so "no switcher" is
+true at runtime, not by type. Reading on found that no ACP Spec sets the hook, so opencode and grok cannot switch
+either, while the phone offers the "Active upstream" control to any provider with two configured upstreams.
+
+**The owner's answers**, 2026-11-10, asked with options: *"Give acpagent a capability probe"; "Probe + wire flag + phone
+(Recommended)"; "New record; 0179 P4 waits (Recommended)". Not chosen: the type side plus a runtime check inside this
+record; the probe without the phone; the fix inside this record as a P4a; P4 first and the fix after.*
+
+**The decision.**
+[0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md](0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md)
+adds the probe, the daemon's refusal, an additive wire flag and the phone's check, for every agent. This record's P4
+waits for it. gobble's conformance case then states the type side (true, as for opencode and grok) and 0244's
+`UpstreamSwitchWired` false. D11's places and Confirmation 6 are unchanged: 0244, not this record, changes what
+opencode's and grok's phone shows.
+
+**Consequences of A8:**
+
+* Good, because gobble registers with no phone control that fails.
+* Neutral, because registration (P4) lands after 0244's two phases.
+* Bad, because P4's work waits in the working tree, unstaged, until then.
+
 ### Consequences
 
 * Good, because every gate outside this repository is met, and the work left is one package, one registration line,
@@ -1116,3 +1141,5 @@ files there are gobble-cli's own pair, written on the owner's word (Q4, 2026-11-
   answer, "Correct the record, no code").
 * **2026-11-09.** Amendment A5, from the same re-read: replacing a live session could load it while its old process
   still ran, so `Close` waits, bounded, for the process to exit (owner's answer, "Close waits for the exit").
+* **2026-11-10.** Amendment A8, from the PLAN's P4 step 5: "no switcher" holds at runtime, not by type, and no ACP
+  agent can switch. The fix is 0244's, for every agent, and P4 waits for it (owner's answers).
