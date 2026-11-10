@@ -894,6 +894,12 @@ the owner chose "opencode-zen, a free model (Recommended)".
   ("The model provider had a server error…"). `ExtractText` takes the JSON-RPC `message`, "Internal error", and the
   cause in `data.error` ("quota exhausted", HTTP 429) is not read. It is recorded here for its own record, and not
   changed by this plan.
+
+  *Note, 2026-11-09: that record is
+  [0243-MADR-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md](0243-MADR-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md),
+  whose PLAN fixed it: this error now reads as kind `quota`, scope `free_tier`, provider `opencode-zen`, with its reset
+  and the provider's own words (0243 Confirmation 1). Its P4 also sets the gobble Spec's `ErrorLimit`, which reads
+  acpext v0.3.0's structured `ErrorData` once a gobble release sends it.*
 * **The third run,** on `opencode-zen/deepseek-v4.1-flash`, captured everything but a compaction: `/compact` was again
   "Nothing to compact (session too small)". gobble keeps the last `compaction.keepRecentTokens` (20,000 by default,
   gobble `compaction/compaction.go:47`, `:99-112`) out of any compaction, and the session was 7,838 tokens. Asked,

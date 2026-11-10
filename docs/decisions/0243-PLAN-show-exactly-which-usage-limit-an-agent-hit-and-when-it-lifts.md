@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-09
 associated-madr: "0243-MADR-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md"
 ---
@@ -370,3 +370,28 @@ Scripts and logs are in the session scratchpad (`p4_0243_planted.py`, `0243-p4-*
   0179 P3's confirms it, and `KnownGoodVersion` moves with 0179's own records, not this plan.
 * `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: `go.mod`,
   `go.sum`, `internal/provider/gobble/gobble.go`, `errorlimit.go` and `errorlimit_test.go`, this pair.
+
+The owner committed and pushed P4: "committed and pushed".
+
+### P5 — 2026-11-09: close-out
+
+* **Start state (C1).** Clean tree, equal to `origin/master`, whose head is P4's commit.
+* **Step 1, the MADR's Confirmation:**
+
+  | Confirmation | Evidence |
+  | :--- | :--- |
+  | 1 gobble's captured error, end to end | `TestGobbleQuotaEndToEnd` (`internal/agenterr/limit_test.go`): kind `quota`, scope `free_tier`, provider `opencode-zen`, code `FreeUsageLimitError`, the reset 1h33m21s on, the provider's two sentences; seen failing first on the code before P1 for all three reasons (P1 step 1) |
+  | 2 durations, codes, phrases, wrappers, no inference | `TestRetryAfterGoDuration`, `TestLimitScopes` (its last case a 5-hour wait with nothing stated, which stays without a scope), `TestProviderWordsWithoutWrappers`; eight planted breaks caught (P1) |
+  | 3 codex's windows | `TestRateLimitWindowsAreNamed` (`internal/provider/codex/ratelimit_test.go`): 300 minutes gives `window`/300, 10,080 gives `weekly`; four planted breaks caught (P2) |
+  | 4 the protocol fields, and an older event | `docs/guides/protocol-v1.md` (P2 step 4); `test/transcript_reducer_test.dart`, an event without the fields decodes as before (P3) |
+  | 5 the card | `test/chat_render_test.dart`: every scope's title, the reset phrase, `credits`' "won’t reset on its own", the full message, an unknown scope's fallback. Shown failing by seven planted breaks rather than written first, as P3 records |
+  | 6 the two issues | gobble-cli#14 and go-llmprovider-sdk#13 checked on 2026-11-09: both `OPEN`, each linking the other and this repository |
+  | 7 gates and CI | the Go gates in P1, P2 and P4, the Dart gates in P3, each exit 0; CI on the push of P4's commit `402a4f22`, run 42757099945: `success`, every job that ran passing (Go test; Go linux/arm64, windows/amd64, darwin/arm64; Flutter analyze and test; Flutter test on Windows; live supervisors), the release and APK jobs skipped as on any push; the Docs workflow, run 42757099679: `success` |
+
+  gobble's structured data (P4) is in place, and is inert until a gobble release sends acpext v0.3.0's members (P4,
+  the gate). Nothing in Confirmation 1 to 7 depends on that release.
+* **Step 2.** A dated note on 0179's PLAN, under its P3 finding, points here.
+* **Step 3.** Confirmation 1 to 7 met: this plan is `complete`, the MADR stays `accepted`.
+  `check_records.py --write-index`; `make check-records markdownlint-docs`: exit 0; the redact preview: 0 files.
+  The index has no status column, so `docs/README.md` is unchanged. **Staged** for the owner's commit: this plan and
+  0179's PLAN.
