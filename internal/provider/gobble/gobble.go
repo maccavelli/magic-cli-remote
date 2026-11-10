@@ -82,6 +82,8 @@ func spec(cfg acpagent.Config, log *slog.Logger) acpagent.Spec {
 
 		CommandCaveat: commandCaveat,
 
+		ErrorLimit: errorLimit,
+
 		ExtensionNotifications: map[string]acpagent.ExtensionNotificationHandler{
 			acpext.MethodRetry: handleRetry,
 		},

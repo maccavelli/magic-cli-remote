@@ -95,8 +95,8 @@ github.com/maccavelli/go-selfupdate-lib v1.24.0 h1:XbAG8g1xlslRCKiKdjoH4HSjgm490
 github.com/maccavelli/go-selfupdate-lib v1.24.0/go.mod h1:DIqb0hzmxkYhVTj6iyaHpntadoHkeOkHWyTsdw+MBHE=
 github.com/maccavelli/go-tui-lib/v2 v2.12.0 h1:JPPl1/wxmX2IamirzR5SvnnIyHmi/L/ikbTOEkOK2q8=
 github.com/maccavelli/go-tui-lib/v2 v2.12.0/go.mod h1:GDnV1CL70qUJCRDDzF/KD+HSZllb/fpO8a2+i+DPbqs=
-github.com/maccavelli/gobble-cli/acpext v0.2.0 h1:AhJOyL8MAACOf398war1wdI6JI0ocDqUscM93gvt1To=
-github.com/maccavelli/gobble-cli/acpext v0.2.0/go.mod h1:go2H/pww4XSwD3VOrUI7St71lhNSFuNuSmT2FgZAjFc=
+github.com/maccavelli/gobble-cli/acpext v0.3.0 h1:9gYm1n6JMkZDOGQ5mX9D9dR2+/CAwK9vCdmOZFrYOhM=
+github.com/maccavelli/gobble-cli/acpext v0.3.0/go.mod h1:go2H/pww4XSwD3VOrUI7St71lhNSFuNuSmT2FgZAjFc=
 github.com/mattn/go-runewidth v0.0.27 h1:Feg/Oou5zI/wnpgDF6omIU0OokC9GxLC/WRknhVlIR0=
 github.com/mattn/go-runewidth v0.0.27/go.mod h1:3qAiGCV4Koz/yuveO58qUefmUTRm8r0IGEXZ9jeHp/8=
 github.com/mdp/qrterminal/v3 v3.2.1 h1:6+yQjiiOsSuXT5n9/m60E54vdgFsw0zhADHhHLrFet4=

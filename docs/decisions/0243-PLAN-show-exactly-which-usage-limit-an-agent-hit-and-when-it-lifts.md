@@ -306,3 +306,67 @@ Scripts and logs are in the session scratchpad (`p3_0243_planted.py`, `0243-p3-*
   as before).
 * `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: the four
   `lib/` files, the two test files, and this plan. No Go file changed in this phase.
+
+The owner committed P3.
+
+### P4 — 2026-11-09: gobble's structured data
+
+Scripts and logs are in the session scratchpad (`p4_0243_planted.py`, `0243-p4-*.log`).
+
+* **Start state (C1).** Clean tree, seven commits ahead of `origin/master`, none of them this phase's. The owner:
+  "i think you can do p4".
+* **The gate.** gobble-cli tagged `acpext/v0.3.0` (commit `ece13c4`), whose `ErrorData` carries #14's members: `kind`,
+  `limit`, `provider`, `code`, `httpStatus`, `providerMessage`, `resetAt`, `retryAfterMs`, `retryable` and `attempts`,
+  with recorded frames for a free-tier quota, a rate limit over the cap, and a failure after retries. **What it does
+  not yet mean:** that tag is gobble-cli's 0049 PLAN P1, the types alone. Its P2 and P3, where `gobble acp` fills
+  them, have not landed, and gobble `v0.5.0` predates the tag, so no gobble release sends these members yet. Until one
+  does, gobble's data carries `error` alone, the hook returns not-ok, and the text's reading (P1) stands, as before.
+  gobble-cli#14 is still open.
+* **Step 1.** `go get github.com/maccavelli/gobble-cli/acpext@v0.3.0`; `go mod tidy`. `go.mod` and `go.sum` change only
+  acpext's lines; acpext still requires nothing.
+* **Step 2.** `internal/provider/gobble/errorlimit.go`: `errorLimit`, set as the gobble Spec's `ErrorLimit`
+  (`gobble.go`). It finds the JSON-RPC error object in the raw text, decodes its `data` as `acpext.ErrorData`, and maps
+  `limit`, `provider`, `code` and `providerMessage` onto `agenterr.Limit`, and `resetAt` (or now plus `retryAfterMs`
+  when `resetAt` is absent) onto the reset. Three rules the step did not state, recorded in the MADR under D3:
+  * it describes a limit only when the data names one (`limit`, or kind `quota` or `rate-limited`), so a provider outage
+    keeps today's reading;
+  * gobble's `plan` yields to a window the text states;
+  * acpext has no window length, so `WindowMinutes` stays the text's.
+* **Step 3, the tests** (`internal/provider/gobble/errorlimit_test.go`):
+  * `TestErrorLimitFromRecordedFrames`: acpext's four failed-prompt frames. The quota frame gives `free_tier`,
+    `opencode-zen`, `FreeUsageLimitError`, the provider's words and `resetAt`. The rate frame gives `rate`, `openai`,
+    `rate_limit_exceeded` and its `resetAt`. The frames for a failure after retries and for auth describe no limit.
+  * `TestErrorLimitEdges`: `retryAfterMs` without `resetAt`; `plan` with a stated 5-hour window, and with none; a prefix
+    before the error object; `data` as a string; no object.
+  * `TestPromptErrorCarriesGobblesLimit`: through a gobble session on `acptest`, a `session/prompt` answered with the
+    quota frame, and with that frame's `error` cut to "llm: quota exhausted". Both events carry kind `quota`, scope
+    `free_tier`, provider `opencode-zen`, code `FreeUsageLimitError`, `retry_at` gobble's `resetAt`, and the
+    provider's words.
+* **The first edge test failed on its own premise.** It expected the text of a frame whose `error` was bare
+  ("llm: quota exhausted: You have reached your 5-hour limit.") to read as a 5-hour window. `agenterr` does not class
+  that text as a quota, so it reads no limit. gobble's real text always carries the SDK header, so the case now uses
+  that shape (`chatgpt HTTP 429 usage_limit_reached: …`), which the text reads as window/300.
+* **Seen failing (C2),** `p4_0243_planted.py`, a scratch clone with the five changed files. Unplanted, exit 0. Each
+  break, exit 1:
+
+  | Break | Message |
+  | :--- | :--- |
+  | the hook unset | `retry_at = 2026-11-09 23:14:48 … CST, want gobble's resetAt 2026-11-09 14:05:00 +0000 UTC` |
+  | `resetAt` ignored | `reset = 2026-11-09 11:33:21 +0000 UTC, want 2026-11-09 14:05:00 +0000 UTC` |
+  | `retryAfterMs` ignored | `no resetAt: reset = 0001-01-01 00:00:00 +0000 UTC ok true, want … from retryAfterMs` |
+  | an outage read as a limit | `limit = {… Provider:claude Code:overloaded_error ProviderMessage:Overloaded} ok true, want … ok false` |
+  | `plan` overrides a stated window | `plan with a stated window: scope = "plan" ok true, want empty` |
+  | a prefix before the object | `prefixed: scope = "" ok false, want free_tier` |
+  | the provider not mapped | `limit = {Scope:free_tier … Provider: …}` |
+  | the scope not mapped | `limit = {Scope: … Provider:opencode-zen …}` |
+
+  The first run caught seven of the eight in the test named for each. `resetAt` ignored was caught only by the session
+  test: the frames test's clock was the frames' capture time, at which now plus `retryAfterMs` equals `resetAt`. Its
+  clock was moved, and the second run caught all eight where expected. The clone was removed.
+* `make pre-add-check` on the three Go files: clean. The Go gates (C3), each exit 0: `make test` and
+  `go test -race -count=1 ./...` (50 `ok` lines, no FAIL, panic or race line), `make lint`, `make staticcheck`,
+  `make vet-tags`.
+* **Not done:** a live run against a gobble that sends the members, since none is released. When one is, a capture like
+  0179 P3's confirms it, and `KnownGoodVersion` moves with 0179's own records, not this plan.
+* `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: `go.mod`,
+  `go.sum`, `internal/provider/gobble/gobble.go`, `errorlimit.go` and `errorlimit_test.go`, this pair.

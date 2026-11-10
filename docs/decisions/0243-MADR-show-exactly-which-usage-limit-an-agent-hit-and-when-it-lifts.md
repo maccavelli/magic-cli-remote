@@ -159,6 +159,16 @@ no source states the scope, `Scope` is empty and the card says what it knows.
   `agenterr` did not do before, so that "HTTP 402 → `credits`" has a quota to describe. go-llmprovider-sdk classifies
   any 402 as quota. A bare "402", which could be a port or an id, is not.*
 
+*Note, 2026-11-09, from the PLAN's P4, how source 1 applies to gobble's `ErrorData` (acpext v0.3.0):*
+
+* *The same refinement holds over gobble's data: gobble's `limit` `plan` yields to a window, day, week or month the
+  text states, because acpext defines `plan` as "window not stated" too. Any other scope gobble sends wins over the
+  text's.*
+* *The hook describes a limit only when gobble's data names one: a `limit`, or kind `quota` or `rate-limited`. A
+  provider outage, which also carries a provider and a code, keeps the text's reading, as `agenterr` gives no limit for
+  kinds other than quota and rate limit.*
+* *acpext carries no window length, so `WindowMinutes` stays the text's.*
+
 ### D4. Show the provider's own words
 
 The `error` text of a limit is the provider's sentences, with known agent and SDK wrappers removed (`llm: api status
