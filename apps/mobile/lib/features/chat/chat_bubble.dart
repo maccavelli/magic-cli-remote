@@ -835,6 +835,37 @@ class _AuthNotice extends StatelessWidget {
   }
 }
 
+/// The limit card's title for a `limit_scope` (MADR 0243 D8): "5-hour limit
+/// reached", "Weekly limit reached", "Out of credits" and so on. Null for no
+/// scope or one this app does not know, so the card falls back to its kind's
+/// title; the scope vocabulary is additive (protocol-v1.md).
+@visibleForTesting
+String? limitScopeTitle(String? scope, int? windowMinutes) {
+  switch (scope) {
+    case 'window':
+      final m = windowMinutes ?? 0;
+      if (m <= 0) return 'Usage window limit reached';
+      return m % 60 == 0
+          ? '${m ~/ 60}-hour limit reached'
+          : '$m-minute limit reached';
+    case 'daily':
+      return 'Daily limit reached';
+    case 'weekly':
+      return 'Weekly limit reached';
+    case 'monthly':
+      return 'Monthly limit reached';
+    case 'credits':
+      return 'Out of credits';
+    case 'free_tier':
+      return 'Free tier limit reached';
+    case 'plan':
+      return 'Plan usage limit reached';
+    case 'rate':
+      return 'Rate-limited';
+  }
+  return null;
+}
+
 /// Card shown when the agent hits a usage quota or rate limit. Leads with
 /// what happened and when it resets (when the provider said), keeps the raw
 /// provider message as fine print, and points at the practical outs.
@@ -882,16 +913,25 @@ class _LimitNoticeState extends State<_LimitNotice> {
     final tokens = celestialOf(context);
     final isQuota = item.errorKind == 'quota';
     final isServer = item.errorKind == 'server';
-    final title = isQuota
-        ? 'Agent quota exceeded'
-        : isServer
-        ? 'Model provider error'
-        : 'Agent rate-limited';
+    // Which limit it was, when the daemon could say (MADR 0243 D8); an
+    // unknown scope falls back to the kind's title.
+    final title =
+        limitScopeTitle(item.limitScope, item.limitWindowMinutes) ??
+        (isQuota
+            ? 'Agent quota exceeded'
+            : isServer
+            ? 'Model provider error'
+            : 'Agent rate-limited');
+    final provider = (item.limitProvider ?? '').trim();
     final retryAt = item.retryAt;
 
     final String body;
     if (retryAt != null) {
       body = 'The limit resets at ${limitResetPhrase(context, retryAt)}.';
+    } else if (item.limitScope == 'credits') {
+      body =
+          'This limit won’t reset on its own: add credits with the '
+          'provider, or switch models with /model.';
     } else if (isQuota) {
       body =
           'The agent’s usage limit has been reached. Wait for it to '
@@ -943,14 +983,23 @@ class _LimitNoticeState extends State<_LimitNotice> {
                   ),
                 ],
               ),
+              if (provider.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'on $provider',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
               const SizedBox(height: 6),
               Text(body, style: theme.textTheme.bodyMedium),
               if (detail.isNotEmpty) ...[
                 const SizedBox(height: 8),
+                // The provider's own words, in full: the daemon has already
+                // cut the agent's wrappers from them (MADR 0243 D4, D8).
                 Text(
                   detail,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
                   style: monoDetail.copyWith(
                     fontSize: 11,
                     color: scheme.onSurfaceVariant,

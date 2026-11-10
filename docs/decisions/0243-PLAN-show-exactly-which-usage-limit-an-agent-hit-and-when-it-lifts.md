@@ -262,3 +262,47 @@ Scripts and logs are in the session scratchpad (`p2_0243_planted.py`, `0243-p2-*
   `internal/provider/acpagent/acpagent.go`, `host.go`, `session.go`, `limit_test.go`;
   `internal/provider/codex/session.go`, `ratelimit.go`, `ratelimit_test.go`), `docs/guides/protocol-v1.md`, this
   plan.
+
+The owner committed P2: "committed, proceed".
+
+### P3 — 2026-11-09: the phone's card
+
+Scripts and logs are in the session scratchpad (`p3_0243_planted.py`, `0243-p3-*.log`).
+
+* **Start state (C1).** Clean tree, six commits ahead of `origin/master`, none of them this phase's.
+* **Step 1, the models.** `SessionEvent` (`lib/data/protocol/models.dart`) reads `limit_scope`,
+  `limit_window_minutes`, `limit_provider` and `limit_code`, and carries them through its copy; `ChatItem`
+  (`lib/data/chat/chat_models.dart`) holds them, through `ChatItem.system`, its copy, and the transcript cache's
+  `toJson`/`fromJson`; the reducer (`lib/data/chat/transcript_reducer.dart`) copies them from an `error` event. An event
+  without them decodes as before.
+* **Step 2, the card** (`lib/features/chat/chat_bubble.dart`). `limitScopeTitle` gives the title by scope ("5-hour
+  limit reached", "90-minute limit reached", "Daily", "Weekly", "Monthly limit reached", "Out of credits", "Free tier
+  limit reached", "Plan usage limit reached", "Rate-limited"), null for no scope or an unknown one, which keeps the
+  kind's title. `_LimitNotice` shows "on <upstream>" under the title; the reset as the existing `limitResetPhrase`
+  (a clock time and how long from now); for `credits` with no reset, "This limit won’t reset on its own: add credits
+  with the provider, or switch models with /model."; and the provider's words in full, no longer cut to three lines.
+* **Step 3, the tests.** `test/transcript_reducer_test.dart`: an error event's four fields reach the item and survive
+  the cache; an event without them decodes as before. `test/chat_render_test.dart`: a free-tier limit's title,
+  upstream, reset and full words; credits that do not reset; an unknown scope falling back to "Agent quota exceeded";
+  every scope's title. The existing limit-card tests pass unchanged.
+* **Seen failing (C2).** The card and models were written before their tests, so the tests were shown failing on
+  planted breaks instead, `p3_0243_planted.py`, a scratch clone with the six changed files. Unplanted, exit 0. Each
+  break, exit 1:
+
+  | Break | Failure |
+  | :--- | :--- |
+  | the `free_tier` title missing | "Free tier limit reached": `Expected: exactly one matching candidate` |
+  | the upstream line missing | "on opencode-zen": `Expected: exactly one matching candidate` |
+  | `credits` says nothing of resetting | "won’t reset on its own": `Expected: exactly one matching candidate` |
+  | the provider's words cut to 3 lines | `maxLines`: `Expected: null` |
+  | the reducer drops the scope | `error events carry which limit was hit (MADR 0243 D5) [E]` |
+  | the event ignores `limit_scope` | `error events carry which limit was hit (MADR 0243 D5) [E]` |
+  | the cache forgets the scope | `error events carry which limit was hit (MADR 0243 D5) [E]` |
+
+  The clone was removed.
+* **The Dart gates (C4).** `dart format --output=none --set-exit-if-changed` over `apps/mobile` first found my new
+  test code unformatted (`chat_render_test.dart`, 1 of 231 files); `dart format` fixed it, and the check then passed.
+  `flutter analyze`: "No issues found!". `flutter test`, the whole suite: "+1521 ~3: All tests passed!" (three skipped,
+  as before).
+* `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit: the four
+  `lib/` files, the two test files, and this plan. No Go file changed in this phase.

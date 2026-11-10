@@ -705,6 +705,95 @@ void main() {
     );
   });
 
+  testWidgets('a limit with a scope names it, its upstream and its reset '
+      '(MADR 0243 D8)', (tester) async {
+    const words =
+        'Free usage limit reached. Free models work in OpenCode '
+        '(https://opencode.ai); subscribe to OpenCode Go to keep going: '
+        'https://opencode.ai/go. Resets in about 2 hours.';
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          ChatItem.system(
+            words,
+            error: true,
+            errorKind: 'quota',
+            retryAt: DateTime.now().add(const Duration(hours: 1, minutes: 33)),
+            limitScope: 'free_tier',
+            limitProvider: 'opencode-zen',
+            limitCode: 'FreeUsageLimitError',
+          ),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Free tier limit reached'), findsOneWidget);
+    expect(find.text('Agent quota exceeded'), findsNothing);
+    expect(find.text('on opencode-zen'), findsOneWidget);
+    expect(find.textContaining('The limit resets at'), findsOneWidget);
+    // The provider's words in full, not cut to a few lines.
+    final detail = tester.widget<Text>(find.text(words));
+    expect(detail.maxLines, isNull);
+    expect(detail.overflow, isNull);
+  });
+
+  testWidgets('credits that do not reset say so (MADR 0243 D8)', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          ChatItem.system(
+            'Insufficient balance. Please add credits to continue.',
+            error: true,
+            errorKind: 'quota',
+            limitScope: 'credits',
+          ),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Out of credits'), findsOneWidget);
+    expect(find.textContaining('won’t reset on its own'), findsOneWidget);
+  });
+
+  testWidgets('an unknown limit scope falls back to the kind\'s card', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          ChatItem.system(
+            'Limit reached.',
+            error: true,
+            errorKind: 'quota',
+            limitScope: 'a-scope-a-later-daemon-adds',
+          ),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Agent quota exceeded'), findsOneWidget);
+  });
+
+  test('each limit scope has its title (MADR 0243 D8)', () {
+    expect(limitScopeTitle('window', 300), '5-hour limit reached');
+    expect(limitScopeTitle('window', 90), '90-minute limit reached');
+    expect(limitScopeTitle('window', null), 'Usage window limit reached');
+    expect(limitScopeTitle('daily', null), 'Daily limit reached');
+    expect(limitScopeTitle('weekly', null), 'Weekly limit reached');
+    expect(limitScopeTitle('monthly', null), 'Monthly limit reached');
+    expect(limitScopeTitle('credits', null), 'Out of credits');
+    expect(limitScopeTitle('free_tier', null), 'Free tier limit reached');
+    expect(limitScopeTitle('plan', null), 'Plan usage limit reached');
+    expect(limitScopeTitle('rate', null), 'Rate-limited');
+    expect(limitScopeTitle('unknown', null), isNull);
+    expect(limitScopeTitle(null, null), isNull);
+  });
+
   testWidgets('rate limits without a reset time show retry guidance', (
     tester,
   ) async {

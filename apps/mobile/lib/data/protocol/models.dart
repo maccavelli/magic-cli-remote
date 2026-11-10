@@ -2750,6 +2750,10 @@ class SessionEvent {
     this.error,
     this.errorKind,
     this.retryAt,
+    this.limitScope,
+    this.limitWindowMinutes,
+    this.limitProvider,
+    this.limitCode,
     this.permissionId,
     this.options = const [],
     this.questionId,
@@ -2866,6 +2870,20 @@ class SessionEvent {
   /// When the quota/rate limit is expected to reset, if the provider's
   /// message said so.
   final DateTime? retryAt;
+
+  /// Which limit a `quota` or `rate_limit` error hit, as far as the agent's
+  /// error says (MADR 0243): `rate`, `window`, `daily`, `weekly`, `monthly`,
+  /// `credits`, `free_tier` or `plan`, an open set; null when unknown.
+  final String? limitScope;
+
+  /// A `window` scope's stated length in minutes, such as 300.
+  final int? limitWindowMinutes;
+
+  /// The upstream the agent named, such as `opencode-zen`.
+  final String? limitProvider;
+
+  /// The provider's own error code, such as `FreeUsageLimitError`.
+  final String? limitCode;
   final String? permissionId;
   final List<PermissionOption> options;
 
@@ -2963,6 +2981,10 @@ class SessionEvent {
     error: error,
     errorKind: errorKind,
     retryAt: retryAt,
+    limitScope: limitScope,
+    limitWindowMinutes: limitWindowMinutes,
+    limitProvider: limitProvider,
+    limitCode: limitCode,
     permissionId: permissionId,
     options: options,
     questionId: questionId,
@@ -3078,6 +3100,10 @@ class SessionEvent {
       error: json['error'] as String?,
       errorKind: json['error_kind'] as String?,
       retryAt: retryAt,
+      limitScope: json['limit_scope'] as String?,
+      limitWindowMinutes: (json['limit_window_minutes'] as num?)?.toInt(),
+      limitProvider: json['limit_provider'] as String?,
+      limitCode: json['limit_code'] as String?,
       permissionId: json['permission_id'] as String?,
       options: opts,
       questionId: json['question_id'] as String?,

@@ -176,6 +176,10 @@ class ChatItem {
     this.isError = false,
     this.errorKind,
     this.retryAt,
+    this.limitScope,
+    this.limitWindowMinutes,
+    this.limitProvider,
+    this.limitCode,
     this.attachments = const [],
     this.dedupeKey,
     this.approvals = const [],
@@ -233,6 +237,20 @@ class ChatItem {
 
   /// When the quota/rate limit resets, if the provider said.
   final DateTime? retryAt;
+
+  /// Which limit a limit error hit (MADR 0243): `rate`, `window`, `daily`,
+  /// `weekly`, `monthly`, `credits`, `free_tier` or `plan`, an open set;
+  /// null when unknown, and an unknown value is treated as null.
+  final String? limitScope;
+
+  /// A `window` scope's stated length in minutes.
+  final int? limitWindowMinutes;
+
+  /// The upstream the agent named, such as `opencode-zen`.
+  final String? limitProvider;
+
+  /// The provider's own error code.
+  final String? limitCode;
 
   bool get isLimitError => errorKind == 'quota' || errorKind == 'rate_limit';
 
@@ -338,6 +356,10 @@ class ChatItem {
     bool error = false,
     String? errorKind,
     DateTime? retryAt,
+    String? limitScope,
+    int? limitWindowMinutes,
+    String? limitProvider,
+    String? limitCode,
     String? dedupeKey,
   }) => ChatItem(
     kind: ChatItemKind.system,
@@ -345,6 +367,10 @@ class ChatItem {
     isError: error,
     errorKind: errorKind,
     retryAt: retryAt,
+    limitScope: limitScope,
+    limitWindowMinutes: limitWindowMinutes,
+    limitProvider: limitProvider,
+    limitCode: limitCode,
     dedupeKey: dedupeKey,
   );
   factory ChatItem.tool({
@@ -412,6 +438,10 @@ class ChatItem {
     isError: isError,
     errorKind: errorKind,
     retryAt: retryAt,
+    limitScope: limitScope,
+    limitWindowMinutes: limitWindowMinutes,
+    limitProvider: limitProvider,
+    limitCode: limitCode,
     attachments: attachments ?? this.attachments,
     dedupeKey: dedupeKey,
     approvals: approvals ?? this.approvals,
@@ -439,6 +469,10 @@ class ChatItem {
     if (isError) 'isError': isError,
     if (errorKind != null) 'errorKind': errorKind,
     if (retryAt != null) 'retryAt': retryAt!.toIso8601String(),
+    if (limitScope != null) 'limitScope': limitScope,
+    if (limitWindowMinutes != null) 'limitWindowMinutes': limitWindowMinutes,
+    if (limitProvider != null) 'limitProvider': limitProvider,
+    if (limitCode != null) 'limitCode': limitCode,
     if (dedupeKey != null) 'dedupeKey': dedupeKey,
     // Descriptors only — image bytes are transient (sending device) and never
     // written to the cache.
@@ -495,6 +529,10 @@ class ChatItem {
       isError: j['isError'] == true,
       errorKind: j['errorKind'] as String?,
       retryAt: retryAt,
+      limitScope: j['limitScope'] as String?,
+      limitWindowMinutes: (j['limitWindowMinutes'] as num?)?.toInt(),
+      limitProvider: j['limitProvider'] as String?,
+      limitCode: j['limitCode'] as String?,
       dedupeKey: j['dedupeKey'] as String?,
       // Absent for rows cached before native identity existed. They stay
       // readable and are never guessed at during removal (PLAN P4 step 10).

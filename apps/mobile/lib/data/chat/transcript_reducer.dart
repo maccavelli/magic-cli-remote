@@ -307,6 +307,10 @@ SessionTranscript _applySessionEvent(
             error: true,
             errorKind: ev.errorKind,
             retryAt: ev.retryAt,
+            limitScope: ev.limitScope,
+            limitWindowMinutes: ev.limitWindowMinutes,
+            limitProvider: ev.limitProvider,
+            limitCode: ev.limitCode,
           ),
         );
       }

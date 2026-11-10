@@ -72,6 +72,47 @@ void main() {
     expect(next.status, 'error');
   });
 
+  test('error events carry which limit was hit (MADR 0243 D5)', () {
+    final ev = SessionEvent.fromJson({
+      'type': 'error',
+      'session_id': 's1',
+      'error': 'Free usage limit reached.',
+      'error_kind': 'quota',
+      'retry_at': '2026-07-23T03:00:00Z',
+      'limit_scope': 'window',
+      'limit_window_minutes': 300,
+      'limit_provider': 'opencode-zen',
+      'limit_code': 'GoUsageLimitError',
+    });
+    final item = applySessionEvent(base, ev).items.single;
+    expect(item.limitScope, 'window');
+    expect(item.limitWindowMinutes, 300);
+    expect(item.limitProvider, 'opencode-zen');
+    expect(item.limitCode, 'GoUsageLimitError');
+
+    // The transcript cache keeps them.
+    final cached = ChatItem.fromJson(item.toJson());
+    expect(cached.limitScope, 'window');
+    expect(cached.limitWindowMinutes, 300);
+    expect(cached.limitProvider, 'opencode-zen');
+    expect(cached.limitCode, 'GoUsageLimitError');
+  });
+
+  test('an error event without the limit fields decodes as before', () {
+    final ev = SessionEvent.fromJson({
+      'type': 'error',
+      'session_id': 's1',
+      'error': 'too many request',
+      'error_kind': 'rate_limit',
+    });
+    final item = applySessionEvent(base, ev).items.single;
+    expect(item.isLimitError, isTrue);
+    expect(item.limitScope, isNull);
+    expect(item.limitWindowMinutes, isNull);
+    expect(item.limitProvider, isNull);
+    expect(item.limitCode, isNull);
+  });
+
   test('ignores other session ids', () {
     final next = applySessionEvent(
       base,
