@@ -64,6 +64,10 @@ type Classification struct {
 	// Message is a short natural-language description safe for the chat
 	// transcript. Empty when Kind is KindNone and the raw text was empty.
 	Message string
+	// Limit describes a quota or rate limit's scope, upstream and code, and
+	// the provider's own words, as far as the message states them (MADR 0243
+	// D3). Zero for any other kind.
+	Limit Limit
 }
 
 // Real-world phrasings catalogued from xAI/Grok, OpenCode Zen, Anthropic,
@@ -259,7 +263,8 @@ func isQuota(m string) bool {
 func Classify(msg string, now time.Time) Classification {
 	msg = ExtractText(msg)
 	m := strings.ToLower(msg)
-	quota := isQuota(m)
+	// An explicit HTTP 402 is a balance or billing block (MADR 0243 D3).
+	quota := isQuota(m) || reHTTP402.MatchString(m)
 	rate := containsAny(m, rateWords) || reHTTPLimit.MatchString(m)
 	var kind Kind
 	switch {
@@ -294,7 +299,7 @@ func Classify(msg string, now time.Time) Classification {
 		return Classification{}
 	}
 	reset := parseReset(msg, now)
-	return Classification{Kind: kind, ResetAt: reset}
+	return Classification{Kind: kind, ResetAt: reset, Limit: describeLimit(msg, kind)}
 }
 
 // Present classifies msg and fills Message with short natural-language copy
@@ -329,6 +334,15 @@ func Present(msg string, now time.Time) Classification {
 	}
 	if cls.Kind == KindAuth {
 		cls.Message = formatAuth(msg)
+		return cls
+	}
+	// A limit's message is the provider's own words, when the agent's and the
+	// SDK's wrappers leave some, with when it lifts (MADR 0243 D4).
+	if pm := cleanRaw(cls.Limit.ProviderMessage); (cls.Kind == KindQuota || cls.Kind == KindRateLimit) && isUsefulProse(pm) {
+		if !cls.ResetAt.IsZero() && !containsResetHint(pm) {
+			pm += " " + resetSuffix(cls.ResetAt, now)
+		}
+		cls.Message = pm
 		return cls
 	}
 	cls.Message = formatLimit(cls.Kind, cls.ResetAt, msg, now)
@@ -508,6 +522,14 @@ func jsonDataText(v any) string {
 		if b, err := json.Marshal(d); err == nil {
 			if nested := extractJSONMessage(string(b)); nested != "" {
 				return nested
+			}
+		}
+		// An object of strings, such as gobble's acpext ErrorData
+		// {"error":"llm: api status 429: …"}: its error, message or reason
+		// member is the cause (MADR 0243 D1).
+		for _, key := range []string{"error", "message", "reason"} {
+			if s, ok := d[key].(string); ok && strings.TrimSpace(s) != "" {
+				return strings.TrimSpace(s)
 			}
 		}
 	}
@@ -785,6 +807,10 @@ var (
 	reClock = regexp.MustCompile(`(?i)resets?\s*(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b`)
 	// 10-digit unix timestamp near a reset word.
 	reUnix = regexp.MustCompile(`(?i)reset[^0-9]{0,20}\b(1[5-9]\d{8})\b`)
+	// "retry-after 1h33m21s", "retry-after 2h9m59.87321s", "retry-after
+	// 250ms": a Go duration with at least one unit, each component a number
+	// and a unit (go-llmprovider-sdk APIError.Error).
+	reRetryAfterGo = regexp.MustCompile(`(?i)retry[- ]after[:\s]+((?:\d+(?:\.\d+)?(?:h|ms|us|µs|ns|m|s))+)\b`)
 )
 
 var unitDur = map[string]time.Duration{
@@ -803,6 +829,13 @@ var reBackoff = regexp.MustCompile(`(?i)backing off for\s+(\d+(?:\.\d+)?)\s*(ms|
 // (machine-readable) formats first. Returns the zero time when nothing
 // parses.
 func parseReset(msg string, now time.Time) time.Time {
+	// go-llmprovider-sdk's "(retry-after 1h33m21s)": a Go duration, compound
+	// and possibly fractional (MADR 0243 D2).
+	if m := reRetryAfterGo.FindStringSubmatch(msg); m != nil {
+		if d, err := time.ParseDuration(m[1]); err == nil && d > 0 {
+			return now.Add(d)
+		}
+	}
 	if m := rePipeUnix.FindStringSubmatch(msg); m != nil {
 		if t := unixTime(m[1], now); !t.IsZero() {
 			return t

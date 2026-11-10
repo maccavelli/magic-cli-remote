@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-09
 decision-makers: Project Owner
 consulted: "this repository at the commit after 0179 P3's follow-up: internal/agenterr, internal/event, internal/provider/acpagent, internal/provider/codex, docs/guides/protocol-v1.md, apps/mobile/lib/features/chat/chat_bubble.dart; gobble-cli at v0.5.0 (errors, retry and acpext unchanged since v0.4.0) and its records; go-llmprovider-sdk at v1.28.0 and its records; the gobble 0.4.0 capture of 0179 PLAN P3 (an OpenCode Zen free-tier limit); a scratch probe of agenterr.Present on that capture"
@@ -151,6 +151,14 @@ Its sources, most explicit first, and the first that says something wins:
 **A window is never inferred from how long the wait is.** A 4-hour retry-after does not make a 5-hour window (F5). When
 no source states the scope, `Scope` is empty and the card says what it knows.
 
+*Note, 2026-11-09, from the PLAN's P1, two things this decision implies and did not say:*
+
+* *A phrase that states the window refines `plan`, whose meaning is "window not stated": `GoUsageLimitError` with
+  "5-hour usage limit reached" is `window`, 300 minutes. A code with any other scope is not refined.*
+* *An explicit HTTP 402 (`HTTP 402`, `status 402`, "402 Payment Required") is now classified as kind `quota`, which
+  `agenterr` did not do before, so that "HTTP 402 → `credits`" has a quota to describe. go-llmprovider-sdk classifies
+  any 402 as quota. A bare "402", which could be a port or an id, is not.*
+
 ### D4. Show the provider's own words
 
 The `error` text of a limit is the provider's sentences, with known agent and SDK wrappers removed (`llm: api status
@@ -175,7 +183,9 @@ window at 90% or more stays a notice, now naming which window.
 ### D7. gobble-cli is asked for structured data; this repository reads it when it arrives
 
 A gobble-cli issue, opened after this record is accepted, asks for the requirements in More Information, and a
-go-llmprovider-sdk issue asks for the SDK's part (requirement 6; Q1), each linking the other. Until a gobble release
+go-llmprovider-sdk issue asks for the SDK's part (requirement 6; Q1), each linking the other. *Opened 2026-11-09:
+[maccavelli/gobble-cli#14](https://github.com/maccavelli/gobble-cli/issues/14) and
+[maccavelli/go-llmprovider-sdk#13](https://github.com/maccavelli/go-llmprovider-sdk/issues/13).* Until a gobble release
 sends them, D1 to D4 read gobble's text. When one does, the gobble Spec decodes acpext's new fields
 through D3's hook, a dependency change under this record's PLAN.
 

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-11-09
 associated-madr: "0243-MADR-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md"
 ---
@@ -134,4 +134,72 @@ and P5 may close the rest.
 
 ## Execution record
 
-Nothing executed yet.
+### P0 — 2026-11-09: the records, and the two issues
+
+* This pair, written `proposed`; the owner answered Q1 ("Also open an SDK issue"), Q2 ("Show it") and Q3 ("Include
+  it"), recorded in the MADR. `check_records.py --write-index`; `make check-records markdownlint-docs`: exit 0; the
+  redact preview: 0 files. Staged, and committed by the owner.
+* The owner accepted the MADR and approved this plan: "committed, accept madr and approve plan, and proceed". The
+  MADR is `accepted`, this plan `in-progress`.
+* **Step 3, the issues.** Both drafts were shown to the owner, who chose "Post both as drafted". Posted on
+  2026-11-09, the SDK's first so each could name the other:
+  * [maccavelli/go-llmprovider-sdk#13](https://github.com/maccavelli/go-llmprovider-sdk/issues/13), "Keep absolute
+    reset times and limit-scope detail on APIError": requirement 6, and the open questions;
+  * [maccavelli/gobble-cli#14](https://github.com/maccavelli/gobble-cli/issues/14), "Send structured quota and
+    rate-limit errors to ACP clients (provider code, reset time, limit class)": requirements 1 to 5, the policy point,
+    and the SDK issue as a dependency. The SDK issue was then edited to link it.
+
+  Neither text carries a hostname, account name or local path.
+
+### P1 — 2026-11-09: `agenterr`
+
+Scripts and logs are in the session scratchpad (`agenterr-probe/`, `p1_0243_planted.py`, `0243-p1-*.log`).
+
+* **Start state (C1).** The owner committed P0; the tree held only this phase's work.
+* **Step 1, seen failing on today's code** (C2). `TestGobbleQuotaEndToEnd` (`internal/agenterr/limit_test.go`), with
+  0179 P3's captured gobble error, written first against today's fields only. It failed for all three reasons:
+
+  ```text
+  limit_test.go:24: kind = "server", want quota (D1: the cause is in data.error)
+  limit_test.go:27: reset = 0001-01-01 00:00:00 +0000 UTC, want 2026-07-22 14:33:21 +0000 UTC (D2: a Go-duration retry-after)
+  limit_test.go:30: message = "The model provider had a server error. This is usually temporary — try again in a moment, or switch models.", want the provider's own words first (D4)
+  ```
+
+* **Steps 2 to 5.**
+  * D1: `jsonDataText` reads an object `data`'s string `error`, `message` or `reason`.
+  * D2: `parseReset` reads `retry-after <Go duration>` first (`reRetryAfterGo`, `time.ParseDuration`).
+  * D3: `internal/agenterr/limit.go`: `Limit` (`Scope`, `WindowMinutes`, `Provider`, `Code`, `ProviderMessage`), the
+    scope constants, the code table, the window phrases, and the SDK header parsed for provider, status and code.
+    `Classify` fills `Classification.Limit` for quota and rate-limit kinds.
+  * D4: the provider's words after the SDK header, or after the agent's wrappers when there is no header; `Present`
+    uses them, with the reset suffix when the words give none.
+  * Two things D3 implies and did not say, noted in the MADR under D3: a stated window refines `plan`; an explicit
+    HTTP 402 is classified `quota`.
+* **The tests:** `TestGobbleQuotaEndToEnd` extended with the `Limit` (scope `free_tier`, provider `opencode-zen`, code
+  `FreeUsageLimitError`, the provider's two sentences) and the bare data string; `TestRetryAfterGoDuration` (four Go
+  durations, two older formats); `TestLimitScopes` (eleven cases: codes, the 5-hour and weekly refinements of
+  `plan`, monthly, credits by code and by 402, Claude's 5-hour phrase, Gemini per day, a plain rate limit, and a
+  quota with a 5-hour wait and nothing stated, which stays without a scope); `TestProviderWordsWithoutWrappers`
+  (after retries, a stream failure, wrappers with no SDK header, no wrapper at all, grok's 401 unchanged). The 26
+  existing `agenterr` tests pass unchanged.
+* **Seen failing (C2),** `p1_0243_planted.py`, a scratch clone. Unplanted, exit 0. Each break, exit 1:
+
+  | Break | Message |
+  | :--- | :--- |
+  | D1: `data`'s string members not read | `kind = "server", want quota` |
+  | D2: the Go-duration retry-after not read | `parseReset("x HTTP 429 (retry-after 1h33m21s): y") = -2562047h47m16.854775808s from now, want 1h33m21s` |
+  | D3: `FreeUsageLimitError` dropped from the table | `want scope "free_tier"` |
+  | D3: a stated window does not refine `plan` | `limit = {Scope:plan …}, want scope "window" window 300` |
+  | D3: a window inferred for any quota | `limit = {Scope:window …}, want scope "" window 0 code "SomeLimit"` |
+  | D3: HTTP 402 not a quota | `limit = {Scope: …} (kind ""), want scope "credits"` |
+  | D4: the provider's words not used | `message = "Internal error llm: api status 429: …"` |
+  | D4: wrappers not stripped | `wrappers, no SDK header: limit {Scope:weekly … ProviderMessage:}` |
+
+  The first run caught seven: the wrapper break passed, because every case had an SDK header and the stripping runs
+  only without one. The "wrappers, no SDK header" case was added, and the second run caught all eight. The clone was
+  removed.
+* `make pre-add-check` on the three files: clean. The Go gates (C3), each exit 0: `make test` and
+  `go test -race -count=1 ./...` (50 `ok` lines, no FAIL, panic or race line), `make lint`, `make staticcheck`,
+  `make vet-tags`.
+* `make check-records markdownlint-docs` and the redact preview, then **staged** for the owner's commit:
+  `internal/agenterr/agenterr.go`, `limit.go`, `limit_test.go`, this pair.
