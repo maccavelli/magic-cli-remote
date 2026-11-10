@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-10
 associated-madr: "0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md"
 ---
@@ -199,3 +199,26 @@ Scripts and logs are in the session scratchpad (`p2_0244_planted.py`, `0244-p2-*
   tests passed!" (two more than before, three skipped as before).
 * `make check-records markdownlint-docs` and the redact preview, then **staged** by path for the owner's commit: the
   four Dart files, the MADR (`accepted`), and this plan. No Go file changed in this phase.
+
+The owner committed P2 (`15b8d9d5`): "committed, proceed".
+
+### P3 — 2026-11-10: close-out
+
+* **Start state (C1).** HEAD `15b8d9d5`, three commits ahead of `origin/master` (this plan's P0, P1 and P2); 0179 P4's
+  files unstaged, as C1 names. The pre-push disclosure guard over the three commits: exit 0.
+* **Step 1, the MADR's Confirmation:**
+
+  | Confirmation | Evidence |
+  | :--- | :--- |
+  | 1 the conformance column | `TestProviderAuthInterfaceConformance`: kilo `UpstreamSwitchWired` true; opencode, grok and codex false. Failed with `acpagent`'s probe answering true, and with `httpagent`'s answering false (P1) |
+  | 2 the refusal | `TestSetActiveUpstreamRefusedByTheProbe`: refused, the method not called; `TestSetActiveUpstreamOverWire` unchanged. Failed with the check removed: `want the unsupported error, got ok null` (P1) |
+  | 3 the flag on the wire | `TestAuthBlockSaysWhenTheSwitchIsNotWired`: `true` for the opencode-like and codex-like doubles, no key for the kilo-like one. Failed with the flag never set and with it always set (P1) |
+  | 4 the phone | `provider_detail_screen_test.dart`: the flag hides the control; the existing two-upstream tests, which send no flag, show it; the parse reads an absent field as false. Three breaks caught (P2) |
+  | 5 `protocol-v1.md` | "Remote provider auth": the auth block's shape, the field, the older-daemon rule and the refusal (P1 step 5) |
+  | 6 gates and CI | the Go gates in P1 and the Dart gates in P2, each on a scratch clone of the commit, exit 0; CI on the owner's push of `15b8d9d5`, run 42841924687: `success`, every job that ran passing (Go test; Go linux/arm64, windows/amd64, darwin/arm64; Flutter analyze and test; Flutter test on Windows; live supervisors), the release and APK jobs skipped as on any push; the Docs workflow, run 42841923236: `success` |
+
+* **Step 2.** Confirmation 1 to 6 met: this plan is `complete`; the MADR is `accepted` (P2). The index lists no
+  status, so `check_records.py --write-index` leaves it unchanged; `make check-records markdownlint-docs`: exit 0; the
+  redact preview: 0 files.
+* **Step 3.** A dated note on 0179's PLAN, after its P4 deviation entry: P4 may resume.
+* **Staged** for the owner's commit: this plan and 0179's PLAN.

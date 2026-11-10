@@ -1018,3 +1018,9 @@ On "committed and pushed, proceed" after 0243's close-out, P4 started on a clean
   block, `config.md` documenting a key gobble lacks), and `go vet -tags live_gobble` is clean; the live suite skips
   without the owner's model and key, so nothing was spent. The gates (step 8) and `make ci-windows` have not run.
   The record of these steps is written when P4 resumes.
+
+*Note, 2026-11-10:*
+[0244-PLAN-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md](0244-PLAN-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md)
+*is `complete` (CI run 42841924687 passed on `15b8d9d5`). `provider.UpstreamSwitchWired` and the conformance test's
+`wantSwitchWired` column are on master, so P4 may resume: step 5's gobble case goes back in with the type side true
+and `wantSwitchWired` false (MADR A8).*
