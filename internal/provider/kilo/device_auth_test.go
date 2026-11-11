@@ -28,12 +28,29 @@ const browserAuthorize = `{
   "instructions": "Complete authorization in your browser. This window will close automatically."
 }`
 
-// deviceAPI serves authorize once, then answers /config/providers from a
-// counter so the poll can be made to succeed after N attempts.
+// deviceCatalog is the GET /provider/auth the start re-reads to resolve a
+// method id (MADR 0074 D31); the labels are kilo 7.4.20's.
+const deviceCatalog = `{
+  "kilo": [{"type":"oauth","label":"Kilo Gateway (Device Authorization)"}],
+  "openai": [{"type":"oauth","label":"ChatGPT Pro/Plus (browser)"},
+             {"type":"oauth","label":"ChatGPT Pro/Plus (headless)"},
+             {"type":"api","label":"Manually enter API Key"}]
+}`
+
+// The ids the catalog above mints.
+const (
+	kiloGatewayMethod   = "kilo:kilo-gateway-device-authorization"
+	openaiBrowserMethod = "openai:chatgpt-pro-plus-browser"
+)
+
+// deviceAPI serves the catalog and authorize, then answers /config/providers
+// from a counter so the poll can be made to succeed after N attempts.
 func deviceAPI(authorize string, connectAfter int32) (func(context.Context, string, string, any, any) error, *int32) {
 	var polls int32
 	fn := func(_ context.Context, method, path string, _, out any) error {
 		switch {
+		case method == "GET" && path == "/provider/auth":
+			return json.Unmarshal([]byte(deviceCatalog), out)
 		case method == "POST" && strings.Contains(path, "/oauth/authorize"):
 			return json.Unmarshal([]byte(authorize), out)
 		case path == "/config/providers":
@@ -54,7 +71,7 @@ func TestStartDeviceAuthReturnsCode(t *testing.T) {
 	api, _ := deviceAPI(gatewayAuthorize, 1)
 	d := newDialect()
 
-	flow, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", "kilo:0", nil, false)
+	flow, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil, false)
 	if err != nil {
 		t.Fatalf("StartDeviceAuth: %v", err)
 	}
@@ -76,7 +93,7 @@ func TestStartDeviceAuthRefusesBrowserFlow(t *testing.T) {
 	api, _ := deviceAPI(browserAuthorize, 1)
 	d := newDialect()
 
-	_, _, err := d.StartDeviceAuth(context.Background(), api, "openai", "openai:0", nil, false)
+	_, _, err := d.StartDeviceAuth(context.Background(), api, "openai", openaiBrowserMethod, nil, false)
 	if err == nil {
 		t.Fatal("a browser loopback flow was accepted as a device flow")
 	}
@@ -97,7 +114,7 @@ func TestAwaitCredentialCompletesOnceConfigured(t *testing.T) {
 	shrinkDevicePoll(t)
 	api, polls := deviceAPI(gatewayAuthorize, 2)
 	d := newDialect()
-	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", "kilo:0", nil, false)
+	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +141,7 @@ func TestAwaitCredentialStopsOnCancel(t *testing.T) {
 	// connectAfter is unreachable, so only cancellation can end this.
 	api, _ := deviceAPI(gatewayAuthorize, 1<<30)
 	d := newDialect()
-	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", "kilo:0", nil, false)
+	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,6 +167,9 @@ func TestAwaitCredentialToleratesEngineRestart(t *testing.T) {
 	shrinkDevicePoll(t)
 	var polls atomic.Int32
 	api := func(_ context.Context, method, path string, _, out any) error {
+		if method == "GET" && path == "/provider/auth" {
+			return json.Unmarshal([]byte(deviceCatalog), out)
+		}
 		if method == "POST" && strings.Contains(path, "/oauth/authorize") {
 			return json.Unmarshal([]byte(gatewayAuthorize), out)
 		}
@@ -162,7 +182,7 @@ func TestAwaitCredentialToleratesEngineRestart(t *testing.T) {
 		return fmt.Errorf("unexpected %s %s", method, path)
 	}
 	d := newDialect()
-	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", "kilo:0", nil, false)
+	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,23 +198,29 @@ func TestAwaitCredentialToleratesEngineRestart(t *testing.T) {
 	}
 }
 
-func TestMethodIndexOf(t *testing.T) {
+// A method id resolves against the catalog as it stands at start (MADR 0074
+// D31); the pre-D31 index ids resolve to nothing.
+func TestResolveEngineMethod(t *testing.T) {
+	api, _ := deviceAPI(gatewayAuthorize, 1)
 	for _, tc := range []struct {
 		upstream, method string
 		want             int
 		wantErr          bool
 	}{
-		{"kilo", "kilo:0", 0, false},
-		{"openai", "openai:1", 1, false},
+		{"kilo", kiloGatewayMethod, 0, false},
+		{"openai", openaiBrowserMethod, 0, false},
+		{"openai", "openai:chatgpt-pro-plus-headless", 1, false},
+		{"openai", "openai:manually-enter-api-key", 2, false},
 		{"kilo", "", 0, false}, // empty means the first method
-		{"kilo", "openai:0", 0, true},
+		{"kilo", openaiBrowserMethod, 0, true},
+		{"kilo", "kilo:0", 0, true},
 		{"kilo", "kilo:abc", 0, true},
 		{"kilo", "kilo:-1", 0, true},
 	} {
-		got, err := httpagent.EngineMethodIndex(tc.upstream, tc.method)
+		got, err := httpagent.ResolveEngineMethod(context.Background(), api, tc.upstream, tc.method)
 		if tc.wantErr {
-			if err == nil {
-				t.Errorf("%s/%s: expected an error", tc.upstream, tc.method)
+			if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
+				t.Errorf("%s/%s: err=%v, want ErrAuthMethodUnsupported", tc.upstream, tc.method, err)
 			}
 			continue
 		}
@@ -214,7 +240,7 @@ func TestAwaitCredentialDoesNotFalseComplete(t *testing.T) {
 	// succeed on the first tick (MADR 0086 D5).
 	api, _ := deviceAPI(gatewayAuthorize, 1)
 	d := newDialect()
-	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", "kilo:0", nil, false)
+	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}

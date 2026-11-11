@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -51,7 +50,9 @@ func StartEngineDeviceFlow(
 	if upstreamID == "" {
 		return provider.DeviceFlow{}, nil, fmt.Errorf("%s device auth: upstream id required", agent)
 	}
-	methodIndex, err := EngineMethodIndex(upstreamID, methodID)
+	startCtx, cancel := context.WithTimeout(ctx, deviceStartTimeout)
+	defer cancel()
+	methodIndex, err := ResolveEngineMethod(startCtx, api, upstreamID, methodID)
 	if err != nil {
 		return provider.DeviceFlow{}, nil, err
 	}
@@ -65,8 +66,6 @@ func StartEngineDeviceFlow(
 		Method       string `json:"method"`
 		Instructions string `json:"instructions"`
 	}
-	startCtx, cancel := context.WithTimeout(ctx, deviceStartTimeout)
-	defer cancel()
 	if err := api(startCtx, "POST",
 		"/provider/"+url.PathEscape(upstreamID)+"/oauth/authorize", body, &resp); err != nil {
 		return provider.DeviceFlow{}, nil, fmt.Errorf("%s authorize %s: %w", agent, upstreamID, err)
@@ -169,21 +168,21 @@ func awaitEngineCredential(
 	}
 }
 
-// EngineMethodIndex resolves a method id back to the array index the engine's
-// authorize endpoint expects. Ids are minted as "<upstream>:<index>" by the
-// catalog, so this is the inverse of that.
-func EngineMethodIndex(upstreamID, methodID string) (int, error) {
+// ResolveEngineMethod resolves a method id to the array index the engine's
+// authorize endpoint expects, as the catalog stands now (MADR 0074 D31). Ids
+// are minted as "<upstream>:<label slug>" by FetchAuthMethods, so the catalog
+// is re-read and the slug looked up at start: a catalog reordered since the
+// phone listed it still starts the method the phone chose. An empty id means
+// the first method. A slug that matches no method, or more than one, and the
+// pre-D31 index id are refused as provider.ErrAuthMethodUnsupported.
+func ResolveEngineMethod(ctx context.Context, api API, upstreamID, methodID string) (int, error) {
 	methodID = strings.TrimSpace(methodID)
 	if methodID == "" {
 		return 0, nil
 	}
-	prefix := upstreamID + ":"
-	if !strings.HasPrefix(methodID, prefix) {
-		return 0, fmt.Errorf("method %q does not belong to upstream %q", methodID, upstreamID)
+	methods, err := FetchAuthMethods(ctx, api)
+	if err != nil {
+		return 0, fmt.Errorf("resolve method %s: %w", methodID, err)
 	}
-	idx, err := strconv.Atoi(strings.TrimPrefix(methodID, prefix))
-	if err != nil || idx < 0 {
-		return 0, fmt.Errorf("method %q has no valid index", methodID)
-	}
-	return idx, nil
+	return resolveMethod(methods[upstreamID], upstreamID, methodID)
 }

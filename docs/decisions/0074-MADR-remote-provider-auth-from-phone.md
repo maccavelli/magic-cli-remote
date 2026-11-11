@@ -1313,7 +1313,10 @@ is as it was at `995d442b`, where this section was first drafted); none of these
   that answer. A kilo method id is `<upstream>:<label slug>`, the label lower-cased with
   every run of characters other than letters and digits made one `-`. At start, and in `VerifyAPIKeyMethod`, the daemon
   re-reads `GET /provider/auth` and resolves the slug to its current index; a slug that matches none, or more than one,
-  is refused `method_unsupported`. Index ids are no longer accepted.
+  is refused `method_unsupported`. Index ids are no longer accepted. *Refined 2026-11-11 (P23 step 2): a leading or
+  trailing `-` is dropped, so a label ending in `)` does not mint an id ending in `-`, and a label with no letter or
+  digit takes the method's type as its slug, so no entry is addressed as `<upstream>:`; `methodSlug` in
+  `internal/provider/httpagent/authcatalog.go` is the rule, and `TestMethodSlug` holds it.*
 * **D32. The phone's codex special cases that can go now (M7).** The destructive dialog goes: D20 removed the
   destructive start on the isolated path, codex's legacy path is unreachable (D35), and a codex host without a
   coordinator cannot start a device sign-in at all. `confirmDestructiveSignIn` goes. The removal copy's

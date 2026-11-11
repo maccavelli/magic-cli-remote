@@ -110,24 +110,24 @@ func TestLiveKiloCatalogMarksXaiMethods(t *testing.T) {
 	if xai == nil {
 		t.Fatal("xai missing from status")
 	}
-	var sawBrowser, sawDevice, sawAPI bool
+	// MADR 0074 D30: both of xAI's oauth entries, SuperGrok and Headless/VPS,
+	// are listed oauth_device and startable; SuperGrok's loopback URL is
+	// refused at start (D7), not at listing by its label.
+	var device, sawAPI int
 	for _, m := range xai.Methods {
 		switch {
 		case m.Type == provider.AuthMethodOAuthBrowser:
-			sawBrowser = true
+			t.Errorf("%s (%q) is oauth_browser; no catalog entry's type may depend on its label (D30)", m.ID, m.Label)
 		case m.Type == provider.AuthMethodOAuthDevice && !m.Unavailable:
-			sawDevice = true
+			device++
 		case m.Type == provider.AuthMethodAPIKey:
-			sawAPI = true
+			sawAPI++
 		}
 	}
-	if !sawBrowser {
-		t.Error("expected SuperGrok subscription as oauth_browser (P0)")
+	if device < 2 {
+		t.Errorf("expected SuperGrok and Headless/VPS as startable device methods (D30), got %d", device)
 	}
-	if !sawDevice {
-		t.Error("expected Headless/VPS as a usable device method (P0)")
-	}
-	if !sawAPI {
+	if sawAPI == 0 {
 		t.Error("expected xAI API key method")
 	}
 }
@@ -155,7 +155,10 @@ func TestLiveKiloGatewayDeviceDoesNotFalseComplete(t *testing.T) {
 	httpagent.DevicePollInterval = 30 * time.Millisecond
 	t.Cleanup(func() { httpagent.DevicePollInterval = old })
 
-	_, wait, err := starter.StartDeviceAuth(ctx, "kilo", "kilo:0", nil, false)
+	// An empty id is the first method; kilo's gateway entry is its only one,
+	// and its label (the slug the id would carry, MADR 0074 D31) may differ
+	// between engine versions.
+	_, wait, err := starter.StartDeviceAuth(ctx, "kilo", "", nil, false)
 	if err != nil {
 		// Isolated cold host may refuse if authorize needs a session.
 		t.Skipf("could not start gateway device: %v", err)

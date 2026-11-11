@@ -42,17 +42,19 @@ func TestBuildCatalogStillSynthesisesTogether(t *testing.T) {
 	}
 }
 
-func TestSuperGrokSubscriptionClassifiesBrowser(t *testing.T) {
-	got := ClassifyCatalogMethod("oauth", "xAI Grok OAuth (SuperGrok Subscription)")
-	if got != provider.AuthMethodOAuthBrowser {
-		t.Fatalf("classify = %q, want oauth_browser (P0 loopback)", got)
+// Every oauth entry classifies oauth_device, whatever its label says (MADR
+// 0074 D30). SuperGrok's entry was oauth_browser by a label heuristic until
+// P23 step 2; its loopback URL is refused at start instead (D7), which
+// TestNoLabelDecidesTheFlow holds.
+func TestOAuthEntriesClassifyDeviceWhateverTheLabel(t *testing.T) {
+	if got := ClassifyCatalogMethod("oauth"); got != provider.AuthMethodOAuthDevice {
+		t.Fatalf("classify(oauth) = %q, want oauth_device", got)
 	}
-}
-
-func TestHeadlessVPSClassifiesDevice(t *testing.T) {
-	got := ClassifyCatalogMethod("oauth", "xAI Grok OAuth (Headless / Remote / VPS)")
-	if got != provider.AuthMethodOAuthDevice {
-		t.Fatalf("classify = %q, want oauth_device (P0 RFC 8628)", got)
+	if got := ClassifyCatalogMethod(" OAuth "); got != provider.AuthMethodOAuthDevice {
+		t.Fatalf("classify(OAuth) = %q, want oauth_device", got)
+	}
+	if got := ClassifyCatalogMethod("api"); got != provider.AuthMethodAPIKey {
+		t.Fatalf("classify(api) = %q, want api_key", got)
 	}
 }
 

@@ -266,9 +266,9 @@ func TestACPAuthStatusIsSmall(t *testing.T) {
 	}
 	o := got["oauthy"]
 	if o.Status != provider.AuthMissing || len(o.Methods) != 3 || o.Methods[1].ID != "oauthy:oauth:device" ||
-		o.Methods[1].Type != provider.AuthMethodOAuthDevice || o.Methods[2].Type != provider.AuthMethodOAuthBrowser ||
+		o.Methods[1].Type != provider.AuthMethodOAuthDevice || o.Methods[2].Type != provider.AuthMethodOAuthDevice ||
 		o.Methods[1].ConfiguredKnown {
-		t.Errorf("oauthy = %+v, want a key, a device and a browser method, which OAuth owns the credential unknown", o)
+		t.Errorf("oauthy = %+v, want a key and two device methods (no label decides, MADR 0074 D30), which OAuth owns the credential unknown", o)
 	}
 	fm := got["formed"].Methods[0]
 	if len(fm.Inputs) != 2 || fm.Inputs[0].Type != provider.AuthInputSelect || len(fm.Inputs[0].Options) != 2 ||

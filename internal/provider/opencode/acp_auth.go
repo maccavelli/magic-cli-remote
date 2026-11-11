@@ -335,7 +335,7 @@ func (in integration) method(m integrationMethod) (provider.AuthMethod, bool) {
 		one := in.methodsOf("oauth") == 1
 		am := provider.AuthMethod{
 			ID:              in.ID + ":oauth:" + m.ID,
-			Type:            oauthType(m),
+			Type:            provider.AuthMethodOAuthDevice,
 			Label:           m.Label,
 			Inputs:          inputs,
 			ConfiguredKnown: one,
@@ -360,14 +360,10 @@ func (in integration) method(m integrationMethod) (provider.AuthMethod, bool) {
 	}
 }
 
-// oauthType is the catalog's hint; the attempt's URL decides when it starts
-// (MADR 0074 D7).
-func oauthType(m integrationMethod) string {
-	if strings.Contains(strings.ToLower(m.ID+" "+m.Label), "browser") {
-		return provider.AuthMethodOAuthBrowser
-	}
-	return provider.AuthMethodOAuthDevice
-}
+// Every oauth method is listed oauth_device (MADR 0074 D30): no label or id
+// decides the flow, the attempt's URL does when it starts (MADR 0074 D7), and
+// a loopback URL is refused there with "signs in through a browser on the
+// host".
 
 // visible drops the fields the engine fills from their default.
 func visible(fields []formField) []formField {

@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
@@ -114,11 +114,14 @@ type authMethodsResponse map[string][]struct {
 
 // FetchAuthMethods reads GET /provider/auth into typed methods keyed by vendor.
 //
-// Method ids encode the index into the vendor's method array because that is
-// how the authorize endpoint addresses a method — `POST
-// /provider/{id}/oauth/authorize {method: 1}`. Reordering the array upstream
-// therefore changes what a stored method id means, which is why the phone
-// re-reads the catalog rather than caching ids across daemon versions.
+// The engine's catalog gives a method no id of its own: the authorize endpoint
+// addresses it by its index in the vendor's array — `POST
+// /provider/{id}/oauth/authorize {method: 1}`. Magic mints the id
+// `<upstream>:<label slug>` instead of `<upstream>:<index>` (MADR 0074 D31),
+// so a catalog reordered between listing and start still starts the method
+// the phone chose: ResolveEngineMethod re-reads the catalog at start and
+// resolves the slug to its index then. The phone re-reads the catalog when it
+// opens the sheet rather than caching ids across daemon versions.
 func FetchAuthMethods(ctx context.Context, api API) (map[string][]provider.AuthMethod, error) {
 	var raw authMethodsResponse
 	if err := api(ctx, "GET", "/provider/auth", nil, &raw); err != nil {
@@ -131,10 +134,10 @@ func FetchAuthMethods(ctx context.Context, api API) (map[string][]provider.AuthM
 			continue
 		}
 		typed := make([]provider.AuthMethod, 0, len(methods))
-		for i, m := range methods {
+		for _, m := range methods {
 			am := provider.AuthMethod{
-				ID:    fmt.Sprintf("%s:%d", id, i),
-				Type:  ClassifyCatalogMethod(m.Type, m.Label),
+				ID:    id + ":" + methodSlug(m.Type, m.Label),
+				Type:  ClassifyCatalogMethod(m.Type),
 				Label: strings.TrimSpace(m.Label),
 			}
 			for _, p := range m.Prompts {
@@ -174,16 +177,33 @@ func FetchAuthMethods(ctx context.Context, api API) (map[string][]provider.AuthM
 	return out, nil
 }
 
-// browserOAuthMarkers identify catalog entries whose OAuth completes through a
-// loopback browser redirect rather than a device code.
+// methodSlug mints the id half of a catalog method (MADR 0074 D31): the label
+// lower-cased, every run of characters other than letters and digits made one
+// `-`, with no leading or trailing `-`. A label with nothing in it falls back
+// to the method's type, so an entry is never addressed as "<upstream>:".
 //
-// This is a catalog-time *hint*, not the D7 decision. D7 is authoritative and
-// needs the authorize response's URL, which does not exist until a flow starts
-// — the live probe showed these engines return method:"auto" for browser and
-// device flows alike, so the catalog cannot be trusted to distinguish them.
-// The hint exists only so the phone does not offer a "sign in" button that
-// would fail the instant it is pressed; StartDeviceAuth re-checks by URL.
-var browserOAuthMarkers = []string{"browser", "external browser", "supergrok subscription"}
+// The slug is derived from the label and not from the array index because
+// the index is what the engine may reorder between the phone's listing and
+// its start; the label is what the user chose.
+func methodSlug(typ, label string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(label)) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			if dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			dash = false
+			b.WriteRune(r)
+			continue
+		}
+		dash = true
+	}
+	if b.Len() == 0 {
+		return strings.ToLower(strings.TrimSpace(typ))
+	}
+	return b.String()
+}
 
 // noSyntheticAPIKey is vendor ids that appear in GET /provider.all but must
 // not receive DefaultAPIKeyMethod (MADR 0086 D2). OpenCode lists `kilo` in
@@ -192,16 +212,20 @@ var noSyntheticAPIKey = map[string]struct{}{
 	"kilo": {},
 }
 
-// ClassifyCatalogMethod maps a catalog entry to a method type.
-func ClassifyCatalogMethod(typ, label string) string {
+// ClassifyCatalogMethod maps a catalog entry's type to a method type.
+//
+// Every `oauth` entry is listed oauth_device and startable (MADR 0074 D30).
+// No label decides the flow: the live probe showed these engines return
+// method:"auto" for browser and device flows alike, and the only honest
+// discriminator is the authorize response's URL, which does not exist until a
+// flow starts. D7's URL rule decides then, and StartEngineDeviceFlow refuses a
+// loopback URL with "signs in through a browser on the host". The label
+// heuristic this replaced ("browser", "supergrok subscription") marked those
+// entries oauth_browser so the phone never offered them; it also marked
+// entries by their wording alone, which is not a fact about the flow.
+func ClassifyCatalogMethod(typ string) string {
 	if !strings.EqualFold(strings.TrimSpace(typ), "oauth") {
 		return provider.AuthMethodAPIKey
-	}
-	l := strings.ToLower(label)
-	for _, marker := range browserOAuthMarkers {
-		if strings.Contains(l, marker) {
-			return provider.AuthMethodOAuthBrowser
-		}
 	}
 	return provider.AuthMethodOAuthDevice
 }
@@ -265,7 +289,7 @@ func defaultMethodsFor(id string) []provider.AuthMethod {
 }
 
 // VerifyAPIKeyMethod guards a credential write against the wrong method
-// (MADR 0083 D2): an engine-minted typed method id ("<upstream>:<index>")
+// (MADR 0083 D2): a catalog-minted method id ("<upstream>:<label slug>")
 // must resolve to an api-key method, because the write path stores an
 // ApiAuth. The synthesized long-tail id ("<upstream>:api") and an empty id
 // need no engine round-trip. Refusing beats writing a wrong-shaped
@@ -278,30 +302,48 @@ func VerifyAPIKeyMethod(ctx context.Context, api API, upstreamID, methodID strin
 	if methodID == "" || methodID == upstreamID+":api" {
 		return nil
 	}
-	prefix := upstreamID + ":"
-	if !strings.HasPrefix(methodID, prefix) {
-		return fmt.Errorf("method %q does not belong to upstream %q: %w",
-			methodID, upstreamID, provider.ErrAuthMethodUnsupported)
-	}
-	idx, err := strconv.Atoi(strings.TrimPrefix(methodID, prefix))
-	if err != nil || idx < 0 {
-		return fmt.Errorf("method %q has no valid index: %w",
-			methodID, provider.ErrAuthMethodUnsupported)
-	}
 	methods, err := FetchAuthMethods(ctx, api)
 	if err != nil {
 		return fmt.Errorf("resolve method %s: %w", methodID, err)
 	}
-	list := methods[upstreamID]
-	if idx >= len(list) {
-		return fmt.Errorf("method %q is not in the engine's catalog: %w",
-			methodID, provider.ErrAuthMethodUnsupported)
+	idx, err := resolveMethod(methods[upstreamID], upstreamID, methodID)
+	if err != nil {
+		return err
 	}
-	if t := list[idx].Type; t != provider.AuthMethodAPIKey {
+	if t := methods[upstreamID][idx].Type; t != provider.AuthMethodAPIKey {
 		return fmt.Errorf("method %q is %s, not an API key: %w",
 			methodID, t, provider.ErrAuthMethodUnsupported)
 	}
 	return nil
+}
+
+// resolveMethod finds the catalog index of a minted method id among one
+// upstream's methods, as the catalog stands now (MADR 0074 D31). A slug that
+// matches no method, or more than one, is refused as unsupported: starting
+// "the first match" would start a method the user did not choose. An index id
+// ("<upstream>:1", the pre-D31 shape) matches no slug and is refused the same
+// way.
+func resolveMethod(list []provider.AuthMethod, upstreamID, methodID string) (int, error) {
+	if !strings.HasPrefix(methodID, upstreamID+":") {
+		return 0, fmt.Errorf("method %q does not belong to upstream %q: %w",
+			methodID, upstreamID, provider.ErrAuthMethodUnsupported)
+	}
+	found := -1
+	for i, m := range list {
+		if m.ID != methodID {
+			continue
+		}
+		if found >= 0 {
+			return 0, fmt.Errorf("method %q matches more than one of the engine's methods: %w",
+				methodID, provider.ErrAuthMethodUnsupported)
+		}
+		found = i
+	}
+	if found < 0 {
+		return 0, fmt.Errorf("method %q is not in the engine's catalog: %w",
+			methodID, provider.ErrAuthMethodUnsupported)
+	}
+	return found, nil
 }
 
 // APIKeyAuthBody is the engine's ApiAuth write shape (PUT /auth/{id}).

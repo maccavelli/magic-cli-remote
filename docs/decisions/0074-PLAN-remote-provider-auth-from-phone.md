@@ -1807,3 +1807,51 @@ python3 ~/.global-git-hooks/github-disclosure.py redact
   the four rows for the 0246 and 0247 drafts, which are not committed, so those rows were dropped again and the index
   is unchanged; they are added when those records are accepted. Staged: the four records above, nothing else. Commit:
   the owner's.
+* **Step 1, 2026-11-11 — 16.2's states reproduced.** `TestPhoneCodexLogoutMarksRevoked` and
+  `TestPhoneCodexKeyWriteCommitsCurrent` (`internal/provider/codex/phone_paths_test.go`, held in the scratchpad until
+  step 7 commits them) built with a coordinator seeded from a ChatGPT credential, codex's adapter and a stub `codex`
+  whose `logout` removes `$CODEX_HOME/auth.json` and whose `login --with-api-key` writes the key from stdin. Run in a
+  scratch clone of `bcde74ab` (step 0's commit), both fail on the direct paths, as 16.2 reads them:
+
+  ```text
+  --- FAIL: TestPhoneCodexLogoutMarksRevoked (0.51s)
+      phone_paths_test.go:111: after a phone logout and a restart: state=recovery_required backup=recovery_required recovery_available=true generations=1; want logged_out, logged_out, false, 0 (the revoked generation must not be retained or offered)
+  --- FAIL: TestPhoneCodexKeyWriteCommitsCurrent (0.47s)
+      phone_paths_test.go:143: after a phone key write and a restart: state=recovery_required, CURRENT holds the new key=false; want a state other than recovery_required and CURRENT holding the key
+  ```
+
+  So after a phone logout the next start holds the revoked ChatGPT generation and offers it (`recovery_available=true`),
+  and after a phone key write the next start cannot adopt the unordered LIVE and asks for recovery. Step 7 makes both
+  pass.
+* **Step 2, 2026-11-11 — D30 and D31.** `internal/provider/httpagent/authcatalog.go`: `browserOAuthMarkers` and the
+  label branch gone; `ClassifyCatalogMethod(typ)` lists every `oauth` entry `oauth_device`; `methodSlug` mints
+  `<upstream>:<label slug>` (D31, refined: no leading or trailing `-`, an empty slug takes the type; the MADR carries
+  the note); `resolveMethod` finds a minted id in one upstream's current methods and refuses none or more than one, or
+  an index id, as `ErrAuthMethodUnsupported`; `VerifyAPIKeyMethod` resolves through it. `deviceauth.go`:
+  `EngineMethodIndex` replaced by `ResolveEngineMethod(ctx, api, upstreamID, methodID)`, which re-reads
+  `GET /provider/auth` inside the start timeout. `internal/provider/opencode/acp_auth.go`: `oauthType` gone; every
+  `oauth` method `oauth_device`. `internal/provider/kilo/auth.go` needed no change (its `SetCredentialFile` checks the
+  upstream prefix only). Tests: `httpagent/methodid_test.go` adds `TestNoLabelDecidesTheFlow`,
+  `TestKiloMethodIDsSurviveAReorder`, `TestAmbiguousSlugIsRefused`, `TestIndexMethodIDsAreRefused` and
+  `TestMethodSlug`; `TestSuperGrokSubscriptionClassifiesBrowser` and `TestHeadlessVPSClassifiesDevice` become
+  `TestOAuthEntriesClassifyDeviceWhateverTheLabel` (the first held the label heuristic D30 removes, the second its
+  complement); kilo's `TestAuthStatusSplitsBrowserFromDeviceOAuth` becomes `TestAuthStatusListsEveryOAuthMethodAsDevice`
+  (asserts the fixture's three openai methods by slug id and type, and no `oauth_browser` anywhere);
+  `TestMethodIndexOf` becomes `TestResolveEngineMethod` against a served catalog, and `deviceAPI` serves
+  `/provider/auth` because the start now reads it; `TestSetCredentialCarriesInputsAndGuardsMethod` uses slug ids and
+  gains the index-id refusal; opencode's `TestACPAuthStatusIsSmall` row for `oauthy` wants two device methods; the live
+  `TestLiveKiloCatalogMarksXaiMethods` wants two startable device methods and
+  `TestLiveKiloGatewayDeviceDoesNotFalseComplete` starts with an empty id (the first method), since the live label may
+  change between engine versions. Each new test was seen failing on its planted
+  break in the scratch clone (`step2_plants.log`): the marker list restored —
+  `a method labelled "Login with a browser" is listed {… Type:oauth_browser …}, want a startable oauth_device`; index ids
+  — `listed id = "xai:1"`; first match taken — `an ambiguous slug resolved: err=<nil>, want ErrAuthMethodUnsupported`;
+  all three pass clean. Gates on the scratch clone of `bcde74ab` with the step's nine Go files copied in:
+  `make pre-add-check FILES=…` "9 file(s) clean (gofmt, golint, govulncheck)"; `make test` 50 packages ok;
+  `go test -race -count=1 ./...` 50 packages ok, no FAIL; `make lint` clean; `make staticcheck` clean (56 ignored
+  findings, all the known acp-go-sdk2 unstable-schema names); `make vet-tags` live_grok, live_kilo, live_opencode ok;
+  `flutter analyze` "No issues found"; `flutter test` "+1523 ~3: All tests passed". `dart format
+  --set-exit-if-changed` reported two files changed on its first run in the clone, before `flutter analyze` had resolved
+  the clone's packages (every file warned "Failed to resolve package URI package:flutter_lints/flutter.yaml"); re-run
+  after resolution, and in the tree, it reports "231 files (0 changed)". No Dart file changed in this step. Staged: the
+  nine Go files and the two 0074 records (the MADR's D31 note, this entry). Commit: the owner's.

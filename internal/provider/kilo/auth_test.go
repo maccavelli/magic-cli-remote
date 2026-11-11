@@ -129,11 +129,13 @@ func TestAuthStatusPreservesSelectOptions(t *testing.T) {
 	}
 }
 
-// Catalog classification is a hint, not MADR 0074 D7 — but the hint still has
-// to be right about the case the MADR called out, or the phone offers a
-// "sign in" button that cannot work headlessly. OpenAI publishes both a
-// browser and a headless ChatGPT method; they must not classify alike.
-func TestAuthStatusSplitsBrowserFromDeviceOAuth(t *testing.T) {
+// No label decides a flow (MADR 0074 D30): OpenAI publishes a browser and a
+// headless ChatGPT method, and both are listed oauth_device and startable;
+// the browser one is refused at start by its loopback URL (D7), not by its
+// wording. Ids are the labels' slugs (D31), so a reordered catalog still
+// names the same method. This replaces TestAuthStatusSplitsBrowserFromDeviceOAuth,
+// which held the label heuristic.
+func TestAuthStatusListsEveryOAuthMethodAsDevice(t *testing.T) {
 	d := newDialect()
 	st, err := d.AuthStatus(context.Background(), apiFrom(t, map[string]string{
 		"/provider/auth":    authFixture(t),
@@ -142,25 +144,30 @@ func TestAuthStatusSplitsBrowserFromDeviceOAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var browser, device int
+	var openai []provider.AuthMethod
 	for _, up := range st.Upstreams {
-		if up.ID != "openai" {
-			continue
-		}
 		for _, m := range up.Methods {
-			switch m.Type {
-			case "oauth_browser":
-				browser++
-				if !strings.Contains(strings.ToLower(m.Label), "browser") {
-					t.Errorf("classified %q as browser without a browser marker", m.Label)
-				}
-			case "oauth_device":
-				device++
+			if m.Type == provider.AuthMethodOAuthBrowser {
+				t.Errorf("%s/%s (%q) is oauth_browser; no catalog entry's type may depend on its label", up.ID, m.ID, m.Label)
 			}
 		}
+		if up.ID == "openai" {
+			openai = up.Methods
+		}
 	}
-	if browser == 0 || device == 0 {
-		t.Fatalf("openai methods classified browser=%d device=%d, want both present", browser, device)
+	want := []struct{ id, typ string }{
+		{"openai:chatgpt-pro-plus-browser", provider.AuthMethodOAuthDevice},
+		{"openai:chatgpt-pro-plus-headless", provider.AuthMethodOAuthDevice},
+		{"openai:manually-enter-api-key", provider.AuthMethodAPIKey},
+	}
+	if len(openai) != len(want) {
+		t.Fatalf("openai methods = %+v, want %d", openai, len(want))
+	}
+	for i, w := range want {
+		if openai[i].ID != w.id || openai[i].Type != w.typ || openai[i].Unavailable {
+			t.Errorf("openai method %d = {%s %s unavailable=%v}, want {%s %s startable}",
+				i, openai[i].ID, openai[i].Type, openai[i].Unavailable, w.id, w.typ)
+		}
 	}
 }
 
@@ -314,7 +321,7 @@ func TestSetCredentialCarriesInputsAndGuardsMethod(t *testing.T) {
 		return nil
 	}
 	d := &httpDialect{log: slog.Default()}
-	err := d.SetCredential(context.Background(), api, "azure", "azure:0", "sk-live",
+	err := d.SetCredential(context.Background(), api, "azure", "azure:api-key", "sk-live",
 		map[string]string{"resourceName": "my-models"})
 	if err != nil {
 		t.Fatalf("SetCredential: %v", err)
@@ -324,13 +331,18 @@ func TestSetCredentialCarriesInputsAndGuardsMethod(t *testing.T) {
 		t.Fatalf("body = %#v, want metadata.resourceName", gotBody)
 	}
 
-	err = d.SetCredential(context.Background(), api, "kilo", "kilo:0", "sk-live", nil)
+	err = d.SetCredential(context.Background(), api, "kilo", "kilo:sign-in", "sk-live", nil)
 	if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
 		t.Fatalf("oauth method err = %v, want ErrAuthMethodUnsupported", err)
 	}
-	err = d.SetCredential(context.Background(), api, "azure", "deepseek:0", "sk-live", nil)
+	err = d.SetCredential(context.Background(), api, "azure", "deepseek:api-key", "sk-live", nil)
 	if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
 		t.Fatalf("foreign method err = %v, want ErrAuthMethodUnsupported", err)
+	}
+	// The pre-D31 index id names nothing now (MADR 0074 D31).
+	err = d.SetCredential(context.Background(), api, "azure", "azure:0", "sk-live", nil)
+	if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
+		t.Fatalf("index method err = %v, want ErrAuthMethodUnsupported", err)
 	}
 }
 
