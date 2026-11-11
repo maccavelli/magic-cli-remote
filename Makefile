@@ -155,7 +155,7 @@ RELAY_SERVICE_NAME ?= mcrelay
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-grok-discrimination live-grok-rest live-kilo live-replacefirst live-supervisors race test-all preflight apk manifest-surface \
+.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-grok-discrimination live-grok-rest live-kilo live-gobble live-replacefirst live-supervisors race test-all preflight apk manifest-surface \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
 	pre-add-check vet vet-tags tidy clean check-host-target check-cgo-off check-records markdownlint-docs \
 	check-libs
@@ -393,6 +393,14 @@ live-grok-rest:
 # no model. Set MCREMOTE_LIVE_KILO_MODEL to choose the turn model.
 live-kilo:
 	go test -tags live_kilo ./internal/provider/kilo/ -count=1 -timeout 600s -v
+
+# Live gobble suite (MADR 0179 D12). Requires `gobble` on PATH (or
+# MCREMOTE_LIVE_GOBBLE_BIN). Spends quota, so it runs on the owner's word, with
+# MCREMOTE_LIVE_GOBBLE_MODEL=<upstream>/<model> and MCREMOTE_LIVE_GOBBLE_API_KEY
+# for that upstream; without them it skips. Runs in a scratch HOME and
+# GOBBLE_HOME, never the host's gobble store.
+live-gobble:
+	go test -tags live_gobble ./internal/provider/gobble/ -count=1 -timeout 600s -v
 
 # Live replace-before-stop failure (MADR 0207 D36). Against a running scratch
 # service (the 0210 PLAN's kit; on Windows the real task, by W1 to W4), an

@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-11-10
+date: 2026-11-11
 associated-madr: "0179-MADR-gobble-native-acp-provider.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -401,6 +401,10 @@ this plan.
 ### P4 — registration (MADR D11)
 
 **Gate:** P3 committed.
+
+*2026-11-11: P4 lands now, against gobble `0.4.0`, before `0074-PLAN-remote-provider-auth-from-phone.md` P23 step
+5, with MADR D14's gate 3 knowingly unmet (MADR A10). The order, its reason and what P4 still owes are in the entry
+"P4 — 2026-11-11" at the end of this plan.*
 
 Files: `internal/provider/registered/registered.go`; `internal/config/prewarm_write.go` and its test; the three
 shipped configs; `docs/guides/config.md`; `internal/command/resolve_order_test.go`;
@@ -1080,3 +1084,224 @@ a scratch clone of `37aebdcb` with only `meta.json` changed, removed afterwards;
 
 **Not done here:** the grok, codex and kilo fixtures record no `capture_host` either. They pass on every host today,
 but a later public model id could collide in the same way. Each is its own provider's record.
+
+## P7 — proposed 2026-11-10: MADR A9, acpext `v0.4.0`, the device table, the bounded code read, gobble's `reason`
+
+**Status: proposed.** Nothing here starts before the owner accepts MADR A9 and approves this phase. The owner answered
+A9.2 on 2026-11-10 with (a), the two id tables and their partition test; step 2 builds it. The same day the owner
+answered the timing (DF): this phase lands now, ahead of
+`0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`.
+
+**Gate: met.** The pin commit of `0217-PLAN-update-every-pin-to-its-current-release.md` (`go.mod`, `go.sum`,
+`.github/workflows/ci.yml`, and that MADR and PLAN) landed at `912b9aa1`. P4 need not be committed: P7's files are disjoint
+from P4's (MADR A9, "How it fits P4"). C1 to C11 apply.
+
+*2026-11-11: the owner's order of that day (the entry "P4 — 2026-11-11" below) places this phase after P4's commit
+and after `0074-PLAN-remote-provider-auth-from-phone.md` P23 steps 5 to 9, whose step 5 edits
+`internal/provider/gobble/auth.go` first. So the lines this phase cites in that file are read again at its start
+(C2). `0217-PLAN-update-every-pin-to-its-current-release.md` P3j, which moves the acp-go-sdk2 line of `go.mod` and
+`go.sum`, is proposed to land before 7a, so that step 1's "`go.mod` changes that one line" is checked against one
+pin move at a time.*
+
+**Three commits** (MADR A9.1), so the bump can be reverted alone: **7a**, the pin with A9.2's tables and partition
+test (steps 1 and 2, with step 0's records); **7b**, A9.3, the bounded code read (step 3); **7c**, A9.4, gobble's
+`reason` (step 4). Step 5's tests go with the commit of the code they test.
+
+Files: `go.mod`, `go.sum`, `internal/provider/gobble/auth.go`, `internal/provider/gobble/auth_test.go`, this plan, the
+MADR.
+
+0. **The records, on acceptance.** MADR A9 marked accepted with the owner's A9.2 answer, (a) of 2026-11-10, and DF; in-place annotations
+   of D3's catalog and `StartDeviceAuth` bullets, D5's acpext rule, D12 item 8 (`StartDeviceAuth` for a provider
+   without a login, now without a `deviceSignIn` entry) and D13's recapture rule, each a dated italic note;
+   a History line; P6's heading annotated "moved to `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7 (MADR A9.5)". `make check-records
+   markdownlint-docs`; the redact preview. **Stage** the records only.
+1. **The pin.** In a scratch clone first: `go get github.com/maccavelli/gobble-cli/acpext@v0.4.0`, `go mod tidy`.
+   `go.mod` changes that one line; `go.sum` that module's lines only. Any other change is a deviation (C11).
+2. **The device tables (A9.2, answered (a)).** `deviceSignIn = {"grok", "kilo"}` and `noPhoneSignIn = {"openai"}`
+   beside `methodAPI`, each with a comment naming MADR A9.2 and its removal at 0246's cut-over; `methods` lists
+   `oauth_device` for `deviceSignIn` alone; `startDeviceAuth` refuses any other id with
+   `provider.ErrAuthMethodUnsupported`, as it refuses a method today (`auth.go:329-331`). The tables and their test are
+   removed by
+   [0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md](0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md)
+   P4 step 5.
+3. **The bounded read (A9.3).** `firstDeviceCode(events, timeout)` scans in a goroutine and returns at the first
+   `device_code`, the first `error`, the end of output, or `deviceCodeScanTimeout` (30 s); on the timeout,
+   `startDeviceAuth` calls `cancel()` and `end()` before it returns.
+4. **gobble's `reason` (A9.4).** `statusRow.Reason` (`json:"reason"`); one helper, `row.ready()`, `Usable &&
+   Reason == ""`, read by `status`, `methods` and `readyUpstreams`.
+5. **Tests, each seen failing on a planted break in a scratch clone (C4):**
+
+   | Test | Asserts | Planted break |
+   | :--- | :--- | :--- |
+   | `TestCatalogIsAcpextsProviders` (rewritten, `auth_test.go:21`) | upstreams in acpext's order; `oauth_device` exactly for `deviceSignIn`; openai has none at `acpext v0.4.0`; grok's browser row as today | `Login` read again |
+   | `TestDeviceTablesPartitionAcpextsLogins` | every acpext `Login` id is in exactly one table; every table id is one acpext lists | `kilo` dropped from `deviceSignIn` |
+   | `TestDeviceAuthRefusesOpenAI` | `startDeviceAuth` for `openai:device` runs no child and returns `ErrAuthMethodUnsupported` | the old `!p.Login` guard |
+   | `TestDeviceCodeReadIsBounded` | a stub that prints nothing and sleeps returns an error within 30 s, with a test seam shortening the bound to 100 ms, and the child is killed | the timeout case removed |
+   | `TestReasonMeansNotConfigured` | a row `{usable: true, reason: "oauth_unused"}` is `missing`, its methods not `Configured`, and its id not in `readyUpstreams` | `reason` ignored in `readyUpstreams` |
+   | `TestFixtureShapesAreAcpexts` and the other fixture tests (existing) | pass unchanged at `acpext v0.4.0` | — |
+
+   `TestDeviceAuthNeedsALogin` (`auth_test.go:88`) is renamed `TestDeviceAuthNeedsADeviceSignIn` with the same
+   assertions, and named here.
+6. **Gates (C5),** on the scratch clone with steps 1 to 5's files: `make pre-add-check FILES="internal/provider/gobble/auth.go
+   internal/provider/gobble/auth_test.go"`, `make test`, `go test -race -count=1 ./...`, `make lint`, `make
+   staticcheck`, `make vet-tags`; the Linux test host's `go test -race -count=1 ./...` and the Windows test host's
+   `make ci-windows` on scratch copies; `python3 ~/.global-git-hooks/github-disclosure.py redact`, from the
+   repository root, before each staging. **Stage** by commit: 7a, `go.mod`, `go.sum`, `auth.go`'s tables and
+   `methods`/`startDeviceAuth` change, their tests (`TestCatalogIsAcpextsProviders`, `TestDeviceTablesPartitionAcpextsLogins`,
+   `TestDeviceAuthRefusesOpenAI`, the renamed `TestDeviceAuthNeedsADeviceSignIn`), and this plan's entry; 7b,
+   `firstDeviceCode`'s bound and `TestDeviceCodeReadIsBounded`; 7c, `statusRow.Reason`, `row.ready()` and
+   `TestReasonMeansNotConfigured`. Each is committed by the owner before the next is staged. Before any push the owner
+   asks for, the guard over the outgoing commits (`AGENTS.md`, "Host identifiers never appear in records"):
+
+   ```bash
+   echo "refs/heads/master $(git rev-parse HEAD) refs/heads/master $(git rev-parse origin/master)" | python3 ~/.global-git-hooks/github-disclosure.py pre-push origin "$(git remote get-url origin)"
+   ```
+
+Acceptance: the tests pass and each plant failed; `go list -m github.com/maccavelli/gobble-cli/acpext` reports
+`v0.4.0`; no other module moved.
+
+**Rollback,** newest first, each alone: reverting 7c reads `usable` alone again; reverting 7b removes the 30 s bound;
+reverting 7a returns the pin to `acpext v0.3.0` and removes the tables and their test together, which needs 7b and 7c
+reverted first only if they no longer apply cleanly.
+
+## P4 — 2026-11-11: P4 lands now, against gobble `0.4.0`; the order, and what P4 still owes
+
+**The owner's ruling, 2026-11-11,** relayed by the coordinator of the four-repository auth-contract work; none of the
+owner's wording was relayed, so none is quoted. P4 is finished and committed now, against gobble `0.4.0`
+(`KnownGoodVersion`), before
+[0074-PLAN-remote-provider-auth-from-phone.md](0074-PLAN-remote-provider-auth-from-phone.md) P23 step 5. MADR A10,
+accepted the same day, records that D14's gate 3 is knowingly unmet while it does.
+
+**This entry is an order and a to-do list. It is not an execution record.** Nothing in P4 was run or changed for it.
+The only commands behind it are the read-only checks it names, run on 2026-11-11 at `14200b6e` with P4's unstaged
+files in the tree.
+
+**The order in this repository, as approved:**
+
+1. `0074-PLAN-remote-provider-auth-from-phone.md` P23 steps 3 and 4 (another session; step 3 is next).
+2. **This plan's P4,** finished and committed.
+3. `0074-PLAN-remote-provider-auth-from-phone.md` P23 steps 5 to 9.
+4. This plan's P7a, 7b and 7c, once MADR A9 is accepted.
+5. A release carrying those.
+6. [0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md](0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md)
+   P1, once go-llmprovider-sdk's `authcontract/v0.1.0` resolves (its gate G1).
+7. That plan's P2 onward, under its own rule that no release is tagged from P2 until P6 is committed (its C5).
+8. `0247-PLAN-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md`.
+
+The acp-go-sdk2 move to `v1.36.0` is not one of the eight. It is
+`0217-PLAN-update-every-pin-to-its-current-release.md` P3j, a commit of its own that changes `go.mod`, `go.sum` and
+new test files, none of them a file of P4 or of 0074's P23. That phase proposes its place: after step 2's commit and
+before step 4's first.
+
+**Why P4 goes before 0074's P23 step 5: three files have more than one editor.** Each row was read from the three
+plans on 2026-11-11.
+
+| File | Edited by |
+| :--- | :--- |
+| `internal/provider/auth_conformance_test.go` | this plan's P4 step 5 (gobble's case); 0074's P23 step 5 (codex's row changes, and a `wantOwnedDeviceAuth` column is added); 0246's P3 step 6 (a `SignInStarter` column and a `wantSignInWired` column) |
+| `internal/provider/gobble/auth.go` | 0074's P23 step 5 (it is in that step's file list, for the names its MADR's D35 removes and the one `host_oauth` constant); this plan's P7a, 7b and 7c; 0246's P4 step 5 |
+| `Makefile` | this plan's P4 step 6 (`live-gobble` and its `.PHONY` entry, unstaged in the tree now); 0246's P1 step 4 (`check-authcontract`) |
+
+P4's hunks are the ones already in the working tree, so they are committed first and each later editor starts from a
+file that holds them. One consequence falls on a record this entry cannot write, because the other session owns it:
+0074's P23 step 5 adds a column to the conformance test's table, and with P4 committed first that step also has to
+give gobble's row its value in the new column. Its text names codex's and grok's rows only.
+
+**What P4 still owes before it can close.** Items 1 to 4 are the audit's, each checked again in the tree on
+2026-11-11. Item 5 is from this plan's own text.
+
+1. **Step 5's gobble case is not in `internal/provider/auth_conformance_test.go`.** A case-insensitive search of the
+   file for "gobble" finds nothing, and the file equals `HEAD`. The case was taken out on 2026-11-10 for 0244 (the P4
+   deviation above). It goes back in with status, writer, catalog and device auth true, the type side of the switcher
+   true and `wantSwitchWired` false (the note of 2026-11-10; MADR A8), and is seen failing first (C4). Step 5's other
+   half is in the tree: gobble is in `providerTables` (`internal/command/resolve_order_test.go:24`).
+2. **Step 8 has not run.** No entry records C5's Go gates for P4 (`make pre-add-check FILES=…`, `make test`,
+   `go test -race ./...`, `make lint`, `make staticcheck`, `make vet-tags`) or `make ci-windows` on the Windows test
+   host. The P4 deviation of 2026-11-10 says they had not run, and nothing since records a run.
+3. **The planted-break evidence for `internal/provider/gobble/wirecap_host_test.go` is not recorded.** The P3
+   deviation of 2026-11-10 (its decision, item 2) requires that file's unit test to be "seen failing on planted breaks
+   in a scratch clone (C4)". The file is in the tree, untracked, with `TestWirecapHostKeySurvivesAHomeSwap` and
+   `TestCaptureHostMismatch`. No entry names a plant for either or quotes a failure. The four plants that are recorded
+   (`p4_0179_planted.py`) are for steps 1 to 4.
+4. **`internal/provider/gobble/live_gobble_test.go` vets clean and has never run.** `go vet -tags live_gobble
+   ./internal/provider/gobble/` exits 0 with no output (go1.27.4, 2026-11-11, on the tree as it stands). No entry
+   records a run of `make live-gobble`. Step 6 keeps it out of this phase, C10 needs the owner's word for it, and by
+   the owner's Q19 answer the run is
+   `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L4 (MADR A9.5, proposed).
+   So P4 commits a live suite that compiles and is unproven, the capture-host check of the P3 deviation included, and
+   P4's record says so when it closes.
+5. **P4's execution record is unwritten.** The P4 deviation of 2026-11-10 ends "The record of these steps is written
+   when P4 resumes." It owes steps 1 to 4, 6 and 7 with the four plants' quoted failures, step 5's, the fourth config
+   (`internal/cli/service/defaults_mcremote.yaml`), the live test's change from the P3 deviation, step 7's search run
+   again on the final tree, and the list of staged files.
+
+**Gate 3 while P4 lands.** P4 is committed with this repository on acp-go-sdk2 `v1.35.0`, or `v1.36.0` if 0217's P3j
+has landed, and gobble `0.4.0` built on `v1.34.2`. MADR A10 states that risk and where the gate is checked again.
+P4's close records the two tags as they are at its commit.
+
+## P4 — 2026-11-11: registration, executed
+
+On the owner's word in this session ("confirmed proceed", after P23 step 3 landed as `f6e99522`), P4 was finished
+against gobble `0.4.0`, in the order the entry above sets. It closes what that entry listed as owed. Nothing here
+spent quota or ran a live suite.
+
+**What P4 changes, by step.**
+
+1. `internal/provider/registered/registered.go`: `gobble.Descriptor()` right after `fake.Descriptor()`.
+2. `internal/config/prewarm_write.go`: `KnownProviderIDs` gains `"gobble"`; `TestSetProviderPrewarmFileGobble`.
+3. A commented `providers.gobble` block in `configs/config.example.yaml`, `configs/config.mesh-grok.yaml`,
+   `configs/config.prod.example.yaml` and, by the P4 deviation of 2026-11-10, `internal/cli/service/defaults_mcremote.yaml`.
+4. `docs/guides/config.md`: gobble's rows in "Defaults", its section (credentials are gobble's, `bypass` needs gobble's
+   own `permissions.allowBypass`, `0.4.0` is the supported minimum and an older gobble shows no compaction progress),
+   and its `MCREMOTE_PROVIDERS_GOBBLE_*` rows in "Environment variables".
+5. gobble in `providerTables` (`internal/command/resolve_order_test.go`), and gobble's case in
+   `TestProviderAuthInterfaceConformance` (`internal/provider/auth_conformance_test.go`): status, writer, catalog,
+   switcher (the type side) and device auth true, `wantSwitchWired` false, as the note of 2026-11-10 and MADR A8 say.
+6. `live-gobble` in the `Makefile` with its `.PHONY` entry, and `internal/provider/gobble/live_gobble_test.go`.
+7. Step 7's search, run on the final tree:
+   `git grep -n 'IDGobble\|"gobble"' -- '*.go' ':!internal/provider/gobble/'` finds the `KnownProviderIDs` line and its
+   test, the conformance case, and `provider.go` and `provider_test.go`, whose `IDGobble` is D11's place from P2
+   (`f4248820`); no other Go file names it (Confirmation 3).
+
+**Planted breaks, each seen failing in a scratch clone** (C4). Steps 1 to 4, from the script of 2026-11-10, run again
+on 2026-11-11 against the tree, `ALL BREAKS CAUGHT`:
+
+```text
+gobble not registered                    configfiles_test.go:75: configs/config.example.yaml does not load: providers.gobble is not a provider
+prewarm refuses gobble                   prewarm_write_test.go:133: SetProviderPrewarmFile(gobble): unknown provider: gobble
+an unknown key in gobble's block         configfiles_test.go:75: configs/config.example.yaml does not load: providers.gobble has no key planted_key
+config.md documents a key gobble lacks   configfiles_test.go:107: docs/guides/config.md documents MCREMOTE_PROVIDERS_GOBBLE_PLANTED, which does not load: MCREMOTE_PROVIDERS_GOBBLE_PLANTED names no providers.gobble key
+```
+
+Step 5's case, and the two helpers of `wirecap_host_test.go` whose planted-break evidence the P3 deviation of
+2026-11-10 required (item 3 of the entry above), each failed on a planted break and passed clean:
+
+```text
+conformance, the gobble case wants a wired switcher   auth_conformance_test.go:88: UpstreamSwitchWired: got false, want true (MADR 0244 D5)
+conformance, the gobble case expects no catalog       auth_conformance_test.go:79: AuthCataloger: got true, want false (MADR 0074 D16/D19)
+wirecap, the host key is not kept                     wirecap_host_test.go:120: after a HOME swap with the key kept: the capture recorded no capture_host, want <tag>…
+wirecap, the key path drifts from wirecap's           wirecap_host_test.go:114: MCREMOTE_WIRECAP_HOST_KEY gives tag "" where wirecap's own lookup gives "<tag>…": the key path no longer matches wirecap's
+wirecap, captureHostMismatch never reports           wirecap_host_test.go:171: captureHostMismatch = <nil>, want ok false   (three subtests)
+```
+
+**Gates (step 8)**, on a scratch clone of `f6e99522` with P4's thirteen files copied in: `make pre-add-check
+FILES=…` "7 file(s) clean (gofmt, golint, govulncheck)"; `make test` and `go test -race -count=1 ./...` 50 packages ok
+each, no failure; `make lint` and `make staticcheck` clean; `make -n live-gobble` prints the step 6 command;
+`make ci-windows` on the Windows test host, "ALL SELECTED CHECKS PASSED". `make vet-tags` first listed eight tags and
+no `live_gobble`: the script reads tags from tracked files only (`scripts/vet_build_tags.py`), and in the clone the
+two new test files were untracked. With them tracked it lists nine, `live_gobble: ok`, and
+`go vet -tags live_gobble ./internal/provider/gobble/` exits 0; in the repository the owner's commit makes them
+tracked, so `make vet-tags` covers the tag from then on.
+
+**What P4 does not prove.** `live_gobble_test.go` compiles and is unproven: nothing ran it, the capture-host check of
+the P3 deviation included. Its run is `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`
+P7's L4 (MADR A9.5, proposed), by the owner's Q19 answer and under C10.
+
+**Gate 3 at this commit** (MADR A10). `go.mod` pins acp-go-sdk2 `v1.35.0` and `acpext v0.3.0`; 0217's P3j has not
+landed. gobble `0.4.0`, the supported release, pins acp-go-sdk2 `v1.34.2`. The two sides are on different tags, which
+D14's gate 3 forbids; A10 records it as knowingly unmet until gobble `v0.6.0`.
+
+**Staged for the owner's commit:** `Makefile`, the four configs, `docs/guides/config.md`,
+`internal/command/resolve_order_test.go`, `internal/config/prewarm_write.go` and its test,
+`internal/provider/registered/registered.go`, `internal/provider/auth_conformance_test.go`,
+`internal/provider/gobble/live_gobble_test.go`, `internal/provider/gobble/wirecap_host_test.go`, and this plan.

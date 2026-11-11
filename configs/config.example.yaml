@@ -80,6 +80,49 @@ providers:
   # Dev/smoke echo provider — never enable in normal operation.
   fake:
     enabled: false  # true registers it; for tests and smoke runs only (MADR 0055 R6)
+  # gobble, driven over ACP: each session runs `gobble acp` (MADR 0179). It
+  # reads, writes and runs locally in the session's directory; the daemon
+  # offers it no client files or terminals, so fs_roots does not apply.
+  # Supported minimum: gobble 0.4.0; an older gobble shows no compaction
+  # progress.
+  gobble:
+    # Register gobble. Harmless when the binary is absent: it lists as not ready.
+    enabled: true
+    # The gobble executable, by name on PATH or by path.
+    bin: "gobble"
+    # Replaces the built-in argv (`acp`) when non-empty. Config-file only: an
+    # entry may contain a comma.
+    args: []
+    # true answers every permission request with its allow option instead of
+    # asking the phone. Keep false so the phone approves.
+    always_approve: false
+    # A session's working directory when the phone names none. Empty = the
+    # daemon user's home directory; a relative path is resolved against this
+    # file's directory.
+    default_cwd: ""
+    # <upstream>/<model>, e.g. opencode-zen/deepseek-v4.1-flash. Empty =
+    # gobble's own default
+    # (defaultProvider and defaultModel in gobble's settings.yaml).
+    model: ""
+    # How long a permission request waits for the phone, in seconds, before
+    # gobble is told it was cancelled. 0 = wait forever.
+    permission_timeout_seconds: 120
+    # true keeps one spare initialized gobble ready, so a session skips the
+    # cold start (MADR 0089 D5). The phone can turn it on and off too.
+    prewarm: false
+    # A notice on the phone when a running turn produces no output for this
+    # many seconds. 0 = off.
+    turn_stall_notice_seconds: 120
+    # Pin of the upstream the handshake authenticates: one of gemini, openai,
+    # claude, grok, opencode-zen, opencode-go, huggingface, kilo, together.
+    # Empty = the first upstream with a stored credential (MADR 0179 D4).
+    # Credentials are gobble's own: the phone writes them through gobble's
+    # CLI, and `gobble auth login` on this host works too.
+    auth_method_id: ""
+    # MCP servers advertised to gobble, forwarded only for a transport gobble
+    # advertises (http, as of 0.4.0). Config-file only; the same shape as
+    # grok's mcp_servers.
+    mcp_servers: []
   # grok (Grok Build), driven over ACP: each session runs `grok agent stdio`.
   # allowed_tools, disallowed_tools, allow_rules and deny_rules are gone: grok
   # ignores them over ACP (measured on 0.2.114 and 1.0.70), and an unknown key

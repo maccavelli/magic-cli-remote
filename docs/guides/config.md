@@ -114,6 +114,18 @@ through the provider sections.
 | `auth.require_client_key` | `true` — tokens bound to the device's enrolled TLS client key (ADR 0005); keyless legacy devices must re-pair |
 | `auth.allowed_origins` | `[]` — browser Origin allowlist for the WS upgrade; empty is the secure baseline (native clients + same-origin accepted, cross-origin rejected). Never `"*"` |
 | `providers.fake.enabled` | `false` (dev/smoke only) |
+| `providers.gobble.enabled` | `true` — harmless when the binary is absent (listed as not ready). Supported minimum: **gobble 0.4.0**; an older gobble shows no compaction progress (MADR 0179 D5). See "gobble" below |
+| `providers.gobble.bin` | `gobble` |
+| `providers.gobble.args` | `[]` — empty runs the built-in argv, `acp` (config-file only) |
+| `providers.gobble.always_approve` | `false` |
+| `providers.gobble.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
+| `providers.gobble.model` | *(empty — gobble's own default, `defaultProvider` and `defaultModel` in gobble's `settings.yaml`)*. Pin `<upstream>/<model>`, e.g. `opencode-zen/deepseek-v4.1-flash` |
+| `providers.gobble.permission_timeout_seconds` | `120` (`0` = wait forever). Also bounds how long a phone permission notification stays actionable (MADR 0101) |
+| `providers.gobble.prewarm` | `false` — keep one spare `gobble acp` ready. Off so the first session pays the cold start (about half a second in the 0179 capture) instead of holding a process idle (MADR 0089 D5). Turn on from the phone or set `true` here |
+| `providers.gobble.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
+| `providers.gobble.fs_roots` | `[]` — has no effect: the daemon offers gobble no client files, and gobble reads and writes locally in the session's directory (MADR 0179 D2) |
+| `providers.gobble.auth_method_id` | *(empty — the first upstream with a stored credential, in gobble's order)* — pins the upstream the handshake authenticates. One of `gemini`, `openai`, `claude`, `grok`, `opencode-zen`, `opencode-go`, `huggingface`, `kilo`, `together`; any other value fails the load |
+| `providers.gobble.mcp_servers` | `[]` — MCP servers advertised to each session (config-file only; not env/flags). gobble 0.4.0 advertises `http` only |
 | `providers.grok.enabled` | `true` |
 | `providers.grok.bin` | `grok` |
 | `providers.grok.args` | `[]` — empty runs grok with the global flags the keys below set (`-m`, `--reasoning-effort`, `--always-approve`, `--permission-mode`, `--sandbox`, `--no-subagents`, `--disable-web-search`), then `--no-auto-update agent --no-leader stdio` (MADR 0081 P1.3). A non-empty `args` replaces all of it, `--no-auto-update` included (config-file only) |
@@ -214,6 +226,20 @@ A config fails to load, naming what it found, when it has:
   `mcp_servers`, codex's `environments`).
 
 Delete the setting the error names. Nothing is ignored silently.
+
+### gobble
+
+gobble runs as `gobble acp`, one process per session ([MADR 0179](../decisions/0179-MADR-gobble-native-acp-provider.md)).
+The daemon passes it no settings of its own: gobble reads its own `settings.yaml` and credentials as the daemon's user.
+
+- **Credentials are gobble's.** The phone's provider sign-in writes gobble's store through gobble's own CLI, the key
+  on standard input, never in a command line or a file this daemon writes. `gobble auth login <upstream>` on the host
+  works too, and the phone sees the result. A session authenticates the first upstream with a stored credential,
+  unless `auth_method_id` pins one.
+- **`bypass` mode** appears only when gobble's own `permissions.allowBypass` is set, and the phone confirms it before
+  switching.
+- **Version:** gobble 0.4.0 is the supported minimum. Another version starts, with a warning; an older gobble shows no
+  compaction progress, because it reports compaction in a notification this daemon does not read.
 
 ### Grok's tool allow/deny lists were removed
 
@@ -440,6 +466,15 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_TLS_ROUTE53_REGION` | `tls.letsencrypt.route53.region` | AWS region |
 | `MCREMOTE_TLS_ROUTE53_PROFILE` | `tls.letsencrypt.route53.profile` | AWS shared-config profile |
 | `MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES` | `tls.letsencrypt.route53.max_retries` | AWS API attempts (`0` = the Route 53 provider's default of five). Unlike the three above, this key has **no** short `MCREMOTE_TLS_ROUTE53_*` alias — it is reachable only by its full path. The short spelling is silently ignored. |
+| `MCREMOTE_PROVIDERS_GOBBLE_ENABLED` | `providers.gobble.enabled` | Enable the gobble provider (`true`/`false`) |
+| `MCREMOTE_PROVIDERS_GOBBLE_BIN` | `providers.gobble.bin` | gobble executable path |
+| `MCREMOTE_PROVIDERS_GOBBLE_ALWAYS_APPROVE` | `providers.gobble.always_approve` | Auto-approve gobble tool requests |
+| `MCREMOTE_PROVIDERS_GOBBLE_DEFAULT_CWD` | `providers.gobble.default_cwd` | gobble fallback session CWD |
+| `MCREMOTE_PROVIDERS_GOBBLE_MODEL` | `providers.gobble.model` | gobble model (`<upstream>/<model>`) |
+| `MCREMOTE_PROVIDERS_GOBBLE_PERMISSION_TIMEOUT_SECONDS` | `providers.gobble.permission_timeout_seconds` | gobble permission timeout seconds |
+| `MCREMOTE_PROVIDERS_GOBBLE_PREWARM` | `providers.gobble.prewarm` | Keep a spare `gobble acp` ready |
+| `MCREMOTE_PROVIDERS_GOBBLE_TURN_STALL_NOTICE_SECONDS` | `providers.gobble.turn_stall_notice_seconds` | gobble turn stall notice threshold |
+| `MCREMOTE_PROVIDERS_GOBBLE_AUTH_METHOD_ID` | `providers.gobble.auth_method_id` | The upstream gobble's handshake authenticates |
 | `MCREMOTE_PROVIDERS_GROK_ENABLED` | `providers.grok.enabled` | Enable Grok provider (`true`/`false`) |
 | `MCREMOTE_PROVIDERS_GROK_BIN` | `providers.grok.bin` | Grok executable path |
 | `MCREMOTE_PROVIDERS_GROK_ALWAYS_APPROVE` | `providers.grok.always_approve` | Auto-approve Grok tool requests |

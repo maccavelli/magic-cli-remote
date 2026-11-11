@@ -122,6 +122,35 @@ func TestSetProviderPrewarmFileUnknown(t *testing.T) {
 	}
 }
 
+// The phone's prewarm toggle reaches gobble's section (MADR 0179 D11, PLAN P4
+// step 2).
+func TestSetProviderPrewarmFileGobble(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(prewarmFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetProviderPrewarmFile(path, "gobble", true); err != nil {
+		t.Fatalf("SetProviderPrewarmFile(gobble): %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Providers struct {
+			Gobble struct {
+				Prewarm bool `yaml:"prewarm"`
+			} `yaml:"gobble"`
+		} `yaml:"providers"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if !doc.Providers.Gobble.Prewarm {
+		t.Fatalf("providers.gobble.prewarm not set:\n%s", raw)
+	}
+}
+
 func TestSetProviderPrewarmFileConcurrentValid(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(prewarmFixture), 0o600); err != nil {

@@ -8,6 +8,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/gobble"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
@@ -54,6 +55,14 @@ func TestProviderAuthInterfaceConformance(t *testing.T) {
 		},
 		{
 			name: "grok", p: grok.New(grok.Config{}),
+			wantStatus: true, wantWriter: true, wantCatalog: true,
+			wantSwitcher: true, wantDeviceOAuth: true,
+		},
+		{
+			// gobble is an acpagent, so the type side is true for every
+			// method; its Spec sets no SetActiveUpstream hook, so the runtime
+			// answer, wantSwitchWired, is false (MADR 0179 A8, MADR 0244 D5).
+			name: "gobble", p: gobble.New(acpagent.Config{}, nil),
 			wantStatus: true, wantWriter: true, wantCatalog: true,
 			wantSwitcher: true, wantDeviceOAuth: true,
 		},

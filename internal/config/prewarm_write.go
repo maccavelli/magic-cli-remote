@@ -25,7 +25,7 @@ var ErrNoConfigFile = errors.New("no config file to write")
 var prewarmWriteMu sync.Mutex
 
 // KnownProviderIDs is the closed set of agents that expose prewarm (MADR 0089 D5/D7).
-var KnownProviderIDs = []string{"grok", "opencode", "codex", "kilo"}
+var KnownProviderIDs = []string{"gobble", "grok", "opencode", "codex", "kilo"}
 
 // KnownProvider reports whether id is a prewarm-controllable agent.
 func KnownProvider(id string) bool {

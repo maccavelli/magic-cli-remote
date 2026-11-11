@@ -8,6 +8,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/gobble"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
@@ -17,6 +18,7 @@ import (
 func Descriptors() []provider.Descriptor {
 	return []provider.Descriptor{
 		fake.Descriptor(),
+		gobble.Descriptor(),
 		grok.Descriptor(),
 		opencode.Descriptor(),
 		codex.Descriptor(),
