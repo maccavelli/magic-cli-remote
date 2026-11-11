@@ -1562,6 +1562,12 @@ Scripts and logs are in the session scratchpad (`p15_0169.py`, `p15_hosts.py`, `
 `scripts/test-linux-arm64.sh`, `internal/updateclient/testdata/fixture/go.mod`, the 0169 MADR and
 this PLAN.
 
+**Committed and pushed:** P15 as `ae13109a` ("Commit this to main then proceed", 2026-11-10), pushed on
+2026-11-11 with 0217-PLAN P3i's `3c3d64d7` on top. The push's CI run 43035179204 passed every Go and Flutter
+job. `Go (test)` set up `go version go1.27.4 linux/amd64`, and its vulnerability check printed `vulncheck:
+clear; allowlisted required-module findings: GO-2026-5932`: GO-2026-6859 is gone from CI. D2's confirmation
+holds on every host and in CI.
+
 ## Verification (whole plan)
 
 ### Acceptance criteria (mapped to MADR Confirmation)

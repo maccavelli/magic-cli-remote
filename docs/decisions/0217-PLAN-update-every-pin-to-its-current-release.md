@@ -2658,9 +2658,20 @@ Steps 0 to 6 ran three times:
 
   Each host's clone and scratch directory were removed and checked gone.
 * **Step 7, staging.** The four files were copied from the clone into the tree, and each one's
-  diff against `HEAD` equals the clone's. They are staged with this PLAN and the 0217 MADR. The
-  owner commits. `make check-libs` then runs on that commit; after the owner's push, the CI run
-  id is recorded for P3h's and this phase's commits.
+  diff against `HEAD` equals the clone's. They were staged with this PLAN and the 0217 MADR, and
+  committed as `3c3d64d7`, on the owner's word "Commit to main then proceed".
+* **After the commit,** `make check-libs` on `3c3d64d7` exited 0:
+  * "toolchain: go1.27.4";
+  * `acp-go-sdk2` "pinned v1.35.0, checking v1.35.0", `go-selfupdate-lib` "pinned v1.26.2,
+    checking v1.26.2", and `go-llmprovider-sdk` "pinned v1.29.0, checking v1.29.0";
+  * every check ok, `govulncheck` among them;
+  * "0 failing checks; scratch removed".
+* **After the owner's push** (2026-11-11, `15b8d9d5..3c3d64d7`, six commits, the pre-push disclosure guard exit 0):
+  the push's CI run **43035179204** on `3c3d64d7` succeeded. Every Go job (`Go (test)`,
+  darwin/arm64, linux/arm64, windows/amd64), both Flutter jobs and `Live supervisors (runit, s6)` passed; the APK
+  and release jobs skipped, as they do on a push. `Go (test)` set up `go1.27.4` and printed "vulncheck: clear;
+  allowlisted required-module findings: GO-2026-5932". This run covers P3h's `912b9aa1` and this phase's `3c3d64d7`.
+  Step 7 is done.
 
 ## Status note — 2026-11-08
 
