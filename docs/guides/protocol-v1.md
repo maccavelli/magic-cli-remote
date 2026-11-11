@@ -1146,6 +1146,20 @@ native write returned success but the agent is not using the credential
 key. `host_oauth` (method `reason`) — the sign-in finishes on the host, not
 the phone.
 
+The credential coordinator's outcomes each have a code of their own (MADR 0074
+D36); each used to arrive as `credential_failed`. `provider_auth_busy` —
+another credential change is already in progress for this provider;
+**transient**, retry shortly. `credential_conflict` — the host's credential
+changed during the change, so nothing was replaced; retry. `unsupported_backend`
+— the host keeps the credential where the daemon cannot protect it (an OS
+keyring); sign in on the host, never by retrying. `recovery_required` — the
+provider's credential needs an operator decision first (`mcremote
+auth-recovery` on the host). `too_many_sign_ins` — the cap of sign-ins in
+progress is reached; **transient**, finish or cancel one. A device-flow result
+carries the same classes as its `state` (`completed`, `cancelled`, `expired`,
+`failed`, `conflict`, `recovery_required`, `unsupported_backend`) with
+`retryable`; a client renders the state and not `ok` alone.
+
 **`auth_error` frames:** `auth_failed` (generic — the detail is withheld from
 the peer and logged), `invalid_token`, `client_key_required`,
 `client_key_mismatch`, `already_authed`. The two `client_key_*` codes are

@@ -46,6 +46,82 @@ class DeviceFlowInfo {
   );
 }
 
+/// What the daemon reported when a device flow ended (MADR 0074 D36).
+///
+/// `ok` alone cannot say why a flow failed or what to do next: a cancelled
+/// flow, an expired code, a host credential that changed underneath it and a
+/// host that needs recovery are all `ok: false`, and each calls for different
+/// words. [state] and [retryable] say which, so the sheet reads them first.
+/// An older daemon sends neither, and [message] falls back to `ok` and `error`.
+class DeviceFlowOutcome {
+  const DeviceFlowOutcome({
+    required this.ok,
+    this.state = '',
+    this.retryable = false,
+    this.error,
+  });
+
+  factory DeviceFlowOutcome.fromJson(Map<String, dynamic> j) =>
+      DeviceFlowOutcome(
+        ok: j['ok'] == true,
+        state: j['state'] as String? ?? '',
+        retryable: j['retryable'] == true,
+        error: j['error'] as String?,
+      );
+
+  final bool ok;
+
+  /// `completed`, `cancelled`, `expired`, `failed`, `conflict`,
+  /// `recovery_required` or `unsupported_backend`; empty from an older daemon.
+  final String state;
+
+  /// Whether starting the same sign-in again can sensibly succeed.
+  final bool retryable;
+
+  /// The daemon's clipped error text, for `failed` and for an older daemon.
+  final String? error;
+
+  /// One sentence for the sheet. The state decides; `ok` decides only when the
+  /// state is absent or one this app does not know.
+  String get message {
+    switch (state) {
+      case 'completed':
+        return 'Signed in.';
+      case 'cancelled':
+        return 'Sign-in cancelled.';
+      case 'expired':
+        return 'The sign-in code expired before it was used.';
+      case 'conflict':
+        return 'The host\'s sign-in changed while this was in progress, so '
+            'nothing was replaced.';
+      case 'recovery_required':
+        return 'The host needs its sign-in recovered first: run '
+            'mcremote auth-recovery there.';
+      case 'unsupported_backend':
+        return 'The host keeps this sign-in where mcremote cannot protect it '
+            '— sign in on the host.';
+      case 'failed':
+        return 'Sign-in failed: ${error ?? 'failed'}';
+    }
+    return ok ? 'Signed in.' : 'Sign-in failed: ${error ?? 'failed'}';
+  }
+
+  /// True when the flow ended in a sign-in. The state wins over `ok`.
+  bool get succeeded => state.isEmpty || !_knownStates.contains(state)
+      ? ok
+      : state == 'completed';
+
+  static const _knownStates = {
+    'completed',
+    'cancelled',
+    'expired',
+    'conflict',
+    'recovery_required',
+    'unsupported_backend',
+    'failed',
+  };
+}
+
 class DeviceFlowSheet extends StatefulWidget {
   const DeviceFlowSheet({
     super.key,
@@ -65,7 +141,7 @@ class DeviceFlowSheet extends StatefulWidget {
 
   /// Completes when the daemon reports the outcome. Null keeps the sheet in
   /// its waiting state indefinitely (used by tests).
-  final Future<String?>? result;
+  final Future<DeviceFlowOutcome>? result;
 
   /// Override for tests. Production uses [launchUrl] in external-application
   /// mode (MADR 0086 D7).
@@ -88,7 +164,7 @@ class DeviceFlowSheet extends StatefulWidget {
 class _DeviceFlowSheetState extends State<DeviceFlowSheet> {
   Timer? _tick;
   late int _remaining = widget.flow.expiresIn;
-  String? _outcome;
+  DeviceFlowOutcome? _outcome;
   bool _done = false;
 
   /// One idempotent cancellation path for every dismissal route
@@ -120,11 +196,11 @@ class _DeviceFlowSheetState extends State<DeviceFlowSheet> {
         setState(() => _remaining = _remaining > 0 ? _remaining - 1 : 0);
       });
     }
-    widget.result?.then((err) {
+    widget.result?.then((outcome) {
       if (!mounted) return;
       setState(() {
         _done = true;
-        _outcome = err;
+        _outcome = outcome;
         _pendingState = null;
         _tick?.cancel();
       });
@@ -215,10 +291,18 @@ class _DeviceFlowSheetState extends State<DeviceFlowSheet> {
           const SizedBox(height: 16),
           if (_done) ...[
             Text(
-              _outcome == null ? 'Signed in.' : 'Sign-in failed: $_outcome',
+              _outcome!.message,
               key: const Key('device-flow-outcome'),
               style: theme.textTheme.bodyLarge,
             ),
+            if (!_outcome!.succeeded && _outcome!.retryable) ...[
+              const SizedBox(height: 8),
+              Text(
+                'You can start the sign-in again.',
+                key: const Key('device-flow-retry-hint'),
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
           ] else if (_pendingState == deviceFlowReadyToActivate) ...[
             // The exchange succeeded and the credential validated; publication
             // is waiting for the provider to go idle. Reporting this as either

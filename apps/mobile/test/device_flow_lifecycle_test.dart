@@ -21,7 +21,7 @@ Future<int Function()> pumpSheet(
   WidgetTester tester, {
   bool transactional = false,
   Stream<String>? updates,
-  Future<String?>? result,
+  Future<DeviceFlowOutcome>? result,
 }) async {
   var cancels = 0;
   await tester.pumpWidget(
@@ -106,7 +106,12 @@ void main() {
   });
 
   testWidgets('a completed flow is not cancelled on dismissal', (tester) async {
-    final cancels = await pumpSheet(tester, result: Future.value(null));
+    final cancels = await pumpSheet(
+      tester,
+      result: Future.value(
+        const DeviceFlowOutcome(ok: true, state: 'completed'),
+      ),
+    );
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byKey(const Key('device-flow-outcome')), findsOneWidget);
     await tester.tap(find.byKey(const Key('device-flow-dismiss')));
@@ -154,7 +159,7 @@ void main() {
   testWidgets('a terminal result replaces the pending state', (tester) async {
     final updates = StreamController<String>.broadcast();
     addTearDown(updates.close);
-    final result = Completer<String?>();
+    final result = Completer<DeviceFlowOutcome>();
     await pumpSheet(tester, updates: updates.stream, result: result.future);
 
     updates.add(deviceFlowReadyToActivate);
@@ -164,7 +169,7 @@ void main() {
       findsOneWidget,
     );
 
-    result.complete(null);
+    result.complete(const DeviceFlowOutcome(ok: true, state: 'completed'));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byKey(const Key('device-flow-outcome')), findsOneWidget);
     expect(

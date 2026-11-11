@@ -1901,3 +1901,40 @@ python3 ~/.global-git-hooks/github-disclosure.py redact
   session, after a relayed answer from the coordinator session was held for that confirmation). Added to the step's
   scope: `reservation.go`'s `forward` and `finish`, and `TestUpdateThenFinishDoesNotRace`. The MADR's D33 carries the
   amendment.
+* **Step 4, 2026-11-11 — D36, error codes.** Run after `0217-PLAN-update-every-pin-to-its-current-release.md` P3j
+  landed as `83aac453`, on the owner's word to resume. `internal/protocol/errors.go`: `ErrProviderAuthBusy`
+  (`provider_auth_busy`), `ErrCredentialConflict` (`credential_conflict`), `ErrUnsupportedBackend`
+  (`unsupported_backend`), `ErrRecoveryRequired` (`recovery_required`) and `ErrTooManySignIns` (`too_many_sign_ins`),
+  each commented and registered in `ErrorCodes()`. `internal/ws/server.go`: `authErrCode` maps `providerauth`'s
+  `ErrTransactionBusy`, `ErrConflict`, `ErrUnsupportedBackend`, `ErrRecoveryRequired` and `ErrTooManyFlows` to them,
+  before the `credential_failed` default, wrapped or not. `docs/guides/protocol-v1.md`: a paragraph for the five and
+  for a device-flow result's `state` and `retryable`; it is not on the step's file list, and
+  `TestErrorCodesAreDocumented` requires it. The phone: `mc_exception.dart`'s `friendlyOpError` gives each of the five,
+  `unsupported` and `credential_failed` a sentence (`method_unsupported` had one); `device_flow_sheet.dart` gains
+  `DeviceFlowOutcome` (`ok`, `state`, `retryable`, `error`, with `message` and `succeeded`), the sheet's `result` is a
+  `Future<DeviceFlowOutcome>`, it renders each state (`completed`, `cancelled`, `expired`, `conflict`,
+  `recovery_required`, `unsupported_backend`, `failed`) in its own words and shows "You can start the sign-in again."
+  for a failed, retryable result; `provider_detail_screen.dart` builds the outcome from the result frame with
+  `DeviceFlowOutcome.fromJson`. A frame with no `state` (an older daemon) falls back to `ok` and `error`. Tests:
+  `TestCoordinatorSentinelsHaveTheirOwnCodes` (`ws/auth_err_code_test.go`, wrapped and bare); the registry and
+  documentation tests existing; in `device_flow_sheet_test.dart`, a widget test per state, one for `completed` showing no
+  hint and one for the fallback; in `friendly_op_error_test.dart`, one per code. Changed tests: `device_flow_sheet_test.dart`
+  and `device_flow_lifecycle_test.dart` pass a `DeviceFlowOutcome` where they passed `Future<String?>`;
+  `friendly_op_error_test.dart`'s "credential_failed falls through to the daemon message" becomes "credential_failed
+  keeps the daemon detail inside its own sentence", since D36 gives `credential_failed` copy of its own and the detail
+  stays in it. Each new test was seen failing on its planted break in a scratch clone of `83aac453`
+  (`step4_plants.log`):
+  * the five `authErrCode` cases removed: `transaction busy (wrapped=false): code = "credential_failed", want
+    "provider_auth_busy"` and the same for the other four, bare and wrapped;
+  * a code left unregistered: `ErrTooManySignIns ("too_many_sign_ins") is declared in errors.go but not in
+    ErrorCodes()`;
+  * a code left undocumented: `error code "too_many_sign_ins" is registered but not documented in
+    ../../docs/guides/protocol-v1.md`;
+  * the sheet reading `ok` alone (the state switch emptied): `Found 0 widgets with text "Sign-in cancelled."` and the
+    same for `expired` and the other ok:false states;
+  * `friendlyOpError` losing `recovery_required`: `Expected: contains 'auth-recovery'  Actual: 'raw daemon text'`.
+  All pass clean. Gates, on the scratch clone with the step's ten files copied in: `make pre-add-check FILES=…` "3
+  file(s) clean"; `make test` and `go test -race -count=1 ./...` 50 packages ok each; `make lint`, `make staticcheck`,
+  `make vet-tags` clean; `dart format --set-exit-if-changed` "231 files (0 changed)"; `flutter analyze` "No issues
+  found"; `flutter test` "+1536 ~3: All tests passed". The Linux and Windows hosts are not run for this step (the
+  conventions name steps 3, 7 and 8). Staged: the step's ten files and this record. Commit: the owner's.

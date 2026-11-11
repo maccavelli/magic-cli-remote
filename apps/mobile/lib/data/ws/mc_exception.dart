@@ -67,6 +67,27 @@ String friendlyOpError(Object e) {
       case 'provider_busy':
         return 'A turn is running on this agent — try again when it '
             'finishes.';
+      // MADR 0074 D36: the credential coordinator's own outcomes, each its own
+      // sentence. Before, all of them arrived as credential_failed.
+      case 'provider_auth_busy':
+        return 'Another sign-in change is in progress for this agent — try '
+            'again in a moment.';
+      case 'credential_conflict':
+        return 'The host\'s sign-in changed while this was in progress, so '
+            'nothing was replaced — try again.';
+      case 'unsupported_backend':
+        return 'The host keeps this sign-in where mcremote cannot protect it '
+            '— sign in on the host.';
+      case 'recovery_required':
+        return 'This agent\'s sign-in needs recovery on the host first — run '
+            'mcremote auth-recovery there.';
+      case 'too_many_sign_ins':
+        return 'Too many sign-ins are in progress — finish or cancel one '
+            'first.';
+      case 'unsupported':
+        return 'This agent doesn\'t support that from the phone.';
+      case 'credential_failed':
+        return 'The host could not complete that: ${e.message}';
       // MADR 0095 D6: the retry matched a completed request whose response
       // the host could not replay. The operation is not known to have
       // failed, so the copy must not claim it did.

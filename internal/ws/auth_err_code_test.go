@@ -9,8 +9,44 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
+	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 	"github.com/maccavelli/magic-cli-remote/internal/ws"
 )
+
+// TestCoordinatorSentinelsHaveTheirOwnCodes (MADR 0074 D36): each outcome of
+// the credential coordinator reaches the phone as a code of its own, wrapped
+// or not, never as credential_failed.
+func TestCoordinatorSentinelsHaveTheirOwnCodes(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		code string
+	}{
+		{"transaction busy", providerauth.ErrTransactionBusy, protocol.ErrProviderAuthBusy},
+		{"conflict", providerauth.ErrConflict, protocol.ErrCredentialConflict},
+		{"unsupported backend", providerauth.ErrUnsupportedBackend, protocol.ErrUnsupportedBackend},
+		{"recovery required", providerauth.ErrRecoveryRequired, protocol.ErrRecoveryRequired},
+		{"too many flows", providerauth.ErrTooManyFlows, protocol.ErrTooManySignIns},
+	}
+	for _, tc := range cases {
+		for _, wrapped := range []bool{false, true} {
+			err := tc.err
+			if wrapped {
+				err = fmt.Errorf("codex: %w", tc.err)
+			}
+			code, msg := ws.AuthErrCode(err)
+			if code != tc.code {
+				t.Errorf("%s (wrapped=%v): code = %q, want %q", tc.name, wrapped, code, tc.code)
+			}
+			if code == protocol.ErrCredentialFailed {
+				t.Errorf("%s (wrapped=%v) fell through to credential_failed", tc.name, wrapped)
+			}
+			if msg == "" {
+				t.Errorf("%s (wrapped=%v): empty message", tc.name, wrapped)
+			}
+		}
+	}
+}
 
 // TestAuthErrCodeTable pins the MADR 0083 D5 taxonomy: each known failure
 // class gets its own wire code so the phone can say what to do next, and only

@@ -2817,6 +2817,23 @@ func authErrCode(err error) (code, msg string) {
 	case errors.Is(err, provider.ErrCredentialNotAccepted):
 		return protocol.ErrCredentialNotAccepted,
 			"the agent stored the value but is not using it; this vendor needs a different sign-in method"
+	// The credential coordinator's own outcomes each get their own code, so
+	// the phone can say what happened and what to do (MADR 0074 D36).
+	case errors.Is(err, providerauth.ErrTransactionBusy):
+		return protocol.ErrProviderAuthBusy,
+			"another credential change is in progress for this provider; try again in a moment"
+	case errors.Is(err, providerauth.ErrConflict):
+		return protocol.ErrCredentialConflict,
+			"the host's credential changed while this was in progress; nothing was replaced, so try again"
+	case errors.Is(err, providerauth.ErrUnsupportedBackend):
+		return protocol.ErrUnsupportedBackend,
+			"the host keeps this credential where the daemon cannot protect it; sign in on the host"
+	case errors.Is(err, providerauth.ErrRecoveryRequired):
+		return protocol.ErrRecoveryRequired,
+			"this provider's credential needs recovery on the host before another change; run mcremote auth-recovery there"
+	case errors.Is(err, providerauth.ErrTooManyFlows):
+		return protocol.ErrTooManySignIns,
+			"too many sign-ins are in progress; finish or cancel one first"
 	default:
 		return protocol.ErrCredentialFailed, clipAuthErr(err.Error())
 	}

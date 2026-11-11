@@ -43,10 +43,32 @@ void main() {
     expect(friendlyOpError(ex('credential_not_accepted')), contains('sign-in'));
   });
 
-  test('credential_failed falls through to the daemon message', () {
-    expect(
-      friendlyOpError(ex('credential_failed', 'engine said 500')),
-      'engine said 500',
-    );
+  // MADR 0074 D36: credential_failed has copy of its own now. It keeps the
+  // daemon's detail, which is all that says what failed, and no longer shows
+  // it bare; this test read "falls through to the daemon message" before.
+  test('credential_failed keeps the daemon detail inside its own sentence', () {
+    final copy = friendlyOpError(ex('credential_failed', 'engine said 500'));
+    expect(copy, contains('engine said 500'));
+    expect(copy, isNot('engine said 500'));
+    expect(copy, contains('could not complete'));
+  });
+
+  // MADR 0074 D36: each coordinator outcome is one actionable sentence.
+  group('the credential coordinator\'s outcomes', () {
+    const cases = {
+      'provider_auth_busy': 'in progress',
+      'credential_conflict': 'nothing was replaced',
+      'unsupported_backend': 'on the host',
+      'recovery_required': 'auth-recovery',
+      'too_many_sign_ins': 'finish or cancel',
+      'unsupported': 'support',
+    };
+    cases.forEach((code, phrase) {
+      test('$code says what to do', () {
+        final copy = friendlyOpError(ex(code));
+        expect(copy, contains(phrase));
+        expect(copy, isNot('raw daemon text'));
+      });
+    });
   });
 }

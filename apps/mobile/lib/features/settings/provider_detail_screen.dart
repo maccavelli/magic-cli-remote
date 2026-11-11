@@ -642,11 +642,12 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
     }
     if (!mounted) return;
 
+    // The sheet reads the result's state and retryable, not ok alone, so a
+    // cancelled flow, an expired code and a host that needs recovery each say
+    // what happened (MADR 0074 D36).
     final result = client.deviceFlowResults
         .firstWhere((r) => r['flow_id'] == flow.flowId)
-        .then<String?>(
-          (r) => r['ok'] == true ? null : (r['error'] as String? ?? 'failed'),
-        );
+        .then(DeviceFlowOutcome.fromJson);
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,

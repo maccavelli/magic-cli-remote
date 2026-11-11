@@ -16,7 +16,7 @@ const kiloFlow = DeviceFlowInfo(
 Future<void> pumpFlow(
   WidgetTester tester, {
   DeviceFlowInfo flow = kiloFlow,
-  Future<String?>? result,
+  Future<DeviceFlowOutcome>? result,
   Future<void> Function()? onCancel,
   DeviceUrlLauncher? launchUrlFn,
 }) async {
@@ -115,7 +115,9 @@ void main() {
     var cancelled = false;
     await pumpFlow(
       tester,
-      result: Future<String?>.value(null),
+      result: Future.value(
+        const DeviceFlowOutcome(ok: true, state: 'completed'),
+      ),
       onCancel: () async => cancelled = true,
     );
     await tester.pumpAndSettle();
@@ -134,10 +136,108 @@ void main() {
   });
 
   testWidgets('reports failure with the reason', (tester) async {
-    await pumpFlow(tester, result: Future<String?>.value('code expired'));
+    await pumpFlow(
+      tester,
+      result: Future.value(
+        const DeviceFlowOutcome(
+          ok: false,
+          state: 'failed',
+          retryable: true,
+          error: 'code expired',
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.textContaining('code expired'), findsOneWidget);
+  });
+
+  // MADR 0074 D36: the sheet reads the result's state, not ok alone. Each
+  // ok:false state below would read "Sign-in failed" if ok were all it read.
+  group('renders each result state', () {
+    const cases = <(String, bool, String, bool)>[
+      // state, retryable, text the sheet must show, whether a retry hint shows
+      ('cancelled', true, 'Sign-in cancelled.', true),
+      ('expired', true, 'The sign-in code expired before it was used.', true),
+      (
+        'conflict',
+        true,
+        'The host\'s sign-in changed while this was in progress, so nothing '
+            'was replaced.',
+        true,
+      ),
+      (
+        'recovery_required',
+        false,
+        'The host needs its sign-in recovered first: run mcremote '
+            'auth-recovery there.',
+        false,
+      ),
+      (
+        'unsupported_backend',
+        false,
+        'The host keeps this sign-in where mcremote cannot protect it — sign '
+            'in on the host.',
+        false,
+      ),
+    ];
+    for (final (state, retryable, text, hint) in cases) {
+      testWidgets(state, (tester) async {
+        await pumpFlow(
+          tester,
+          result: Future.value(
+            DeviceFlowOutcome(
+              ok: false,
+              state: state,
+              retryable: retryable,
+              error: 'raw daemon text',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text(text), findsOneWidget);
+        expect(find.textContaining('Sign-in failed'), findsNothing);
+        expect(find.textContaining('raw daemon text'), findsNothing);
+        expect(
+          find.byKey(const Key('device-flow-retry-hint')),
+          hint ? findsOneWidget : findsNothing,
+        );
+      });
+    }
+
+    testWidgets('completed shows no retry hint', (tester) async {
+      await pumpFlow(
+        tester,
+        result: Future.value(
+          const DeviceFlowOutcome(
+            ok: true,
+            state: 'completed',
+            retryable: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Signed in.'), findsOneWidget);
+      expect(find.byKey(const Key('device-flow-retry-hint')), findsNothing);
+    });
+
+    testWidgets('an older daemon, with no state, falls back to ok and error', (
+      tester,
+    ) async {
+      await pumpFlow(
+        tester,
+        result: Future.value(
+          DeviceFlowOutcome.fromJson({
+            'flow_id': 'f-1',
+            'ok': false,
+            'error': 'x',
+          }),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Sign-in failed: x'), findsOneWidget);
+    });
   });
 
   // MADR 0074 D8: codex's device flow signs the host out at the start, so the

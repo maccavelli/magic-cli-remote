@@ -206,6 +206,29 @@ const (
 	// the agent is not using the credential (MADR 0086 D1) — pick another
 	// sign-in method rather than retrying the same key.
 	ErrCredentialNotAccepted = "credential_not_accepted"
+	// The five codes below are the credential coordinator's own outcomes
+	// (MADR 0074 D36). Before, every one of them reached the phone as
+	// credential_failed, so a busy provider, a conflict and a recovery state
+	// all read as one failure with no next step.
+
+	// ErrProviderAuthBusy means another credential transaction is already in
+	// progress for this provider. Transient: retry when it ends.
+	ErrProviderAuthBusy = "provider_auth_busy"
+	// ErrCredentialConflict means the host's live credential changed during
+	// the transaction, so nothing was replaced. Retry; the host's credential
+	// is untouched.
+	ErrCredentialConflict = "credential_conflict"
+	// ErrUnsupportedBackend means the host keeps this credential somewhere
+	// the daemon cannot protect (an OS keyring, say). Not retryable from the
+	// phone; sign in on the host.
+	ErrUnsupportedBackend = "unsupported_backend"
+	// ErrRecoveryRequired means the provider's credential needs an operator
+	// decision before another change is accepted: `mcremote auth-recovery`
+	// on the host.
+	ErrRecoveryRequired = "recovery_required"
+	// ErrTooManySignIns means the per-device or daemon-wide cap of sign-ins in
+	// progress is reached. Transient: finish or cancel one first.
+	ErrTooManySignIns = "too_many_sign_ins"
 
 	// --- prewarm control (MADR 0089 D7) ---
 
@@ -339,6 +362,11 @@ func ErrorCodes() []string {
 		ErrInvalidKey,
 		ErrEngineUnavailable,
 		ErrCredentialNotAccepted,
+		ErrProviderAuthBusy,
+		ErrCredentialConflict,
+		ErrUnsupportedBackend,
+		ErrRecoveryRequired,
+		ErrTooManySignIns,
 
 		ErrConfigWriteFailed,
 		ErrProviderNotReady,
