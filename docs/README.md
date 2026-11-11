@@ -479,6 +479,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0243 | PLAN | Implement showing exactly which usage limit an agent hit and when it lifts | [0243-PLAN-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md](decisions/0243-PLAN-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md) |
 | 0244 | MADR | Tell the phone when an agent cannot switch its active upstream | [0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md](decisions/0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md) |
 | 0244 | PLAN | Implement telling the phone when an agent cannot switch its active upstream | [0244-PLAN-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md](decisions/0244-PLAN-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md) |
+| 0245 | REPORT | Non-API-key auth across Magic, gobble and the SDK | [0245-REPORT-non-api-key-auth-across-magic-gobble-and-the-sdk.md](../docs/reports/0245-REPORT-non-api-key-auth-across-magic-gobble-and-the-sdk.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
@@ -501,3 +502,4 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | check a library's newest release before moving a pin | `make check-libs`; [0207-PLAN-finish-full-semver-pins-and-check-libs.md](decisions/0207-PLAN-finish-full-semver-pins-and-check-libs.md), V2 |
 | see what grok 1.0.77 changed relative to Magic's grok provider | [0237-REPORT](reports/0237-REPORT-grok-1.0.77-surface-and-magic-provider.md) |
 | know why an event can arrive before `auth_ok` | [0238-MADR-tolerate-pushes-before-the-auth-reply.md](decisions/0238-MADR-tolerate-pushes-before-the-auth-reply.md) |
+| see what is wrong with browser, device and ChatGPT-plan sign-in today, across Magic, gobble and the SDK | [0245-REPORT](reports/0245-REPORT-non-api-key-auth-across-magic-gobble-and-the-sdk.md) |
