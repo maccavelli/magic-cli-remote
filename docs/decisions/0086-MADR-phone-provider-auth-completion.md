@@ -185,7 +185,7 @@ Live `GET /provider/auth` on kilo 7.4.21:
 P0 (isolated `kilo serve`, 2026-08-14, engine killed without completing
 either flow):
 
-* Method 0 authorize URL is `https://auth.x.ai/oauth2/authorize?response_type=code&…&redirect_uri=…` (PKCE). `Classify` = **browser**. Mark `available: false`, `reason: browser_only`. The label has no "browser" word, so today's hint would have offered *Start sign-in* and then died at D7.
+* Method 0 authorize URL is `https://auth.x.ai/oauth2/authorize?response_type=code&…&redirect_uri=…` (PKCE). `Classify` = **browser**. Mark `available: false`, `reason: browser_only`. The label has no "browser" word, so today's hint would have offered *Start sign-in* and then died at D7. *Superseded 2026-11-11 by `0074-MADR-remote-provider-auth-from-phone.md` §16 D30: no label marks a kilo `oauth` row; this method is listed `oauth_device`, startable, and its loopback authorize URL is refused at start with "signs in through a browser on the host" (0074 D7's rule) until `0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md` gives it a paste.*
 * Method 1 authorize URL is `https://accounts.x.ai/oauth2/device?user_code=…` with instructions `Enter code: XXXX-XXXXX`. `Classify` = **device**. **Keep offered.** "Headless / Remote / VPS" is a real RFC 8628 grant. The 2026-08-12 hang (`ok=false` after 113 s) was D5/D7 (copy-only URL, poll), not a host-only flow. Do **not** mark it `host_oauth`.
 * Method 2 stays the API-key path.
 

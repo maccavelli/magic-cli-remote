@@ -129,6 +129,10 @@ keyring-managed host therefore read "Host only · keyring" up front, and the
 user never types a key into a dead end. Wire change is additive and
 capability-gated exactly like the rest of 0074 (older phones ignore the new
 fields).
+*Annotated 2026-11-11: `keyring_managed` leaves this reason list, and D5's error cases, under
+`0074-MADR-remote-provider-auth-from-phone.md` §16 D35: no daemon code ever set it (the constant,
+the registered code, one test row and the phone's copy were all that existed), so goose keyring
+hosts never read "Host only · keyring" from it.*
 
 **D5 — An error taxonomy the phone can speak (fixes A5).**
 `writeAuthErr` gains cases: `keyring_managed`, `method_unsupported`,

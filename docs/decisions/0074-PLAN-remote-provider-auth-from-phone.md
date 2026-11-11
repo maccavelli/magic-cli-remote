@@ -12,6 +12,8 @@ Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote
   deliberately left. **Approved repair amendment 2026-08-21:** P17–P22
   implement accepted D20–D29 and have not begun. Verified
   against the tree, not against commit messages — see §0.2 and §17.
+  **Approved amendment 2026-11-11:** P23 (§25) implements the MADR's §16
+  (D30–D42), accepted the same day; in progress.
 - **Date**: 2026-08-10, revised 2026-08-12; repair approved 2026-08-21
 - **Scope**: Workstreams **W1** (auth status, credential injection, active-upstream
   switch), **W2** (device OAuth, Strategy A), **W4** (polish), and **W5** (full
@@ -817,7 +819,7 @@ unchanged, and no work outside D20-D29 was added.
 | Phase | Commit | Verification | Evidence | Notes |
 | --- | --- | --- | --- | --- |
 | P17 | `518f1df` | `go test -count=1 ./internal/fsutil ./internal/providerauth` and `go test -race -count=1 ./...` (same two packages) green; `make pre-add-check` reports 11 files clean; `go vet` clean; `./internal/ws ./internal/provider/codex ./internal/provider/grok ./internal/daemon` still green | 50 focused tests across the transaction core, the full P17 step 9 recovery table, and six helper-process kill points | Adds `adapter.go`, `manifest.go`, `store.go`, `transaction.go`, `recovery.go` and their tests; strengthens `fsutil.WriteFileAtomic`. No provider or WebSocket behavior changed, so nothing is reachable from production construction yet. |
-| P18 | **Complete** — `ff3bb65`, `c02b66a`, `3508b4c`, `8778dac`, `88a4bb1`, `2eb8f0b`, `076b3f4` | `go test -count=1 ./internal/...` fully green; `-race` green on codex, grok, credstore, providerauth, ws; `make pre-add-check` clean on every changed file | All 14 steps; both adapters, the shared owned-flow engine, both coordinated providers, the logout split, and the API-key transaction | Still dark: no production daemon call site constructs a coordinated provider, so the pre-P20 device-auth path is what executes. P20 activates it. |
+| P18 | **Complete** — `ff3bb65`, `c02b66a`, `3508b4c`, `8778dac`, `88a4bb1`, `2eb8f0b`, `076b3f4` | `go test -count=1 ./internal/...` fully green; `-race` green on codex, grok, credstore, providerauth, ws; `make pre-add-check` clean on every changed file | All 14 steps; both adapters, the shared owned-flow engine, both coordinated providers, the logout split, and the API-key transaction | Still dark: no production daemon call site constructs a coordinated provider, so the pre-P20 device-auth path is what executes. P20 activates it. *Annotated 2026-11-11 (MADR §16 D38, D41): steps 9 and 11 were built but not wired to the phone's codex key write and logout, which stayed direct until P23 step 7; step 7's grok cached-token probe was never built and is not added (D41).* |
 | P19 | **Complete** | `make test`, `make race`, `make vet`, `make pre-add-check` green; Flutter format/analyze/test green (1041 tests) | Watcher, reconciliation, operator CLI, and `RecoverAll`; `fsnotify` promoted to a direct dependency (it is the inotify wrapper on Linux, and a watcher that cannot start degrades to reconciliation). | |
 | P20 | **Complete** | `make test`, `make race`, `make vet`, `make pre-add-check` green; Flutter format/analyze/test green (1041 tests) | Reservation-based registry, owned server flow, disconnect/resume, shutdown drain, additive wire contract, daemon activation, CLI registration. **This is the phase that made the fix live.** | |
 | P21 | **Complete** | `make test`, `make race`, `make vet`, `make pre-add-check` green; Flutter format/analyze/test green (1041 tests) | Idempotent cancellation behind every dismissal path, transactional copy, `ready_to_activate` rendering, per-method removal. | |
@@ -874,6 +876,9 @@ Complete:
   rejected key leaves LIVE byte-identical. Because Codex keeps one native
   credential, an API-key rotation shares the same CURRENT/PREVIOUS chain as a
   device login.
+  *Annotated 2026-11-11 (MADR §16 D38): built, but `SetCredentialCoordinated` had no non-test caller;
+  the phone's key write ran `codex login --with-api-key` directly (`codex/auth.go:28-58`), leaving an
+  unordered LIVE the coordinator never adopts (§16.2), until P23 step 7 routed it through this function.*
 * **Step 10** — `provider.AuthMethodClearer` on both providers. Codex's two
   method ids are aliases for its one credential; Grok's clear independently,
   with tests proving that removing a pasted key does not sign the host out and
@@ -885,6 +890,11 @@ Complete:
   clone-and-verify probe, and a failed probe changes neither LIVE nor the
   manifest. An unclassifiable credential takes the revoking path, because
   assuming a credential is safe to rehearse is the failure that matters.
+  *Annotated 2026-11-11 (MADR §16 D38): built, but `CoordinatedLogout` had no non-test caller; the
+  phone's logout ran `codex logout` directly (`codex/auth.go:61-75`), leaving the revoked generation
+  unmarked (§16.2). As built, the revoking path ran `codex logout` after `RecordLogout` had removed
+  LIVE, so it would have revoked with no token (§16.2, "the revoke runs with no token"). P23 step 7
+  wires it to the phone and revokes from an owner-only copy of LIVE (D38).*
 * **Step 12** — presence-only `Configured` on `provider.AuthMethod`. Codex
   derives it from the stored auth mode; Grok reports both methods
   independently. `XAI_API_KEY` is deliberately never a configured method: it
@@ -1123,9 +1133,13 @@ throughout the phased rollout.
    transaction and clean it through the transaction handle.
 7. On zero exit, require a bounded regular `0600` candidate with the provider's
    required JSON fields for the observed auth mode. Run `codex login status` in
-   the pending Codex environment. For Grok, launch its ACP transport in the
+   the pending Codex environment. ~~For Grok, launch its ACP transport in the
    pending environment, complete only `initialize` plus cached-token
-   authentication, then shut it down before creating a session or prompt. Bound
+   authentication, then shut it down before creating a session or prompt.~~
+   *Annotated 2026-11-11 (MADR §16 D41): the grok probe was not built and is not added; grok's check is
+   the adapter's structural `Validate` (`grok/adapter.go:68`), and `CredentialAdapter.Probe` stays a
+   no-op with no `SetProbe` caller. `codex login status` runs and does not discriminate.*
+   Bound
    both probes by context deadline and capture only redacted diagnostics. Mark
    PENDING validated only after the probe succeeds.
 8. Before publication, call the injected live-session count. If the provider is
@@ -1365,6 +1379,10 @@ Remove every branch that can drop a started provider process or transaction.
    result metadata in the bounded registry entry until resume expiry and let
    reconnect/auth status report it. Store no child output, device code, or
    credential metadata in that entry.
+   *Annotated 2026-11-11 (MADR §16 D42): "auth status report it" was not built for the backup state;
+   `authStatePayload` copied neither `backup_state` nor `recovery_available` (`server.go:2332-2348`).
+   The status half is P23 step 8; delivering a terminal result on reconnect is
+   `0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` D3.*
 8. Add the backward-compatible wire contract in this same activation commit:
    `Caps.ProviderAuthTransactions` encoded as
    `provider_auth_transactions,omitempty`; optional auth result state,
@@ -1533,6 +1551,9 @@ the one real-provider acceptance run after all earlier phases are green.
    API-key removal preserves OAuth, Grok OAuth logout preserves API-key
    configuration, and Codex logout cannot be undone and removes its
    LIVE/generation payloads.
+   *Annotated 2026-11-11 (MADR §16 D40, 0245 Q19): steps 5 and 6 moved to
+   `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7, runs L1 and L2,
+   to be run once against the new design. They are not run under this phase.*
 7. Update the MADR and plan from implementation-pending to implemented only
    after all confirmation criteria pass; acceptance recorded on 2026-08-21 must
    remain in the historical status text.
@@ -1588,3 +1609,201 @@ appears in output or on disk.
   forward. Ordinary sessions continue on the unchanged LIVE credential.
 * Explicit logout payload deletion is irreversible locally; server-side token
   revocation and reauthentication remain the recovery path by design.
+
+## 25. Phase P23 — proposed 2026-11-10, approved 2026-11-11: the MADR's §16 amendment (D30 to D42)
+
+**Status: in progress since 2026-11-11.** The owner accepted the MADR's §16 and approved this phase on
+2026-11-11 ("Magic 0074"). ~~Nothing here starts before the owner accepts the MADR's §16 and approves this phase.~~ The owner
+answered Q-A (D41) and Q-C (D42) on 2026-11-10, resolved Q-B by re-asking Q17 and answering "wire them after all"
+(D38), and answered Q-D (D38's fallback, which opens step 7) and the timing (DF: "now, ahead of the redesign"); the
+steps below follow those answers. Step 2's D31 half follows the owner's answer (a), of 2026-11-10, to O5 of
+`0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` (MADR D31); nothing else here
+waits. It is its own commit series, after the 0217 pin commit, which landed at `912b9aa1`, and before
+[0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md](0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md),
+which rewrites the same files.
+
+**Conventions.** Every new test fails first on a planted break in a scratch clone, never in the tree, and the record
+quotes the failure. Gates run on a scratch clone of `HEAD` with the step's files copied in, because `0179-PLAN-gobble-native-acp-provider.md` P4's
+files are unstaged in the tree and are not this phase's: `make pre-add-check FILES="<the step's Go files>"`, `make
+test`, `go test -race -count=1 ./...`, `make lint`, `make staticcheck`, `make vet-tags`; Dart `dart format
+--output=none --set-exit-if-changed .`, `flutter analyze`, `flutter test`. The Linux test host runs `go test -race
+-count=1 ./...` and the Windows test host `make ci-windows` on a scratch copy at steps 3, 7 and 8. The agent stages; the
+owner commits with `git commit --no-edit`. No sign-in, no live run, no quota. A difference from this text stops the
+phase with a dated entry here.
+
+### Steps
+
+0. **The records, on acceptance.** The MADR's §16 marked accepted with the owner's answers of 2026-11-10 (Q17
+   re-asked, Q-A, Q-C, Q-D and DF), dated. In-place annotations, each a dated italic note or a strike-through, quoting
+   nothing away: D3, D21 (carried out for codex by D38), D24 (D42), D25 (by Q-A, D41), §15.12's D20 row and "Still
+   outstanding"; this PLAN's §17.6 P18 row and its progress note's steps 9 and 11 ("Step 9 —
+   `codex.SetCredentialCoordinated` runs `login --with-api-key` inside the transaction", and Step 11's logout split:
+   built, and wired to the phone by step 7), step 7's grok probe (§19, not built, D41), P20 step 7 (§21, "let
+   reconnect/auth status report it": the status half is step 8 below, the delivery is `0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` D3), and P22 steps 5
+   and 6 (§23, moved to `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7). `0086-MADR-phone-provider-auth-completion.md` D6's SuperGrok row and `0083-MADR-provider-auth-activation-and-layout-gaps.md` D4's
+   reason list, a dated note each. `python3 scripts/check_records.py --write-index`; `make check-records
+   markdownlint-docs`; the redact preview. **Stage** the records only.
+1. **Reproduce 16.2's states first, as the tests step 7 makes pass.** In a scratch clone at `HEAD`,
+   `TestPhoneCodexLogoutMarksRevoked` and `TestPhoneCodexKeyWriteCommitsCurrent` (`internal/provider/codex`, with a
+   coordinator, codex's adapter and a stub CLI): a coordinator with CURRENT in ChatGPT mode; the phone's clear through
+   `ClearCredentialMethod`, then `Recover`, asserting no generation retained, `BackupState` `logged_out` and
+   `RecoveryAvailable` false (MADR 16.5 item 9; `RecordLogout` prunes the generations, `transaction.go:585`);
+   separately, the phone's key write through `SetCredential`, then `Recover`, asserting CURRENT
+   holds the new key and no `recovery_required`. Both fail at `HEAD`, where the paths are direct; the record quotes
+   each failure and the state it found. They are committed with step 7.
+2. **D30 and D31, kilo and opencode** (`internal/provider/httpagent/authcatalog.go`, `deviceauth.go`,
+   `internal/provider/kilo/auth.go`, `internal/provider/opencode/acp_auth.go`, their tests):
+   * `browserOAuthMarkers` and the label branch of `ClassifyCatalogMethod` removed; `oauth` entries `oauth_device`;
+   * `oauthType` removed; opencode `oauth` methods `oauth_device`;
+   * **D31, under the owner's answer (a) to `0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`
+     O5** (MADR D31; answered 2026-11-10): `methodSlug(label string) string`; `FetchAuthMethods` mints `<upstream>:<slug>`; `EngineMethodIndex` becomes
+     `ResolveEngineMethod(ctx, api, upstreamID, methodID) (int, error)`, re-reading the catalog; `VerifyAPIKeyMethod`
+     uses it;
+   * tests, each seen failing: `TestNoLabelDecidesTheFlow` (a method labelled "Login with a browser" is `oauth_device`;
+     its loopback authorize URL is refused at start with "signs in through a browser on the host"; planted: the marker
+     list restored); `TestKiloMethodIDsSurviveAReorder` (the catalog reordered between listing and start starts the
+     chosen method; planted: index ids); `TestAmbiguousSlugIsRefused` (two methods with one slug, `method_unsupported`;
+     planted: first match taken). `TestAuthStatusSplitsBrowserFromDeviceOAuth` (`kilo/auth_test.go:136`),
+     `TestSuperGrokSubscriptionClassifiesBrowser` and `TestHeadlessVPSClassifiesDevice`
+     (`httpagent/authcatalog_honesty_test.go:45`, `:52`) are rewritten to the new rule, and named here with why.
+   **Stage.**
+3. **D33 and D34, the owned lifecycle** (`internal/providerauth/ownedflow.go`, `reservation.go`, `registry.go`,
+   `internal/provider/codex/owned_device_auth.go`, `internal/provider/grok/owned_device_auth.go`,
+   `internal/ws/provider_auth_owned.go`, `server.go`, their tests):
+   * `OwnedFlowConfig.CodeLifetime`; codex 15 minutes, grok `grokDeviceExpirySeconds`; `DeviceFlowInfo.ExpiresIn` from
+     it; `Reservation.Attach` arms a timer at `min(attach + lifetime, reserve + DefaultTTL)` that cancels unless the
+     flow has published `ready_to_activate`, after which `ActivationGrace` bounds it; the terminal state `expired`.
+     The timer is a new field, `deadline *time.Timer`, never `Reservation.timer` (`reservation.go:87`), which the
+     resume window owns: `detach` replaces it (`:274-277`) and `reattach` clears it (`:285-288`). `finish` stops both
+     (`:203-205`'s place);
+   * `deviceAuthWired` returns true for a `provider.OwnedDeviceAuth` before asking `DeviceAuthCapable`;
+   * tests, each seen failing: `TestOwnedFlowReportsTheCodesLifetime` (grok 600; planted: the reservation's
+     `ExpiresIn`); `TestOwnedFlowExpiresAtItsDeadline` (planted: no timer); `TestReadyToActivateOutlivesTheCode`
+     (planted: the timer not disarmed); `TestDeadlineSurvivesDetachAndResume` (detach, reattach within the window, and
+     the deadline still cancels the reservation, `expired`; planted: the deadline kept in the shared `timer` field);
+     `TestDeviceAuthWiredForOwnedFlows` (an owned provider with no legacy hook; planted: today's rule).
+   **Stage.**
+4. **D36, error codes** (`internal/protocol/errors.go`, `internal/ws/server.go`, `auth_err_code_test.go`,
+   `apps/mobile/lib/data/ws/mc_exception.dart`, `provider_detail_screen.dart`, `device_flow_sheet.dart`, their tests):
+   the five codes, registered; `authErrCode`'s cases; the phone's copy; the result sheet reading `state` and
+   `retryable`. Tests, each seen failing: `TestCoordinatorSentinelsHaveTheirOwnCodes` (planted: the default branch);
+   the existing registry test (planted: a code unregistered); a widget test per `state` (planted: `ok` read alone).
+   **Stage.**
+5. **D32 and D35, dead code and the phone's codex dialog** (`internal/protocol/messages.go`, `errors.go`,
+   `internal/provider/auth.go`, `credstore/write.go`, `providerauth/registry.go`, `codex/device_auth.go` and its test,
+   `codex/provider.go`, `kilo/auth.go`, `httpagent/authcatalog.go`, `opencode/acp_auth.go`, `gobble/auth.go`,
+   `ws/method_availability_test.go`, `internal/provider/auth_conformance_test.go`, `apps/mobile/lib/features/settings/provider_detail_screen.dart`,
+   `device_flow_sheet.dart`, `mc_exception.dart`, their tests): every name of D35 removed; the two comments corrected;
+   `provider.AuthReasonHostOAuth` defined once and used by the three packages, `protocol.AuthReasonHostOAuth` set from
+   it; the destructive dialog and `confirmDestructive: destructive` removed from `_runDeviceSignIn`. Removing codex's legacy `StartDeviceAuth`
+   (`codex/device_auth.go:40`) makes codex no longer a `provider.DeviceAuth`, so `TestProviderAuthInterfaceConformance`'s
+   codex row (`auth_conformance_test.go:51-53`, `wantDeviceOAuth: true`) changes to false, and the test gains a
+   `wantOwnedDeviceAuth` column, true for codex and grok, so the owned flow stays held; named here with why. Assertions by
+   search: `git grep -n "keyring_managed\|AuthQuota\|AuthStatusQuota\|ZeroString\|CancelDevice\|ErrAuthConfirmRequired\|confirm_required\|confirmDestructiveSignIn\|\"host_oauth\""`
+   finds nothing outside `docs/`; `rg -n "providerId == 'codex'" apps/mobile/lib` finds the removal copy alone.
+   **Stage.**
+6. **D37, grok's aggregate status** (`internal/provider/grok/auth.go`, its test): configured from `configuredMethods`
+   or `XAI_API_KEY`. Test `TestGrokStubAuthJSONIsNotConfigured` (a `{}` file is `missing`; planted: `FileExists`
+   restored). **Stage.**
+7. **D38, the wiring (Q17 re-asked; Q-D answered (a), 2026-11-10)** (`internal/provider/codex/auth.go`, `logout.go`,
+   `apikey_test.go`, `logout_test.go`, and the step 1 tests):
+   * `codex/auth.go`: the direct body of `ClearCredential` (`:61-75`) moves to an unexported `runLogout(ctx)`;
+     `ClearCredential` calls `CoordinatedLogout` when `p.coord != nil`, else `runLogout`; `SetCredential` (`:28-58`)
+     calls `SetCredentialCoordinated` when `p.coord != nil`, else its direct body, unchanged, moved to an unexported
+     `setCredentialDirect`;
+   * `codex/logout.go`, `CoordinatedLogout`'s revoking path (MADR D38, "revokes from a copy"): before `MarkRevoked`,
+     read LIVE and write it to `<tmp>/auth.json` in a new `os.MkdirTemp` home, `0700`, the file `0600`, as
+     `verifyLogoutOnClone` does (`:112-127`), with a deferred `os.RemoveAll(tmp)`; LIVE absent skips the revoke; then
+     `MarkRevoked` and `RecordLogout` unchanged; then `runLogoutIn(ctx, tmp)` (`:138`) in place of
+     `p.ClearCredential(ctx, "")` (`:89`), whose error keeps today's wrap. `CoordinatedLogout` no longer calls
+     `ClearCredential`, so the routing cannot recurse. The non-revoking path is unchanged;
+   * **Q-D's fallback:** `ClearCredential` and `SetCredential` call the coordinated function; when it returns an
+     error matching `providerauth.ErrUnsupportedBackend` from its first check, before any mutation
+     (`SetCredentialCoordinated`'s `CheckBackend`, `logout.go:175`; `CoordinatedLogout`'s `MarkRevoked` on a
+     `StateExternal` manifest, `transaction.go:541-546`), they run `runLogout` or `setCredentialDirect` instead. The
+     coordinated functions mark that early refusal so the caller can tell it from a later one (a wrapped sentinel,
+     `errEarlyUnsupportedBackend`, unexported); a later `ErrUnsupportedBackend` (`RecordLogout`'s, `:558-560`, once
+     `MarkRevoked` has run) is returned as it is, and D36 maps it to `unsupported_backend`;
+   * tests, each seen failing on a planted break:
+     * step 1's two (planted: the routing removed);
+     * `TestCoordinatedLogoutRevokesWithTheToken` (`logout_test.go`): a stub `codex` whose `logout` exits 1 unless
+       `$CODEX_HOME/auth.json` exists and holds the planted refresh token, and journals `$CODEX_HOME`; the coordinated
+       ChatGPT logout succeeds, the journal shows the tombstone first (as `TestChatGPTLogoutTombstonesBeforeRevoking`
+       does) and `logout` run in a home other than the daemon's, and that temporary home is gone afterwards.
+       **Planted break: today's order**, `RecordLogout` then `p.ClearCredential` in the daemon's `CODEX_HOME`: the stub
+       finds no `auth.json` and fails, and `CoordinatedLogout` returns "revoke did not confirm". The existing stub
+       (`logout_test.go:22-25`), which never checks, is left as it is for the tests that use it;
+     * `TestCoordinatedLogoutRemovesTheCopy`: the temporary home is removed when `runLogoutIn` fails, and when
+       `RecordLogout` fails after the copy (planted: the `RemoveAll` not deferred);
+     * `TestClearCredentialDoesNotRecurse` (a coordinated ChatGPT logout returns within the 30 s bound with `codex
+       logout` run once; planted: `CoordinatedLogout` calling `ClearCredential` again, which the test's timeout
+       catches);
+     * `TestUnprotectableCodexCredential`: on a `StateExternal` manifest, the phone's clear runs `codex logout` in the
+       daemon's home (the direct path) and the key write `codex login --with-api-key` there, each once, and the
+       manifest is byte-identical before and after; with `CheckBackend` refusing (a stub whose `doctor` reports an
+       unsupported store), the key write takes the direct path too (planted: the fallback removed, so both return
+       `unsupported_backend`);
+     * `TestLateUnsupportedBackendIsReturned`: an `ErrUnsupportedBackend` from `RecordLogout` after `MarkRevoked` ran
+       is returned and nothing falls back (planted: the fallback taken on any `ErrUnsupportedBackend`);
+     * `TestCoordinatedLogoutNeedsACoordinator` and `TestSetCredential*` without a coordinator pass unchanged.
+   * The live check that the grant is revoked at OpenAI, a refresh with the old token refused, is owner-run and
+     needs a sign-in, so it is not this phase's ("no live run"): it is
+     `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1 (MADR 16.5 item 14).
+   **Stage.**
+8. **D42, recovery state on the status payload** (`internal/protocol/messages.go`, `internal/ws/server.go`,
+   `internal/provider/grok/owned_device_auth.go` or a new `grok/status.go`, `apps/mobile/lib/data/protocol/models.dart`,
+   `apps/mobile/lib/features/settings/provider_detail_screen.dart`, their tests):
+   * `ProviderAuthPayload.BackupState` (`json:"backup_state,omitempty"`) and `RecoveryAvailable`
+     (`json:"recovery_available,omitempty"`); `authStatePayload` copies them;
+   * grok's `CoordinatedProvider` reports them from `c.coord`, by the rule of codex's `backupProjection`
+     (`codex/logout.go:230`);
+   * the phone's provider auth model reads them; the provider screen shows the backup state and, when recovery is
+     available, "A backup can be restored on the host with `mcremote auth-recovery`";
+   * tests, each seen failing: `TestStatusCarriesRecoveryState` (a coordinated codex and a coordinated grok provider:
+     both members present; an uncoordinated one: neither, byte-identical to today's frame; planted: the copy
+     removed); `TestGrokStatusProjectsBackup` (planted: grok's projection returning empty); a widget test for each
+     backup state and for `recovery_available` (planted: the field not read).
+   **Stage.**
+9. **Close-out.** The MADR's §16.5 items 1 to 13, each with its evidence (item 14 is owner-run, recorded by
+   `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7); this phase's status; P22's acceptance row
+   annotated as moved (D40).
+
+### Verification
+
+```bash
+make pre-add-check FILES="<the step's Go files>"
+make test
+go test -race -count=1 ./...
+make lint staticcheck vet-tags preflight
+cd apps/mobile && dart format --output=none --set-exit-if-changed . && flutter analyze && flutter test
+make ci-windows                     # the Windows test host, steps 3, 7 and 8
+python3 scripts/check_records.py --check-all
+python3 ~/.global-git-hooks/github-disclosure.py redact
+```
+
+### Rollout and rollback
+
+* Each step is one commit, in this order. Steps 2 to 8 change the wire only by the codes of step 4, the removed
+  `keyring_managed` and `quota`, which nothing sends, and step 8's two additive members; an older phone shows a new
+  code's message text and ignores the two members.
+* Step 2's id change makes a phone's cached kilo method ids stale; the phone re-reads the catalog when it opens the
+  sheet (`internal/provider/httpagent/authcatalog.go:117-121`, `FetchAuthMethods`'s comment), so nothing is stored to
+  migrate.
+* Rollback: revert newest first. Step 7's coordinated writes leave coordinator state (a committed CURRENT, revoked
+  generations, a tombstone); reverting it leaves that state, which the older code reads (the manifest's states are
+  unchanged).
+
+### Execution record
+
+* **Step 0, 2026-11-11 — the records, on acceptance.** The owner accepted the MADR's §16 and approved this phase
+  ("Magic 0074"). Annotated in place, each a dated italic note or a strike-through, nothing rewritten: the MADR's
+  status and date cells, D3 (D39), D21 (D38), D24 (D42), D25 (D41, the grok probe struck), §15.12's D20 row (D39, the
+  capability clause struck) and "Still outstanding" (D40), §16's heading, status and closing note; this PLAN's status
+  bullet, §17.6's P18 row, the P18 progress note's steps 9 and 11, §19 step 7 (the grok probe struck), §21 step 7, §23
+  steps 5 and 6, and §25's heading and status; `0086-MADR-phone-provider-auth-completion.md` D6's SuperGrok row
+  (superseded by D30); `0083-MADR-provider-auth-activation-and-layout-gaps.md` D4's reason list (D35). Checks:
+  `python3 scripts/check_records.py --check-all` exit 0, no output; `make markdownlint-docs` "60 files, 0 issues";
+  `python3 ~/.global-git-hooks/github-disclosure.py redact` "would edit 0 file(s)". `--write-index` wanted to add only
+  the four rows for the 0246 and 0247 drafts, which are not committed, so those rows were dropped again and the index
+  is unchanged; they are added when those records are accepted. Staged: the four records above, nothing else. Commit:
+  the owner's.

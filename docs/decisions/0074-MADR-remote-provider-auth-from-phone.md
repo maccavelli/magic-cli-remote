@@ -6,8 +6,8 @@
 
 | field | value |
 | --- | --- |
-| status | **accepted** 2026-08-10, **implemented** 2026-08-12. D1–D15 locked 2026-08-10; **D16–D19 added 2026-08-12** after re-probing all five CLIs. **Accepted amendment 2026-08-21:** §15 records the credential-loss defect and locks D20–D29; implementation is pending under approved P17–P22. W3 (loopback tunnel) remains deferred to a successor MADR. Supersedes the *research-report* form of this document (2026-08-05/06), which proposed strategies but locked nothing. |
-| date | 2026-08-10, revised 2026-08-12; amendment accepted 2026-08-21 |
+| status | **accepted** 2026-08-10, **implemented** 2026-08-12. D1–D15 locked 2026-08-10; **D16–D19 added 2026-08-12** after re-probing all five CLIs. **Accepted amendment 2026-08-21:** §15 records the credential-loss defect and locks D20–D29; implementation is pending under approved P17–P22. W3 (loopback tunnel) remains deferred to a successor MADR. **Accepted amendment 2026-11-11:** §16 locks D30–D42 (the label heuristics, the owned lifecycle, the coordinated codex paths, recovery state on status, and the record's corrections); implementation is under the PLAN's P23. Supersedes the *research-report* form of this document (2026-08-05/06), which proposed strategies but locked nothing. |
+| date | 2026-08-10, revised 2026-08-12; amendment accepted 2026-08-21; second amendment accepted 2026-11-11 |
 | deciders | @<user> |
 | related | MADR 0015 (relay), **0019** (single-engine, engine-owned config), 0021 (OpenCode API), 0025 (Goose), 0028 (Codex), 0029 (platform), 0043 (models), **0044** (permission funnel), **0067** (iOS port), **0068** (protocol v2 capabilities), **0073** (goose quota hang), **0075** (Kilo provider — **now implemented and default-enabled**, auth landed here), **0079** (provider/model drill-down picker — same "browse a large catalog" problem, solved the same way) |
 | method | Live CLI probes on this host, twice: 2026-08-10 (grok 1.0.0, opencode 1.18.11, codex-cli 0.146.0, goose 1.45.0, kilo 7.4.20) and **2026-08-12** (grok **1.0.3**, opencode **1.18.16**, codex-cli **0.147.0**, goose 1.45.0, kilo **7.4.21**). Live HTTP probes against `opencode serve` and `kilo serve` (vendor catalog, auth-method catalog, credential write round-trip in an isolated `XDG_DATA_HOME`); goose provider registry read from the vendor's own source checkout at 1.46.0; codex config schema read out of the shipped binary; codebase verification at `e4269ef` (2026-08-10), `7b07609` + working tree (2026-08-12), and `b944880` (2026-08-21). The 2026-08-21 amendment also uses isolated-home probes against installed codex-cli 0.148.0 and Grok 1.0.5, version-matched upstream Codex and grok-build source, focused Go tests, daemon logs, git history, and primary standards and implementation research. |
@@ -96,7 +96,7 @@ Plans cite these IDs.
 | --- | --- |
 | **D1** | **Credential write path is per-agent and native.** Kilo → `PUT /auth/{providerID}` on the daemon-owned engine. OpenCode → direct `auth.json` write (0600). Goose → direct `config.yaml` + keyring write. Codex → `codex login --with-api-key` on stdin. Grok → `XAI_API_KEY` in the service environment, or per-model `api_key` in `~/.grok/config.toml`. **No CLI spawn is used where a probe proved the CLI non-drivable** (OpenCode/Kilo key prompt, `goose configure`). |
 | **D2** | **mcremote never creates its own credential vault.** Secrets pass through the daemon into the agent's native store and are not persisted anywhere else — not in mcremote config, not in its data dir, not in logs. |
-| **D3** | **Auth status is agent-native where available, best-effort elsewhere.** Kilo → `GET /kilo/auth-status` + `GET /provider/auth`. OpenCode/Kilo files → parse `auth.json` keys (names only, never values). Codex → `codex login status`. Goose → `config.yaml` provider set. Grok → `auth.json` presence. Status is advisory; a turn may still 401. |
+| **D3** | **Auth status is agent-native where available, best-effort elsewhere.** Kilo → `GET /kilo/auth-status` + `GET /provider/auth`. OpenCode/Kilo files → parse `auth.json` keys (names only, never values). Codex → `codex login status`. Goose → `config.yaml` provider set. Grok → `auth.json` presence. Status is advisory; a turn may still 401. *Annotated 2026-11-11 (§16 D39): kilo reads `GET /provider/auth` and `GET /config/providers`; `GET /kilo/auth-status` survives only as a stale comment at `kilo/auth.go:44`, corrected by D35. Codex parses `auth.json` (`codex/auth.go:87-156`); `codex login status` is not its status reader. Grok's aggregate reader counts `auth.json` configured if it exists, which D37 changes to the per-method reader's validation.* |
 | **D4** | **`ProviderInfoPayload` gains an `auth` block; `{id, ready}` stays wire-compatible.** New fields are additive and omitted when empty. |
 | **D5** | **Auth methods are typed descriptors carrying declared inputs.** A method is `{id, type: api_key\|oauth_device\|oauth_browser, label, inputs[]}` where each input is `{key, type: text\|select, message, options?, placeholder?, required}`. This is required, not speculative: **8 of the 13** upstreams in Kilo's live catalog declare prompt inputs (§7.3). |
 | **D6** | **All new messages are gated behind a protocol v2 capability** (`provider_auth`), negotiated in the `auth_ok` `Caps` block (MADR 0068 D1). A phone that does not advertise it never sees auth affordances, and the daemon must not send auth frames to it. |
@@ -805,11 +805,11 @@ daemon-path idioms instead of introducing a second secrets service.
 | ID | Decision |
 | --- | --- |
 | **D20** | **Keep both device-auth methods online.** Codex `openai:device` and Grok `xai:device` remain advertised and usable throughout rollout. Remove Codex's destructive confirmation once isolation is active because a pending flow no longer signs out the host. D20 supersedes D8's warning-plus-in-memory-restore mechanism, not the device-auth feature. |
-| **D21** | **Use one shared credential transaction coordinator.** Add a `providerauth` transaction component created by the daemon with its effective `DataDir` and injected into Codex and Grok. It owns provider-scoped admission, immutable generations, the transaction journal, validation, promotion, recovery, and cleanup. Codex/Grok adapters supply the effective home, CLI environment, auth filename, and validator. API-key set, explicit clear/logout, device auth, and backup reconciliation take the same provider mutation lock so two mcremote paths cannot race. |
+| **D21** | **Use one shared credential transaction coordinator.** Add a `providerauth` transaction component created by the daemon with its effective `DataDir` and injected into Codex and Grok. It owns provider-scoped admission, immutable generations, the transaction journal, validation, promotion, recovery, and cleanup. Codex/Grok adapters supply the effective home, CLI environment, auth filename, and validator. API-key set, explicit clear/logout, device auth, and backup reconciliation take the same provider mutation lock so two mcremote paths cannot race. *Annotated 2026-11-11 (§16 D38): for codex, the phone's API-key set and clear/logout ran outside the coordinator until P23 step 7 (`codex/auth.go:28-75` called the CLI directly; `SetCredentialCoordinated` and `CoordinatedLogout` had no non-test caller, §16.2). P23 step 7 carries this sentence out for codex.* |
 | **D22** | **Resolve one effective home and run device login in an isolated pending home.** Codex uses non-empty `CODEX_HOME`, otherwise `$HOME/.codex`; Grok uses non-empty `GROK_HOME`, otherwise `$HOME/.grok`. Status and every managed mutation use that resolver. Create a private `0700` pending home under the transaction root and run Codex with `CODEX_HOME=<pending>` or Grok with `GROK_HOME=<pending>`. Keep Grok's existing host-browser suppression. Neither pending child may read or write the live `auth.json`. **The pending home must start empty of credential material, and no live credential may ever be copied into it** (F14): Codex revokes any stored ChatGPT token server-side before deleting it, so a seeded pending home would revoke the live grant while leaving LIVE byte-identical and every fingerprint check passing. Emptiness, not the directory boundary, is what makes isolation sound. Seeding CURRENT means writing the generation store under `<DataDir>`, never the pending home. A test must assert the pending home contains no credential file at spawn. The current Codex contract is its default file-backed store; detect a configured keyring/auto/ephemeral backend and return a typed unsupported-backend error rather than claiming `auth.json` protection that does not exist. |
 | **D23** | **Maintain immutable CURRENT and PREVIOUS recovery generations.** Store them under `<DataDir>/provider-auth/<provider>/`, with the directory `0700`, payload files `0600`, and a `0600` versioned manifest containing generation IDs, SHA-256 fingerprints, state, source, and timestamps but no token fields. Before the first managed mutation of an existing credential, validate and durably seed CURRENT. A successful candidate becomes CURRENT only after validation and commit; the former CURRENT becomes PREVIOUS. Retain exactly those two committed generations plus at most one PENDING transaction, so copies cannot grow without bound. This is a narrow recovery exception to D2's “no mcremote vault”: these files are never an authentication source, never leave the host, and exist only to recover the provider-native store. |
-| **D24** | **Define the backup lifecycle and its limits.** Reconcile at daemon startup, before every managed mutation, after every successful managed commit, and when a provider-file watcher observes a stable newer live generation. Debounce rename/write notifications, confirm the fingerprint with two stable reads, validate the provider auth material, and accept only monotonic freshness before promoting an autonomous refresh to CURRENT/PREVIOUS under the provider lock; defer watcher reconciliation during an active transaction. Startup and pre-mutation reconciliation are mandatory fallbacks for missed events. Never replace a newer CURRENT with an older or merely parseable live file. A configured file credential must have a durable CURRENT generation before a live mutation begins; after one rotation it must retain PREVIOUS. An explicit successful logout records a tombstone, then removes pending and committed payloads because revoked tokens are no longer known-good; an unauthenticated cold host has no artificial backup. RFC 9700 refresh rotation means PREVIOUS is “last validated” rather than guaranteed server-valid forever. Distinguish two grades of doubt: a generation may be *stale* (possibly superseded by an autonomous refresh) or *known-revoked* (F14 — mcremote itself ran a Codex operation that revoked that ChatGPT grant server-side). Record the known-revoked grade in the manifest when a coordinator-initiated action revokes a generation, never offer a known-revoked generation as a recovery candidate, and never present it as `recovery_available`. Surface backup state and `recovery_available` without exposing paths, hashes, or secrets. |
-| **D25** | **Validate and publish as one conditional commit.** CLI exit zero is necessary but insufficient. Require a bounded, regular, non-symlink candidate with owner-only mode and provider-specific JSON/auth-material validation; run `codex login status` in the pending Codex home and a Grok cached-token initialization probe in the pending Grok home. Before publication, quiesce mcremote-owned provider processes that could refresh the old credential; if work is active, retain the validated PENDING generation for a bounded activation retry and return `ErrAuthBusy` without another OAuth exchange. Acquire the provider's sibling `auth.json.lock`, which every mcremote mutation uses and Grok upstream already honors, recompare the live start fingerprint, and report a typed conflict if another writer won. Write a same-directory `0600` live temporary, `fsync`, rename, `fsync` the parent, and verify bytes. Strengthen `fsutil.WriteFileAtomic` so requested directory-sync errors are returned, not discarded. |
+| **D24** | **Define the backup lifecycle and its limits.** Reconcile at daemon startup, before every managed mutation, after every successful managed commit, and when a provider-file watcher observes a stable newer live generation. Debounce rename/write notifications, confirm the fingerprint with two stable reads, validate the provider auth material, and accept only monotonic freshness before promoting an autonomous refresh to CURRENT/PREVIOUS under the provider lock; defer watcher reconciliation during an active transaction. Startup and pre-mutation reconciliation are mandatory fallbacks for missed events. Never replace a newer CURRENT with an older or merely parseable live file. A configured file credential must have a durable CURRENT generation before a live mutation begins; after one rotation it must retain PREVIOUS. An explicit successful logout records a tombstone, then removes pending and committed payloads because revoked tokens are no longer known-good; an unauthenticated cold host has no artificial backup. RFC 9700 refresh rotation means PREVIOUS is “last validated” rather than guaranteed server-valid forever. Distinguish two grades of doubt: a generation may be *stale* (possibly superseded by an autonomous refresh) or *known-revoked* (F14 — mcremote itself ran a Codex operation that revoked that ChatGPT grant server-side). Record the known-revoked grade in the manifest when a coordinator-initiated action revokes a generation, never offer a known-revoked generation as a recovery candidate, and never present it as `recovery_available`. Surface backup state and `recovery_available` without exposing paths, hashes, or secrets. *Annotated 2026-11-11 (§16 D42): until P23 step 8 both reached the phone only on a device flow's result (`internal/ws/provider_auth_owned.go:142-143`), never on the provider status payload, and the phone read neither; P23 step 8 puts them on `ProviderAuthPayload` and the provider screen shows them.* |
+| **D25** | **Validate and publish as one conditional commit.** CLI exit zero is necessary but insufficient. Require a bounded, regular, non-symlink candidate with owner-only mode and provider-specific JSON/auth-material validation; run `codex login status` in the pending Codex home ~~and a Grok cached-token initialization probe in the pending Grok home~~. *Amended 2026-11-11 (§16 D41, Q-A): grok's check is its adapter's structural `Validate` (`grok/adapter.go:68`); the cached-token probe was never built (`CredentialAdapter.Probe` is a no-op and `SetProbe` has no caller) and is not added. `codex login status` stays and does not discriminate (`0136-MADR-classify-codex-auth-from-the-doctor-report.md`); codex's real check is `Validate` too (`codex/adapter.go:143-165`).* Before publication, quiesce mcremote-owned provider processes that could refresh the old credential; if work is active, retain the validated PENDING generation for a bounded activation retry and return `ErrAuthBusy` without another OAuth exchange. Acquire the provider's sibling `auth.json.lock`, which every mcremote mutation uses and Grok upstream already honors, recompare the live start fingerprint, and report a typed conflict if another writer won. Write a same-directory `0600` live temporary, `fsync`, rename, `fsync` the parent, and verify bytes. Strengthen `fsutil.WriteFileAtomic` so requested directory-sync errors are returned, not discarded. |
 | **D26** | **Use an explicit crash-recovery state machine.** Persist and sync manifest transitions `idle → pending → committing → idle` before their associated side effects. Startup recovery runs under the provider lock before auth status or mutation. A PENDING transaction never touched live and can be retained for its bounded activation window or removed. For COMMITTING, compare live, candidate, CURRENT, and PREVIOUS fingerprints: finish the label move if live equals the validated candidate; roll back transaction metadata if live equals the old CURRENT; otherwise preserve every file and require an explicit recovery choice. Automatic restore is allowed only for an mcremote-owned hot transaction whose journal proves the expected live generation; never resurrect an externally deleted or explicitly logged-out credential, and never restore a generation the manifest marks known-revoked (D24). Where the only surviving generation is known-revoked, recovery reports that re-authentication is required rather than offering a restore that is guaranteed to fail. |
 | **D27** | **Make device-flow execution an owned lifecycle.** Reserve registry capacity before provider side effects. Replace the bare wait closure with an idempotent `Wait`/`Cancel` transaction handle, start its owner goroutine before writing response frames, and cancel it on every later error. Derive it from server lifetime rather than `context.WithoutCancel`; add `CancelAll` plus bounded drain on daemon shutdown. A transient phone disconnect retains ownership only for the negotiated resume window, then cancels. Cleanup removes child processes, browser stubs, and expired pending homes but never CURRENT or PREVIOUS. |
 | **D28** | **Make phone completion and cancellation truthful and idempotent.** Cancel, Back, barrier tap, swipe, route disposal, and every app lifecycle callback that can still communicate send at most one cancel request; reconnect may resume within the server window. Server expiry and shutdown own cleanup when hard process loss prevents a phone callback. Copy says the current credential remains active while the new sign-in is pending — a claim the isolated pending home makes true, and which D22's no-copy rule is what actually guarantees. Typed recovery states distinguish “a newer sign-in is required” (the only surviving generation is known-revoked, D24) from an ordinary restorable backup. A successful OAuth exchange that is waiting for an idle provider reports “ready to activate,” not failure and not completion. Typed busy, conflict, recovery-available, and unsupported-backend results remain distinguishable. |
@@ -1021,7 +1021,7 @@ drains before the process can exit.
 
 | Decision | Where it landed |
 | --- | --- |
-| D20 keep both device flows online | Both remain advertised; Codex's destructive confirmation is gone on the isolated path only, and the phone shows it only when the daemon advertises the capability. |
+| D20 keep both device flows online | Both remain advertised; Codex's destructive confirmation is gone on the isolated path only, and ~~the phone shows it only when the daemon advertises the capability~~. *Annotated 2026-11-11 (§16 D39): false. The phone showed the codex confirmation unconditionally, gated on the provider id alone (`provider_detail_screen.dart:581-603`), until §16 D32 removed it (P23 step 5).* |
 | D21 shared transaction coordinator | `internal/providerauth` coordinator, adapters in each provider package. |
 | D22 effective homes and isolated login | `credstore.CodexHome`/`GrokHome`; pending homes created empty and asserted empty at spawn. |
 | D23 CURRENT/PREVIOUS generations | Immutable `0600` payloads, exactly two retained, verified by retention tests. |
@@ -1053,6 +1053,9 @@ activation, and one explicit logout. Those complete real authorizations, spend
 tokens, and deliberately revoke a Codex grant, so they remain for the owner to
 run when convenient. Until they are recorded here, this amendment is
 implemented and isolation-confirmed, but not fully acceptance-confirmed.
+*Annotated 2026-11-11 (§16 D40, 0245 Q19): P22 steps 5 and 6 moved to
+`0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7, runs L1 and L2,
+to be run once against the new design. They are no longer recorded here.*
 
 ### 15.13 Erratum — 2026-08-21: production lockout from over-eager escalation
 
@@ -1158,3 +1161,341 @@ something the code had not actually observed.
 - <https://github.com/block/goose>
 - <https://learn.chatgpt.com/docs/auth>
 - <https://kilo.ai/docs/code-with-ai/platforms/cli>
+
+## 16. Amendment, proposed 2026-11-10, accepted 2026-11-11 — remove the label heuristics, finish the owned lifecycle, wire the coordinated codex paths, show recovery state, and correct the record
+
+**Status: accepted 2026-11-11.** The owner accepted this amendment and approved the PLAN's P23 on
+2026-11-11, having answered Q-A and Q-C, re-asked and answered Q17, and answered Q-D and the timing of this
+amendment (DF), on 2026-11-10 (16.1, 16.6). No question of this section is open.
+D31 rested on a question put elsewhere, O5 of
+`0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`, which the owner answered (a) on
+2026-11-10.
+Nothing above is edited by this section. On acceptance, the PLAN's
+P23 step 0 annotates each quoted statement in place, struck through or marked, never rewritten. *Done
+2026-11-11 (P23 step 0): D3, D21, D24, D25, the status and date cells, §15.12's D20 row and "Still
+outstanding" carry their notes; 16.7's other records carry theirs.*
+
+### 16.1 Context
+
+[0245-REPORT-non-api-key-auth-across-magic-gobble-and-the-sdk.md](../reports/0245-REPORT-non-api-key-auth-across-magic-gobble-and-the-sdk.md)
+found defects in this record's implementation that stand on their own (its ledger M5, M7, M8, M11 to M14, M16, M17,
+M22), and the owner answered its questions on 2026-11-10. These answers bind here:
+
+* **Q18:** "Remove now; decide at start: list such methods as generic OAuth, and classify by the authorize URL at start
+  (0074-MADR D7's existing rule)."
+* **Q17, re-asked.** The owner first answered, against the report's recommendation, "Delete them, and amend 0074
+  (0074-PLAN P18 is corrected to say the live paths are direct)." This amendment's first draft found what the direct
+  paths leave in the coordinator (16.2, "What the direct paths leave in the coordinator") and put Q17 again as Q-B. The owner's answer of 2026-11-10,
+  which replaces the first: "**Wire them after all.** Route the phone's codex logout and key write through
+  `CoordinatedLogout` and `SetCredentialCoordinated`, so a revoked backup is marked (`MarkRevoked`'s only non-test
+  caller is `codex/logout.go:82`) and never offered, as 0074 D24 requires." This is the report's recommendation.
+* **Q-A** (16.6), as recommended: "`Validate` is the check: amend 0074 D25 for grok. No network call."
+* **Q-C** (16.6), as recommended: "`BackupState` and `RecoveryAvailable` go into the provider status payload, and the
+  phone shows them (0074 D24)."
+* **Q19,** against the report's recommendation: P22 steps 5 and 6 are "re-scoped into the new Magic pair's acceptance,
+  run once against the new design".
+* **Q-D** (16.6), as recommended: on a host whose codex credential the coordinator cannot protect, "Fall back to the
+  direct path, only on that early refusal. Nothing is retained there, so there is nothing to mark revoked." It gates
+  the PLAN's P23 step 7, which it now opens.
+* **DF,** as recommended: the standalone defect fixes, this amendment's P23 among them, land "now, ahead of the
+  redesign", each on its own once its record is accepted.
+
+The wire redesign is
+[0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md](0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md).
+This amendment fixes what can be fixed before it, inside today's types. Every line below was re-read at `912b9aa1`,
+where the 0217 pin commit landed (it changed `go.mod`, `go.sum`, `ci.yml` and the 0217 pair only, so each cited line
+is as it was at `995d442b`, where this section was first drafted); none of these files differs in the working tree.
+
+### 16.2 What the code does
+
+* **Labels decide browser or device.** `browserOAuthMarkers = []string{"browser", "external browser", "supergrok
+  subscription"}` (`internal/provider/httpagent/authcatalog.go:186`), read by `ClassifyCatalogMethod`
+  (`:196-207`); opencode's `oauthType` looks for `browser` in the id and label (`internal/provider/opencode/acp_auth.go:365-370`).
+  The start already classifies by URL (`httpagent/deviceauth.go:78-88`, `acp_auth.go:662-670`), as D7 says.
+* **kilo's method ids are array indexes.** `fmt.Sprintf("%s:%d", id, i)` (`authcatalog.go:136`), resolved back by
+  `EngineMethodIndex` (`deviceauth.go:175-189`) and `VerifyAPIKeyMethod`. kilo's catalog has a `label` and a `type`
+  per method and no id of its own (`internal/provider/kilo/testdata/provider-auth-7.4.20.json`).
+* **The phone hard-codes codex.** `final destructive = providerId == 'codex'` shows "This signs the host out of ChatGPT
+  immediately" (`apps/mobile/lib/features/settings/provider_detail_screen.dart:581-603`), unconditionally. The removal
+  copy is gated the same way (`:726-729`). `confirmDestructiveSignIn` (`device_flow_sheet.dart:321`) has no caller.
+* **An owned flow's expiry is the reservation's, not the code's, and is not enforced.** `expiresAt` is reserve time
+  plus 15 minutes (`internal/providerauth/registry.go:255`), sent as `expires_in` (`internal/ws/provider_auth_owned.go:88`);
+  the owned flow carries only the URL and the code (`ownedflow.go:122-129`); the owner goroutine waits on
+  `context.Background()` (`reservation.go:180`). grok's code lives 600 s (`grok/device_auth.go:19-22`, `0107-MADR-grok-phone-api-key-and-device-code-auth.md` D9),
+  codex's 15 minutes (`codex/device_auth.go:107-109`).
+* **grok's probe is not wired.** `CredentialAdapter.Probe` is a no-op unless `SetProbe` injects one
+  (`grok/adapter.go:104-114`); `SetProbe` has no caller.
+* **codex's probe does not discriminate.** `codex login status` exits 0 even when not logged in (`0136-MADR-classify-codex-auth-from-the-doctor-report.md`, quoted at
+  `codex/store_reality.go:59-63`); `Validate` is the real check (`codex/adapter.go:143-165`).
+* **The owned grok flow is offered because of the legacy hook.** `deviceAuthWired` asks `DeviceAuthCapable`
+  (`internal/ws/server.go:2354-2360`), which `acpagent` answers from `spec.StartDeviceAuth != nil`
+  (`acpagent/acpagent.go:416-419`).
+* **Coordinator outcomes are flattened.** `authErrCode` maps `ErrAuthBusy`, `ErrAuthUnsupported`,
+  `ErrAuthConfirmRequired`, `ErrAuthMethodUnsupported`, the secret errors, `DeadlineExceeded` and
+  `ErrCredentialNotAccepted`; everything else, `ErrTransactionBusy`, `ErrConflict`, `ErrUnsupportedBackend`,
+  `ErrRecoveryRequired` and `ErrTooManyFlows` among it, is `credential_failed` (`server.go:2791-2815`). The phone reads
+  a result's `ok` and `error` only (`provider_detail_screen.dart:644-649`).
+* **Recovery state is not on the status payload.** `authStatePayload` copies `Status`, `ActiveUpstream` and the
+  upstreams, not `BackupState` or `RecoveryAvailable` (`server.go:2332-2348`); "Recovery state reaches the phone only on a flow's result", below, has the rest.
+* **Dead code and vocabulary.** `keyring_managed` (`internal/protocol/messages.go:783`, `errors.go:192-195`) and the
+  status `quota` (`messages.go:702`, `internal/provider/auth.go:31`) have no producer; `credstore.ZeroString`
+  (`credstore/write.go:316-320`) and `Registry.CancelDevice` (`registry.go:166-182`) have no non-test caller; codex's
+  legacy `StartDeviceAuth` (`codex/device_auth.go:40`) is unreachable, because the server prefers `OwnedDeviceAuth`
+  (`server.go:2641-2643`) and codex's provider implements it with or without a coordinator; `ErrAuthConfirmRequired`
+  (`provider/auth.go:19-22`) is returned only there. `host_oauth` is a literal in three packages
+  (`authcatalog.go:261`, `acp_auth.go:73`, `gobble/auth.go:169`) beside an unused `protocol.AuthReasonHostOAuth`
+  (`messages.go:786`). Two comments are stale: `codex/provider.go:141-147` ("Production daemon construction still uses
+  New/NewWithLogger", false since `codex/section.go:322-325`) and `kilo/auth.go:44` (`GET /kilo/auth-status`, which no
+  code calls).
+* **grok's two status readers disagree.** The aggregate counts `auth.json` configured if it merely exists
+  (`grok/auth.go:127-145`); the per-method reader validates it (`grok/methods.go:21-33`).
+* **The coordinated key write and logout are unwired.** `SetCredentialCoordinated` (`codex/logout.go:154-206`) and
+  `CoordinatedLogout` (`:49-102`) have no non-test caller. The live paths are `codex login --with-api-key` and `codex
+  logout` on the live home (`codex/auth.go:28-75`, and `ClearCredentialMethod`, `logout.go:36-47`).
+* **What the direct paths leave in the coordinator** (read from code, not run). After a direct logout, LIVE is absent
+  and CURRENT still holds the revoked ChatGPT generation, unmarked: `MarkRevoked`'s only caller is
+  `CoordinatedLogout` (`logout.go:82`). Reconciliation changes nothing for an absent LIVE (`reconcile.go:49-55`); at the
+  next start, `recoverIdle` finds an invalid LIVE and a CURRENT and sets `recovery_required` unless the credential is
+  external (`recovery.go:140-185`), so the revoked generation is what recovery then holds. After a direct key write,
+  the new LIVE is `api_key` mode with no ordering signal (`codex/adapter.go:160-161`), which `NotOlder` never adopts
+  over a CURRENT of either mode (`providerauth/adapter.go:71-87`), so the next start sets `recovery_required` too. D24 forbids offering a known-revoked generation, and the first case cannot
+  know it is one.
+* **What wiring them meets** (read from code, not run). The phone's clear reaches codex through
+  `ClearCredentialMethod` (`internal/ws/server.go:2570`; `codex/logout.go:36-47`), which calls `ClearCredential`
+  (`codex/auth.go:61-75`); the key write through `SetCredential` (`server.go:2531`; `codex/auth.go:28-58`).
+  `CoordinatedLogout` itself calls the exported `ClearCredential` to run `codex logout` after its tombstone
+  (`logout.go:89`), so routing `ClearCredential` to it would recurse; `SetCredentialCoordinated` runs its own
+  `runAPIKeyLoginIn` (`logout.go:192`, `:210-225`) and has no such loop. Both refuse a provider built without a
+  coordinator (`logout.go:67-69`, `:163-165`). Both also refuse before changing anything when codex's credential is
+  one the coordinator cannot protect: `SetCredentialCoordinated` through `CheckBackend` (`logout.go:175`;
+  `codex/adapter.go:86-92`), `CoordinatedLogout`'s revoking path through `MarkRevoked`, which returns
+  `ErrUnsupportedBackend` for a manifest in `StateExternal` (`internal/providerauth/transaction.go:541-546`), and its
+  non-revoking path through `RecordLogout`'s same check (`:558-560`). The direct paths serve such a host today.
+* **What wiring them meets: the revoke runs with no token** (read from code, not run; found by the review of
+  2026-11-10, after the first draft of D38). `CoordinatedLogout`'s revoking path calls `MarkRevoked`, then
+  `RecordLogout`, then `ClearCredential` (`logout.go:79-91`). `RecordLogout` writes the tombstone and then deletes
+  LIVE (`internal/providerauth/transaction.go:579-594`: `m.State = StateLoggedOut` … `m.Generations = nil` …
+  `os.Remove(live)`), and `ClearCredential` runs `codex logout` in the daemon's own `CODEX_HOME`
+  (`codex/auth.go:61-75`), which no longer holds `auth.json`. The code's own comment says so: "The live file is
+  already gone; this revokes the server-side grant" (`logout.go:88`). So `codex logout` there has no token to send,
+  and the grant stays live at OpenAI. codex given a home with no `auth.json` prints "Not logged in" and exits 0 for
+  `login status` (`codex/store_reality.go:59-61`); that `logout` behaves the same is likely and not probed, so the
+  coordinated path would report success. Today's direct path runs `codex logout` with the token present, so routing
+  the phone's logout through `CoordinatedLogout` as written would stop it revoking anything. The existing test cannot
+  see this: its stub `logout` runs `rm -f "$CODEX_HOME/auth.json"` and never checks that the file existed
+  (`codex/logout_test.go:22-25`). Revocation is server-side and a copy of the token revokes the same grant, as
+  `logout.go:52-58` says of clones, so D38 revokes from a copy.
+* **Recovery state reaches the phone only on a flow's result.** `AuthState` carries `BackupState` and
+  `RecoveryAvailable` (`internal/provider/auth.go:135-142`); codex fills them from its coordinator (`codex/auth.go:127-133`,
+  `backupProjection` at `logout.go:230`); grok's coordinated provider does not, its status being the plain provider's
+  (`grok/auth.go:127`; `grok/owned_device_auth.go:26` holds the coordinator). `ProviderAuthPayload`
+  (`internal/protocol/messages.go:798-807`) has neither; only the device-flow result carries them (`:949-953`, filled at
+  `internal/ws/provider_auth_owned.go:142-143`). The phone reads neither field anywhere under `apps/mobile/lib`.
+
+### 16.3 Decisions
+
+* **D30. No label decides a flow (M5, Q18).** `browserOAuthMarkers` and `ClassifyCatalogMethod`'s label rule go; every
+  kilo `oauth` entry is listed `oauth_device`, startable, and D7's URL rule decides at start, refusing a loopback URL
+  with today's "signs in through a browser on the host" (`deviceauth.go:80-83`). opencode's `oauthType` goes the same
+  way. Q18 says "list such methods as generic OAuth"; today's types have no generic OAuth type (`api_key`,
+  `oauth_device`, `oauth_browser`, `internal/protocol/messages.go:705-712`), and `oauth_browser` is the one the phone
+  never starts (`isUsable`, `models.dart:1522`). So `oauth_device` is the stand-in until
+  [0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md](0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md)
+  lists these entries `oauth` with `completion` `at_start`. Until then a browser entry opens the phone's device sheet,
+  and its start fails at once with that message, which the sheet shows in place of a code; the method row says no
+  more than its label. **Consequence:** SuperGrok, kilo's ChatGPT browser method, DigitalOcean, GitLab, Poe and Snowflake are offered
+  and refused at start until [0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md](0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md)
+  gives them a paste. This supersedes `0086-MADR-phone-provider-auth-completion.md` D6's label-driven hint for SuperGrok ("Mark `available: false`,
+  `reason: browser_only`").
+* **D31. kilo's method ids by label (F5).** Named Magic-side logic: kilo's catalog has no id, so Magic mints one, and
+  the owner accepted that by O5 (a) of `0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`
+  on 2026-11-10 (removed when kilo's catalog carries an id); the PLAN's P23 step 2 builds this half only on
+  that answer. A kilo method id is `<upstream>:<label slug>`, the label lower-cased with
+  every run of characters other than letters and digits made one `-`. At start, and in `VerifyAPIKeyMethod`, the daemon
+  re-reads `GET /provider/auth` and resolves the slug to its current index; a slug that matches none, or more than one,
+  is refused `method_unsupported`. Index ids are no longer accepted.
+* **D32. The phone's codex special cases that can go now (M7).** The destructive dialog goes: D20 removed the
+  destructive start on the isolated path, codex's legacy path is unreachable (D35), and a codex host without a
+  coordinator cannot start a device sign-in at all. `confirmDestructiveSignIn` goes. The removal copy's
+  `providerId == 'codex'` stays until the `Method.slot` of `0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` can replace it.
+* **D33. The code's own expiry, enforced (M8).** `OwnedFlowConfig` gains the code's lifetime, from each adapter (codex
+  15 minutes, grok 600 s); `expires_in` is it; a timer cancels the reservation at that deadline, capped at
+  `DefaultTTL`, except once the flow reports `ready_to_activate`, when `ActivationGrace` bounds it
+  (`bounds.go:36-38`). The terminal state is `expired`. The deadline has a timer of its own: `Reservation`'s one
+  `timer` field (`internal/providerauth/reservation.go:87`) is the resume window's, which `detach` replaces
+  (`:274-277`) and `reattach` clears (`:285-288`), so a deadline kept there would be lost after any disconnect and
+  resume.
+* **D34. `deviceAuthWired` asks `OwnedDeviceAuth` first (M12).** A provider that implements it is wired, whatever its
+  Spec's legacy hook says.
+* **D35. Dead code and vocabulary go (M16):** `keyring_managed` (constant, error code, test row, phone copy), the
+  status `quota`, `ZeroString`, `CancelDevice` and its test, codex's legacy `StartDeviceAuth` with its tests,
+  `ErrAuthConfirmRequired` and `confirm_required`, and the two stale comments. `host_oauth` becomes one constant in
+  `internal/provider`, which `protocol` re-exports, so the three packages that cannot import `protocol` use it.
+* **D36. Own error codes, and the phone reads them (M13).** `ErrTransactionBusy` → `provider_auth_busy`; `ErrConflict`
+  → `credential_conflict`; `ErrUnsupportedBackend` → `unsupported_backend`; `ErrRecoveryRequired` →
+  `recovery_required`; `ErrTooManyFlows` → `too_many_sign_ins`. Each is registered (`0241-MADR-register-every-sent-error-code.md`). The phone's copy covers them
+  and `credential_failed`, `unsupported` and `method_unsupported`, and the result sheet reads `state` and `retryable`.
+* **D37. grok's aggregate status is its per-method reader (M17).** `authStatus` is configured when
+  `configuredMethods` reports a method or `XAI_API_KEY` is set; a stub `auth.json` is not configured. codex's three
+  readers answer three questions (presence from `auth.json`, the store's location from `codex doctor --json`, the
+  configured backend from `config.toml`) and stay.
+* **D38. Wire `CoordinatedLogout` and `SetCredentialCoordinated` into the phone's codex logout and key write (Q17,
+  re-asked; Q-B resolved by it).** On a provider built with a coordinator:
+  * `SetCredential` (`codex/auth.go:28`) runs `SetCredentialCoordinated`, so a key write is staged, validated and
+    committed as a new CURRENT, never left as an unordered LIVE (16.2);
+  * `ClearCredential` (`codex/auth.go:61`), and so `ClearCredentialMethod`, runs `CoordinatedLogout`, so a ChatGPT
+    logout is tombstoned before it revokes, and no revoked generation is offered (D24);
+  * **`CoordinatedLogout`'s revoking path revokes from a copy** (16.2, "the revoke runs with no token"). Before
+    `MarkRevoked`, it copies LIVE into a temporary `CODEX_HOME` created owner-only, the directory `0700` and
+    `auth.json` `0600`, as `verifyLogoutOnClone` makes its clone (`logout.go:112-127`); LIVE absent means nothing to
+    revoke. Then `MarkRevoked` and `RecordLogout` as today, so the tombstone is durable first (§17.5's ordering
+    kept); then `runLogoutIn(ctx, tmp)` (`logout.go:138`), which revokes the grant with the copied token; then the
+    temporary home is removed, on every path, by a deferred `RemoveAll`. A revoke that fails is reported as today
+    ("credential removed but revoke did not confirm"). A crash between the copy and its removal leaves an owner-only
+    copy in the temporary directory, the exposure `verifyLogoutOnClone` already accepts;
+  * so `CoordinatedLogout` no longer calls the exported `ClearCredential` (`logout.go:89`), and the routing cannot
+    recurse; the direct `codex logout` body of `ClearCredential` moves to an unexported `runLogout`, used by a provider
+    without a coordinator and by Q-D's fallback;
+  * **Q-D's fallback (answered 2026-11-10):** when the coordinated function returns `ErrUnsupportedBackend` before any
+    mutation, `SetCredentialCoordinated` through `CheckBackend` (`logout.go:175`) and `CoordinatedLogout` through
+    `MarkRevoked`'s `StateExternal` refusal (`transaction.go:541-546`), the call falls back to the direct path, the
+    unexported `runLogout` or `SetCredential`'s direct body. Nothing is retained on such a host, so there is nothing to
+    mark revoked. Any other error, and any `ErrUnsupportedBackend` after a mutation (`RecordLogout`'s, `:558-560`, once
+    `MarkRevoked` has run), is returned as it is.
+
+  A provider built without a coordinator keeps the direct paths, as `TestCoordinatedLogoutNeedsACoordinator`
+  (`codex/logout_test.go:195`) holds today. D21's "API-key set, explicit clear/logout, device auth, and backup
+  reconciliation take the same provider mutation lock so two mcremote paths cannot race" then holds for codex, and is
+  annotated as carried out.
+* **D39. The record matches the code (M22).** D3's "Kilo → `GET /kilo/auth-status` … Codex → `codex login status`" is
+  annotated: kilo reads `GET /provider/auth` and `GET /config/providers` (`kilo/auth.go:44` is a stale comment), and
+  codex parses `auth.json` (`codex/auth.go:87-156`). §15.12's D20 row, "the phone shows it only when the daemon
+  advertises the capability", is annotated false: the phone showed it unconditionally until D32. The PLAN's P18 entries
+  for steps 7, 9 and 11, and P20 step 7's "let reconnect/auth status report it", are annotated as P23 says.
+* **D40. P22 steps 5 and 6 move (Q19)** to
+  [0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md](0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md)
+  P7, runs L1 and L2. §15.12's "Still outstanding" paragraph is annotated with the move.
+* **D41. grok's check is `Validate` (Q-A).** D25's "run `codex login status` in the pending Codex home and a Grok
+  cached-token initialization probe in the pending Grok home" is amended for grok: grok's check is its adapter's
+  structural `Validate` (`grok/adapter.go:68`), which D29's tests exercise, and no network call is made. grok's `Probe`
+  stays the no-op it is (`:103-108`) and no caller of `SetProbe` (`:111-114`) is added. codex's `codex login status`
+  stays, recorded as not discriminating (`0136-MADR-classify-codex-auth-from-the-doctor-report.md`); its real check is `Validate` too (`codex/adapter.go:143-165`).
+  No code changes.
+* **D42. Recovery state on the status payload (Q-C, M14).** `ProviderAuthPayload` (`messages.go:798-807`) gains
+  `backup_state` and `recovery_available`, both `omitempty`, so an uncoordinated provider and an older daemon send
+  nothing new; `authStatePayload` (`server.go:2332-2348`) copies them from `AuthState`. grok's coordinated provider
+  fills them from its coordinator by codex's rule (`backupProjection`, `codex/logout.go:230`). The phone's provider
+  screen shows the backup state, and, when `recovery_available` is true, that a backup can be restored on the host
+  with `mcremote auth-recovery` (`internal/cli/auth_recovery.go:54`); it never shows a path, hash or secret (D24).
+  `0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` D4 keeps both on its auth block after the cut-over.
+
+### 16.4 Consequences
+
+* Good, because no label or provider id decides anything on either side, and kilo's method ids survive a reordering.
+* Good, because an owned flow ends when its code does, and the phone's countdown is the code's.
+* Good, because busy, conflict, recovery and unsupported backends read as themselves on the phone.
+* Good, because the record says what the code does.
+* Good, because a phone logout of a ChatGPT session is tombstoned before it revokes, still revokes the grant at
+  OpenAI, from an owner-only copy of the token, and leaves no generation to be offered, and a phone key write becomes
+  a committed CURRENT, so neither leaves 16.2's coordinator states behind (D38).
+* Good, because the phone sees the backup state and whether recovery is available before the next sign-in (D42).
+* Bad, because D30 offers methods that fail at start until `0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md` lands; the message says why.
+* Neutral, because on a host whose codex credential the coordinator cannot protect, the phone keeps today's direct
+  key write and logout (Q-D's fallback), with no coordinator record, since there is nothing to protect.
+* Bad, because the revoking logout briefly writes a second owner-only copy of the token to the temporary directory,
+  removed on every path but a crash.
+
+### 16.5 Confirmation
+
+1. No catalog entry's type depends on its label: a test lists a kilo method labelled "Login with a browser" as
+   `oauth_device`, and refuses its loopback URL at start; seen failing with the marker list restored.
+2. A kilo catalog whose methods are reordered between listing and start starts the method the phone chose; seen
+   failing with index ids.
+3. An owned grok flow reports `expires_in` 600 and ends `expired` at its deadline; one in `ready_to_activate` outlives
+   it and ends at `ActivationGrace`; a deadline survives a detach and a resume; each seen failing.
+4. `deviceAuthWired` is true for an `OwnedDeviceAuth` with no legacy hook; seen failing on today's rule.
+5. Each sentinel of D36 reaches the phone as its own code; seen failing with the mapping removed.
+6. `git grep` finds none of D35's names outside `docs/`.
+7. The phone has no destructive dialog and no `confirmDestructiveSignIn`; its result sheet renders each `state`.
+8. `make preflight`, `make race`, the Linux test host's `go test -race ./...` and `make ci-windows` on the Windows test
+   host pass.
+9. A phone logout of a coordinated codex ChatGPT session leaves no generation retained, `BackupState` `logged_out` and
+   `RecoveryAvailable` false (`RecordLogout` prunes the generations, `transaction.go:585`, so none is left to be
+   `Revoked`); a phone key write leaves CURRENT holding the new key and a start that sets no `recovery_required`; each
+   seen failing on today's direct paths (D38).
+10. `TestCoordinatedLogoutNeedsACoordinator` and the codex tests that build no coordinator pass unchanged; a
+    `ClearCredential` routed to `CoordinatedLogout` returns, with no recursion, inside its 30 s bound (D38).
+11. A status payload for a coordinated codex or grok provider carries `backup_state` and `recovery_available`, an
+    uncoordinated one carries neither, and the phone renders both; each seen failing with the copy removed (D42).
+12. The coordinated logout's `codex logout` runs while a copy of the token exists: a stub `logout` that fails unless
+    `$CODEX_HOME/auth.json` holds the refresh token passes, after the tombstone; with today's order (`RecordLogout`
+    before the revoke, in the daemon's home) planted, it fails; and the temporary home is gone afterwards (D38).
+13. On a `StateExternal` manifest or a backend `CheckBackend` refuses, the phone's codex clear and key write take the
+    direct path and change nothing in the coordinator; an `ErrUnsupportedBackend` after a mutation is returned (Q-D).
+14. Owner-run, after the cut-over: a refresh with the token a phone logout revoked is refused by OpenAI
+    (`0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1).
+
+### 16.6 Questions answered by the owner (2026-11-10)
+
+The owner answered Q-A, Q-C and Q-D as recommended, and Q-B by re-asking Q17 and answering it "wire them after all",
+on 2026-11-10. The options are kept as they were put.
+
+* **Q-A. grok's validation probe (M11).** Answered (a), 2026-11-10 (D41). (a) *Recommended, chosen:* amend D25: each provider's real
+  check is its adapter's structural `Validate`, which D29's tests exercise; codex's `codex login status` stays and is
+  recorded as not discriminating (`0136-MADR-classify-codex-auth-from-the-doctor-report.md`); grok's probe is not built; (b) wire an `initialize`-only probe in the
+  pending `GROK_HOME`, which proves grok starts with the home but not that the token works; (c) wire the full
+  cached-token probe of P18 step 7, which may refresh the token in the pending home after the candidate was staged and
+  leave a staged refresh token the vendor has rotated away (unverified), so it needs a restage after the probe.
+* **Q-B. What the direct codex paths leave behind (found while drafting this amendment).** Resolved 2026-11-10 by
+  (a)'s first half: Q17 was asked again with 16.2's finding, and the owner chose to wire both coordinated functions,
+  not `CoordinatedLogout` alone, so no adoption call of (b) is needed (D38). (a) *Recommended:* ask Q17
+  again with 16.2's finding, and wire `CoordinatedLogout` for the phone's codex logout while deleting
+  `SetCredentialCoordinated`, whose key write can be made benign by (b)'s adoption; (b) delete both as decided, and add
+  one coordinator call after each successful direct write: after a key write, adopt the new LIVE as CURRENT whatever its
+  mode (an explicit mcremote write, not an observed refresh); after a logout, `MarkRevoked` and `RecordLogout`, which
+  orders the tombstone after the revoke and so leaves a crash window §17.5 closed; (c) delete both as decided and
+  accept 16.2's states, telling the operator not to restore after a phone logout.
+* **Q-C. Recovery state on status (M14).** Answered (a), 2026-11-10 (D42). (a) *Recommended, chosen:* project
+  `backup_state` and `recovery_available` on the auth block, additive, and show them on the phone's provider screen,
+  so recovery is visible before the next sign-in (this record's D24 already asks that they be surfaced); (b) remove both
+  from `AuthState` and the result, leaving `mcremote auth-recovery` on the host as the only view; (c) keep them on the
+  result only, and record that D24's surfacing is the result's alone.
+* **Q-D. A codex credential the coordinator cannot protect (found while applying Q17's answer).** Answered (a),
+  2026-11-10 (D38): "Fall back to the direct path, only on that early refusal. Nothing is retained there, so there is
+  nothing to mark revoked. This gates 0074-PLAN P23 step 7." On such a
+  host (`StateExternal`, or a backend `CheckBackend` refuses), both coordinated functions refuse before anything
+  changes (16.2), where the direct paths act today, and there is no retained generation to mark revoked. (a)
+  *Recommended, chosen:* fall back to the direct path when, and only when, the coordinated function returns
+  `ErrUnsupportedBackend` before any mutation; D24 has nothing to protect there, and the phone keeps its key write and
+  logout; (b) refuse with `unsupported_backend` (D36), as such a host's device sign-in already is, so the phone's
+  codex key write and logout stop working there; (c) hide the phone's codex key write and logout on such a host, with
+  "Manage this credential on the host", which states the refusal before the user types a key.
+
+### 16.7 Records this amendment changes, on acceptance
+
+* This record: D3 (D39), D7 (D30's restatement, unchanged in rule), D21 (D38, carried out for codex), D24 (D42), D25
+  (D41), §15.12's D20 row and "Still outstanding" (D39, D40).
+* [0074-PLAN-remote-provider-auth-from-phone.md](0074-PLAN-remote-provider-auth-from-phone.md): P18 steps 7, 9 and 11's
+  entries; P20 step 7; P22 steps 5 and 6.
+* [0086-MADR-phone-provider-auth-completion.md](0086-MADR-phone-provider-auth-completion.md) D6: its SuperGrok row's
+  `browser_only` hint superseded by D30.
+* [0083-MADR-provider-auth-activation-and-layout-gaps.md](0083-MADR-provider-auth-activation-and-layout-gaps.md) D4:
+  `keyring_managed` removed from its reasons (D35).
+
+### 16.8 Where the report differs from the code
+
+* **F44 and M10 present wiring as the remedy.** The report did not read what the direct paths leave in the coordinator
+  (16.2, "What the direct paths leave in the coordinator"), nor that `CoordinatedLogout` calls the exported `ClearCredential` (`logout.go:89`), nor that
+  both coordinated functions refuse an unprotectable credential. The owner chose wiring (Q17 re-asked); D38 handles
+  the recursion, and Q-D the refusal.
+* **Neither the report nor this section's first draft saw that the coordinated logout revokes nothing.**
+  `RecordLogout` deletes LIVE before `codex logout` runs (16.2, "the revoke runs with no token"), so wiring
+  `CoordinatedLogout` as first drafted would have stopped the phone's logout revoking the grant while recording it as
+  revoked. A review of 2026-11-10 found it; D38 now revokes from a copy, and P23 step 7's stub test fails on the old
+  order.
+* **F4 asks for "one constant".** One exists (`messages.go:786`) and is unused, because `httpagent` and `opencode` do
+  not import `protocol` (`authcatalog.go:259-260`, `acp_auth.go:69-73`); D35 moves it.
+* **F28 counts codex's three readers as disagreement.** They answer three questions (D37); grok's two are the
+  disagreement.
+* **The report's M16 omits the grok legacy device hook rightly:** grok's provider is the plain one when the daemon has
+  no coordinator (`grok/section.go:139-145`), so its CLI flow is reachable; codex's is not.
