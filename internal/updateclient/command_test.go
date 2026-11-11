@@ -361,8 +361,11 @@ func TestUpdateHandOffNeedsYes(t *testing.T) {
 	d := &fakeDetacher{inside: true}
 	withDetacher(t, d, "update")
 	run := runCommand(t, "v0.1.0", "y\n")
-	if run.code != 1 || !strings.Contains(run.stderr, selfupdate.ErrConfirmationRequired.Error()) {
-		t.Errorf("exit status %d, stderr:\n%s\nwant 1 and %q", run.code, run.stderr, selfupdate.ErrConfirmationRequired)
+	// From go-selfupdate-lib v1.26.1 a wrapped sentinel drops its own leading "selfupdate: "
+	// (the library names its package once), so the refusal ends in the sentinel's text without it.
+	want := strings.TrimPrefix(selfupdate.ErrConfirmationRequired.Error(), "selfupdate: ")
+	if run.code != 1 || !strings.Contains(run.stderr, want) {
+		t.Errorf("exit status %d, stderr:\n%s\nwant 1 and %q", run.code, run.stderr, want)
 	}
 	if len(d.specs) != 0 {
 		t.Errorf("an unconfirmed update was handed off: %+v", d.specs)

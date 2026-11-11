@@ -584,6 +584,36 @@ tag; `gh api …/compare` for `go-selfupdate-lib`'s `.github/`).*
     requires no gobble-cli module but `acpext`, so gobble's move changes no Magic pin unless it
     comes with a newer `acpext` tag. The PLAN re-reads `acpext`'s tags before it moves anything.
 
+**F3j. After P3h's commit, `go-selfupdate-lib` has two newer tags.** They were found by `make
+check-libs` on the owner's commit `912b9aa1` (PLAN, P3h's execution record). Both were tagged on
+2026-11-10, after P3h step 1:
+
+| Tag | Peeled commit | What changed (its CHANGELOG) |
+| --- | --- | --- |
+| v1.26.1 | `9fc9dd7265c305caf995083663dd0df5b2a0ad39` | "An error names the package once." A wrapped sentinel no longer repeats `selfupdate:`, so a refused confirmation now ends "…: confirmation required". "A sentinel printed alone keeps its prefix, and `errors.Is` and `errors.As` match as before." |
+| v1.26.2 | `e62d77cddaf264cc6ec7bbc4f39b90322542f752` | "A managed install's failure names its phrase once." `errors.Is` still matches `ErrManagedInstall` and each cause. |
+
+* **Requirements and workflows are unchanged.** v1.26.2's `GoModSum` is `DIqb0hzm…`, the same as
+  v1.26.0's (`go mod download -json`). Its `.github/` tree is identical to v1.26.0's (`diff -rq`
+  reports nothing). check-libs' api check reports "ok", so the change is compatible.
+* **What reaches Magic.** check-libs' test run at v1.26.2 failed two tests; every other package
+  passed.
+  * `TestWorkflowPinsMatchGoMod` fails because `ci.yml`'s two pins still say v1.26.0. They move
+    with `go.mod`, as they did in P3h.
+  * `TestUpdateHandOffNeedsYes` (`internal/updateclient/command_test.go:357`) fails at `:364`. It
+    looks in stderr for `selfupdate.ErrConfirmationRequired.Error()`, "selfupdate: confirmation
+    required". v1.26.2 prints "selfupdate: service: an update from inside the service runs
+    detached and cannot ask; pass --yes: confirmation required"
+    (`selfupdate/service/handoff.go:199`). The refusal and its exit status 1 are unchanged; only
+    the text the test matches is.
+  * No other Magic code matches text the library produces. A `git grep` for `"selfupdate: ` in
+    `internal` and `cmd` finds only that assertion and fakes that tests build as inputs
+    (`launchd_sequence_test.go:146`, `:192`; `settle_test.go:93`; `result_print_test.go:140`;
+    `managed_test.go:521`).
+* **Moving to v1.26.2 therefore changes one test assertion.** That is not D5's "adopting its new
+  APIs": the test keeps asserting the same refusal, by text the library now prints. Because the
+  move changes a test, the PLAN proposes it as its own phase (P3i) for the owner's approval.
+
 **F4. CI actions: four of eight are behind.** Each is pinned by commit, with a version comment.
 
 | Action | Pinned | Newest release, peeled commit |
@@ -912,7 +942,10 @@ Chosen option: **"B — Tiered by risk"**, because:
     lib/sdk pins they have updated tagged releases. ensure these pins are pinning current releases
     for these dependencies."* Then `go-llmprovider-sdk` to v1.29.0, `go-selfupdate-lib` to
     v1.26.0 with both `ci.yml` pins, and `acp-go-sdk2` to v1.35.0, tagged the same day (F3i).
-    `go-tui-lib/v2` and `gobble-cli/acpext` are current.
+    `go-tui-lib/v2` and `gobble-cli/acpext` are current. *Amended again 2026-11-10 (PLAN
+    Deviation 27), by the owner: "Run p3i".* Then `go-selfupdate-lib` to v1.26.2, with both
+    `ci.yml` pins and one test assertion (F3j). `gobble-cli/acpext` v0.4.0 is moved under
+    `0179-MADR-gobble-native-acp-provider.md` A9, not here.
   * `make vulncheck` must stay "clear" apart from `GO-2026-5932`.
 * **D5 — `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1, as an amendment to 0207 (F3, F3a).**
   *Amended 2026-10-30 by the owner, before phase 3: "pin go-selfupdate-lib to current v1.23.1".*

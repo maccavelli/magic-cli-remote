@@ -2494,6 +2494,24 @@ Scripts and logs are in the session scratchpad (`p3h_step1.py`, `p3h_step2.py`, 
   diff against `HEAD` is the clone's. 0179's fix landed first, as the owner's `995d442b`. These
   three files were staged on top of it, with this PLAN and the 0217 MADR, so the two commits stay
   apart. `make check-libs` runs on the owner's commit.
+* **After the commit** (`912b9aa1`, the owner's, 2026-11-10). `make check-libs` exited 2, with "1
+  failing checks". Each library was checked at its newest tag:
+  * `acp-go-sdk2` was "pinned v1.35.0, checking v1.35.0"; every check passed; api "nothing to compare".
+  * `go-llmprovider-sdk` was "pinned v1.29.0, checking v1.29.0"; every check passed; api "nothing to
+    compare".
+  * `go-selfupdate-lib` was "pinned v1.26.0, checking v1.26.2". `v1.26.1` and `v1.26.2` were tagged
+    after step 1. Every check passed but `test`, which failed two tests:
+    * `TestWorkflowPinsMatchGoMod`: both `ci.yml` pins still say v1.26.0. check-libs moves `go.mod`
+      only, so a move to v1.26.2 moves both workflow pins too, as this phase did for v1.26.0.
+    * `TestUpdateHandOffNeedsYes` (`internal/updateclient/command_test.go:357-366`): the test looks
+      in stderr for `selfupdate.ErrConfirmationRequired.Error()`, "selfupdate: confirmation
+      required". v1.26.1 names the package once in a wrapped error (its CHANGELOG, v1.26.1
+      "Changed"). The refusal therefore now ends "…; pass --yes: confirmation required"
+      (`selfupdate/service/handoff.go:199` at v1.26.2). The refusal and its exit status are
+      unchanged; only the test's match on the text is.
+
+  P3h's own pins hold. Moving `go-selfupdate-lib` to v1.26.2 is a new phase that needs the owner's
+  approval.
 
 **Not done in P3h:**
 
@@ -2502,6 +2520,147 @@ Scripts and logs are in the session scratchpad (`p3h_step1.py`, `p3h_step2.py`, 
 * gobble-cli's pins, which are gobble-cli's own record and commit.
 * `spf13/pflag`, `x/mod` and `x/sys` (step 2), non-sibling modules.
 * No live agent run. No value Magic sends changes (F3i).
+
+### P3i — `go-selfupdate-lib` v1.26.2
+
+#### Deviation 27 (2026-11-10): `go-selfupdate-lib` v1.26.1 and v1.26.2 are tagged after P3h
+
+**Found** by P3h's last check: `make check-libs` on the owner's `912b9aa1` (P3h's execution record).
+`go-selfupdate-lib` v1.26.1 and v1.26.2 were tagged after P3h step 1. At v1.26.2, two Magic tests
+fail; neither failure is a change in behaviour. The MADR's F3j records what each release changes
+and what reaches Magic.
+
+**Proposed: pin `go-selfupdate-lib` v1.26.2,** by P3h's steps, with one test assertion changed:
+
+* the change adds `internal/updateclient/command_test.go` to this phase;
+* the D4 amendment is made when the owner approves;
+* `gobble-cli/acpext` v0.4.0, also newer than Magic's pin, is not this phase's: the owner's Q14
+  moves it under `0179-MADR-gobble-native-acp-provider.md` A9 (proposed), with its own commit.
+
+Waiting for the owner's approval.
+
+1. **P0.** The tree holds 0179 P4's unstaged work and the auth drafts (0246, 0247, and the 0074
+   and 0179 amendments). None of them is a file this phase changes, so the gates run on a scratch
+   clone of `HEAD` plus this phase's files, and only this phase's files are staged. Re-read every
+   sibling's tags with `git ls-remote`:
+   * `go-selfupdate-lib`'s newest must still be `v1.26.2^{}` (`e62d77cd…`);
+   * `acp-go-sdk2` v1.35.0, `go-llmprovider-sdk` v1.29.0 and `go-tui-lib/v2` v2.12.0 must still be
+     current;
+   * `acpext`'s newest must still be `v0.4.0`.
+
+   Any other newer tag is a stop, to amend F3j. Copy `go.mod` and `go.sum` to the session
+   scratchpad.
+2. `go get github.com/maccavelli/go-selfupdate-lib@v1.26.2`, then `go mod tidy`. `go.mod` changes
+   that one line, `go 1.27.3` stays, and `go.sum` changes only that module's two lines, with its
+   `/go.mod` hash `DIqb0hzm…` unchanged.
+3. **`ci.yml:756` and `:777`:**
+   `@e62d77cddaf264cc6ec7bbc4f39b90322542f752 # go-selfupdate-lib v1.26.2`, through a scratchpad
+   script that asserts the old pin occurs exactly twice. Read back.
+4. **`TestUpdateHandOffNeedsYes`** (`internal/updateclient/command_test.go:364`) looks for the
+   sentinel's text as v1.26.1 and later print it inside a wrap: without the leading
+   `selfupdate: `. It derives that text from `selfupdate.ErrConfirmationRequired.Error()` with
+   `strings.TrimPrefix`, so a future rewording of the sentinel is still caught. The rest of the
+   test (exit status 1, nothing handed off, the binary unchanged) is untouched. Seen to fail both
+   ways, on the scratch clone:
+   * with the old assertion at v1.26.2: it fails, as check-libs showed;
+   * with the new assertion and the refusal planted away (the fake detacher's `inside` set to
+     false): it fails.
+5. **The gates of P3g step 3,** on the scratch clone:
+   * `make pre-add-check` on `command_test.go`;
+   * `go vet ./...` with `CGO_ENABLED=0` for darwin/arm64, windows/amd64 and linux/amd64, and
+     `make vet-tags`;
+   * `make staticcheck` and `make vulncheck`;
+   * `make race`, where `TestWorkflowPinsMatchGoMod` and `TestUpdateHandOffNeedsYes` must pass, and
+     `internal/updateclient` and `internal/cli/service` must be among its packages;
+   * check-libs on the step's content.
+6. **The host runs** (C2): `go test -race -count=1 ./...` on the Linux test host, and
+   `make ci-windows` on the Windows test host. v1.26.1 rewords wrapped errors on every platform's
+   service backend.
+7. **Stage** `go.mod`, `go.sum`, `.github/workflows/ci.yml`,
+   `internal/updateclient/command_test.go`, this PLAN (with P3h's after-commit record and this
+   phase's execution record) and the 0217 MADR. The owner commits.
+8. **After the commit,** run `make check-libs` on it. **After the owner's push,** every Go job and
+   `Live supervisors (runit, s6)` must pass; record the run id for P3h's and this phase's commits.
+
+**Scope.** One test file changes: one assertion, seen failing both ways. No source changes. No
+check is added.
+
+**Rollback.** Restore `go.mod` and `go.sum` from step 1's copy, the two `ci.yml` pins and the test,
+or revert the phase's commit. The library changed none of its requirements.
+
+**Approved** by the owner, 2026-11-10: "Run p3i".
+
+#### Deviation 28 (2026-11-10): check-libs fails at step 5 on the Go toolchain `go.mod` names, not on the pin
+
+**Found** at step 5. Steps 0 to 4 and 6, and every step-5 gate but check-libs, pass on `go1.27.4`.
+check-libs exits 1 with "3 failing checks": `govulncheck` for each of the three libraries. Each
+library's scan reports GO-2026-6859, "Standard library … Found in: net/http@go1.27.3 … Fixed in:
+net/http@go1.27.4". check-libs runs every library on the consumer's toolchain: `toolchain_of`
+takes the `go.mod` `toolchain` line, else its `go` line (`go-shared/scripts/check_libs.py:150-192`).
+Magic's `go.mod` says `go 1.27.3`, and its header says "toolchain: go1.27.3". CI takes Go the same
+way (`go-version-file: go.mod`, `ci.yml:93`, `:231`, `:346`), so CI's vulncheck fails on any push
+until `go.mod` moves. This is not the pin: every other check-libs check passed for all three
+libraries, `go-selfupdate-lib` v1.26.2 included.
+
+* **The first run is void.** It overlapped the owner's Go update: this Mac was on `go1.27.4`, the
+  hosts on `go1.27.3`. Steps 0 to 6 were then re-run in full once all three were on `go1.27.4`.
+
+**Decision (owner, 2026-11-10): "Separate commit first".** `go.mod` moves to `go 1.27.4` in its own
+commit, under the toolchain record
+`0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md`, and lands
+before this phase's. Declined: folding the line into this phase, and committing this phase with
+the failure recorded. This phase then re-runs check-libs on that commit plus its four files,
+and stages only those. **No file is added to this phase.**
+
+#### P3i, executed (2026-11-10)
+
+Scripts and logs are in the session scratchpad (`p3i_steps.py`, `p3i_step5.py`, `p3i_step6.py`,
+`p3i_remote.py`, `p3i_copyback.py`, `p3i-*.log`).
+
+Steps 0 to 6 ran three times:
+
+1. **The first run** overlapped the owner's Go update, so its results are void (Deviation 28).
+2. **The second run** was on `go1.27.4`, at `3e2f784b`. Every gate passed but check-libs, which
+   found Deviation 28.
+3. **The third run** is the one recorded below. It ran after the owner committed 0169's P15 (Go
+   1.27.4) as `ae13109a`, at `ae13109a`, on `go1.27.4`.
+
+* **P0.** The newest tags are as F3j expects: `acp-go-sdk2` v1.35.0, `go-llmprovider-sdk` v1.29.0,
+  `go-selfupdate-lib` v1.26.2, `go-tui-lib/v2` v2.12.0 and `acpext/v0.4.0`.
+* **Steps 2 and 3,** in a scratch clone of `ae13109a`:
+  * "upgraded … go-selfupdate-lib v1.26.0 => v1.26.2";
+  * `go.mod` changes that line, and `go 1.27.4` (0169 P15) stays;
+  * `go.sum` changes 4 lines, with the `/go.mod` hash `h1:DIqb0hzm…` unchanged;
+  * both `ci.yml` pins now read `@e62d77cddaf264cc6ec7bbc4f39b90322542f752 # go-selfupdate-lib
+    v1.26.2`, read back.
+* **Step 4.**
+  * The old assertion at v1.26.2 fails: "want 1 and "selfupdate: confirmation required"", while
+    `TestWorkflowPinsMatchGoMod` passes with the moved pins.
+  * The new assertion with the refusal planted away (`fakeDetacher{inside: false}`) fails.
+  * The new assertion passes, and `gofmt` is clean.
+* **Step 5, on `go1.27.4`:**
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check` | exit 0, "1028 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go vet ./...`, `CGO_ENABLED=0` | darwin/arm64, windows/amd64, linux/amd64: exit 0 each |
+  | `make vet-tags` | exit 0 |
+  | `make staticcheck` | exit 0, "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" |
+  | `make vulncheck` | exit 0, "clear; allowlisted required-module findings: GO-2026-5932" |
+  | `TestWorkflowPinsMatchGoMod`, `TestUpdateHandOffNeedsYes` (`-v`) | both `--- PASS` |
+  | `make race` | exit 0; 50 `ok` lines, among them `internal/updateclient` and `internal/cli/service`; no FAIL, panic or data race |
+  | check-libs, on a scratch commit of the clone | exit 0; "toolchain: go1.27.4"; each library "pinned … checking" its newest tag (`go-selfupdate-lib` v1.26.2), every check ok, `govulncheck` among them; "0 failing checks; scratch removed" |
+
+* **Step 6, on `go1.27.4`, at `ae13109a` plus the four files:**
+  * the Linux test host: `go test -race -count=1 ./...` exit 0, 50 `ok` lines;
+  * the Windows test host: `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED",
+    50 `ok` lines.
+
+  Each host's clone and scratch directory were removed and checked gone.
+* **Step 7, staging.** The four files were copied from the clone into the tree, and each one's
+  diff against `HEAD` equals the clone's. They are staged with this PLAN and the 0217 MADR. The
+  owner commits. `make check-libs` then runs on that commit; after the owner's push, the CI run
+  id is recorded for P3h's and this phase's commits.
 
 ## Status note — 2026-11-08
 
