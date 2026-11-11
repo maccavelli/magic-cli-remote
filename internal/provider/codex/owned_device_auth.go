@@ -3,10 +3,15 @@ package codex
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
+
+// codexDeviceCodeLifetime is how long a code from `codex login --device-auth`
+// stays valid; the CLI prints it.
+const codexDeviceCodeLifetime = 15 * time.Minute
 
 // StartOwnedDeviceAuth implements [provider.OwnedDeviceAuth] for Codex
 // (MADR 0074 D20/D22/D27).
@@ -55,6 +60,8 @@ func (p *Provider) StartOwnedDeviceAuth(
 		Bin:         p.cfg.Bin,
 		Args:        []string{"login", "--device-auth"},
 		ScanTimeout: deviceCodeScanTimeout,
+		// codex states 15 minutes in its own output (MADR 0074 D33).
+		CodeLifetime: codexDeviceCodeLifetime,
 		EnvFor: func(home string) []string {
 			return NewCredentialAdapter(p.coord.ProviderID()).PendingEnv(home)
 		},

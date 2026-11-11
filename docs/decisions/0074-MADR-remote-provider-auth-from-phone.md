@@ -1327,7 +1327,11 @@ is as it was at `995d442b`, where this section was first drafted); none of these
   (`bounds.go:36-38`). The terminal state is `expired`. The deadline has a timer of its own: `Reservation`'s one
   `timer` field (`internal/providerauth/reservation.go:87`) is the resume window's, which `detach` replaces
   (`:274-277`) and `reattach` clears (`:285-288`), so a deadline kept there would be lost after any disconnect and
-  resume.
+  resume. *Amended 2026-11-11 (P23 step 3, deviation 2): `Reservation.forward` sent on the updates channel while
+  `finish` closed it, a data race that panicked (`send on closed channel`) when a flow's last update and its end came
+  together, as `ready_to_activate` followed by completion can; reproduced at `bcde74ab`. The send and the close now share
+  the reservation's lock, with a closed flag. The deadline's callback also marks the flow expired before it cancels,
+  so the terminal state is `expired` and not `cancelled`.*
 * **D34. `deviceAuthWired` asks `OwnedDeviceAuth` first (M12).** A provider that implements it is wired, whatever its
   Spec's legacy hook says.
 * **D35. Dead code and vocabulary go (M16):** `keyring_managed` (constant, error code, test row, phone copy), the

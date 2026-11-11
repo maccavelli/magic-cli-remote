@@ -14,7 +14,7 @@ Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote
   against the tree, not against commit messages — see §0.2 and §17.
   **Approved amendment 2026-11-11:** P23 (§25) implements the MADR's §16
   (D30–D42), accepted the same day; in progress.
-- **Date**: 2026-08-10, revised 2026-08-12; repair approved 2026-08-21
+- **Date**: 2026-08-10, revised 2026-08-12; repair approved 2026-08-21; P23 approved 2026-11-11
 - **Scope**: Workstreams **W1** (auth status, credential injection, active-upstream
   switch), **W2** (device OAuth, Strategy A), **W4** (polish), and **W5** (full
   vendor coverage) from MADR 0074 §11.
@@ -1656,7 +1656,8 @@ phase with a dated entry here.
    * `browserOAuthMarkers` and the label branch of `ClassifyCatalogMethod` removed; `oauth` entries `oauth_device`;
    * `oauthType` removed; opencode `oauth` methods `oauth_device`;
    * **D31, under the owner's answer (a) to `0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`
-     O5** (MADR D31; answered 2026-11-10): `methodSlug(label string) string`; `FetchAuthMethods` mints `<upstream>:<slug>`; `EngineMethodIndex` becomes
+     O5** (MADR D31; answered 2026-11-10): `methodSlug(label string) string` *(built as `methodSlug(typ, label string) string`, which falls back to the type for a
+     label with no letter or digit; see the step 2 execution entry)*; `FetchAuthMethods` mints `<upstream>:<slug>`; `EngineMethodIndex` becomes
      `ResolveEngineMethod(ctx, api, upstreamID, methodID) (int, error)`, re-reading the catalog; `VerifyAPIKeyMethod`
      uses it;
    * tests, each seen failing: `TestNoLabelDecidesTheFlow` (a method labelled "Login with a browser" is `oauth_device`;
@@ -1698,7 +1699,9 @@ phase with a dated entry here.
    it; the destructive dialog and `confirmDestructive: destructive` removed from `_runDeviceSignIn`. Removing codex's legacy `StartDeviceAuth`
    (`codex/device_auth.go:40`) makes codex no longer a `provider.DeviceAuth`, so `TestProviderAuthInterfaceConformance`'s
    codex row (`auth_conformance_test.go:51-53`, `wantDeviceOAuth: true`) changes to false, and the test gains a
-   `wantOwnedDeviceAuth` column, true for codex and grok, so the owned flow stays held; named here with why. Assertions by
+   `wantOwnedDeviceAuth` column, true for codex and grok, so the owned flow stays held; named here with why.
+   *Note 2026-11-11: 0179 P4 lands before this step (owner's order), so `auth_conformance_test.go` will already hold
+   gobble's case; its row gets `wantOwnedDeviceAuth: false`, since gobble is not an `OwnedDeviceAuth`.* Assertions by
    search: `git grep -n "keyring_managed\|AuthQuota\|AuthStatusQuota\|ZeroString\|CancelDevice\|ErrAuthConfirmRequired\|confirm_required\|confirmDestructiveSignIn\|\"host_oauth\""`
    finds nothing outside `docs/`; `rg -n "providerId == 'codex'" apps/mobile/lib` finds the removal copy alone.
    **Stage.**
@@ -1855,3 +1858,46 @@ python3 ~/.global-git-hooks/github-disclosure.py redact
   the clone's packages (every file warned "Failed to resolve package URI package:flutter_lints/flutter.yaml"); re-run
   after resolution, and in the tree, it reports "231 files (0 changed)". No Dart file changed in this step. Staged: the
   nine Go files and the two 0074 records (the MADR's D31 note, this entry). Commit: the owner's.
+* **Step 3, 2026-11-11 — D33 and D34, the owned lifecycle.** `providerauth/ownedflow.go`: `OwnedFlowConfig.CodeLifetime`,
+  and `DeviceFlowInfo.ExpiresIn` from it. `providerauth/reservation.go`: `Attach` arms `deadline`, a timer of its own
+  (never `timer`, the resume window's), at the code's lifetime capped at the reservation's `DefaultTTL`, and sets the
+  reported `expires_in` to it; `forward` re-arms it at `ActivationGrace` when the flow publishes `ready_to_activate`;
+  `expire` marks the flow expired and cancels it through the handle; `finish` stops both timers and reports `expired`
+  for a flow the deadline cancelled. `codex/owned_device_auth.go` passes 15 minutes, `grok/owned_device_auth.go`
+  `grokDeviceExpirySeconds`. `ws/server.go`: `deviceAuthWired` returns true for a `provider.OwnedDeviceAuth` before
+  asking `DeviceAuthCapable`. Tests, in `providerauth/deadline_test.go`, `grok` and `codex` `owned_device_auth_test.go`,
+  `ws/device_auth_wired_test.go`; `reservation_test.go`'s stub gained `cancelErr` so a cancelled stub returns
+  `ErrFlowCancelled` as a real handle does. Each was seen failing on its planted break in a scratch clone
+  (`step3_plants.log`):
+  * `TestOwnedFlowReportsTheCodesLifetime`, the cap line removed: `the reservation reports expires_in 899, want the
+    code's 600, not DefaultTTL's 900`;
+  * `TestOwnedGrokFlowReportsItsCodesLifetime`, `CodeLifetime` zeroed: `expires_in = 0, want grok's 600` (the first
+    plant, a deleted line, failed the build on an unused import and was redone); `TestOwnedCodexFlowReportsItsCodesLifetime`
+    holds codex's 900 the same way;
+  * `TestOwnedFlowExpiresAtItsDeadline`, no timer: `a flow outlived its code: nothing enforced the deadline`;
+  * `TestReadyToActivateOutlivesTheCode`, the timer not disarmed: `a ready_to_activate flow was ended at its code's
+    expiry, state "expired"`;
+  * `TestDeadlineSurvivesDetachAndResume`, the deadline in the shared `timer`: `a resumed flow outlived its code: the
+    deadline was lost with the resume window's timer`;
+  * `TestDeviceAuthWiredForOwnedFlows`, today's rule: `owned flow, no legacy hook: deviceAuthWired = false, want true`
+    and the same for a legacy hook that says no;
+  * `TestUpdateThenFinishDoesNotRace`, the unfixed code (deviation 2): `WARNING: DATA RACE` then `panic: send on
+    closed channel`.
+  All pass clean. Gates, on a scratch clone of `14200b6e` with the step's ten Go files copied in: `make pre-add-check
+  FILES=…` "10 file(s) clean"; `make test` and `go test -race -count=1 ./...` 50 packages ok each; `make lint`,
+  `make staticcheck`, `make vet-tags` clean. The Linux test host, `go test -race -count=1 ./...`: 50 packages ok, no
+  failure or race. The Windows test host, `make ci-windows`: "ALL SELECTED CHECKS PASSED". Two earlier host runs were
+  void and are not counted: the first package carried macOS `._*` metadata files that the repo's own parsers read, and
+  the second left out `.git`, which the home-path guard reads; both failures were of the package, not the code, and
+  the reruns pack neither. No Dart file changed, so the Dart gates did not run. Staged: the step's ten Go files and
+  the two 0074 records. Commit: the owner's.
+* **Deviation 2, 2026-11-11 — a data race in `Reservation`, found by `-race` while writing step 3's tests.** Evidence:
+  `internal/providerauth/reservation.go`, `forward` sending on `r.updates` while `finish` closes it; at `bcde74ab`,
+  with none of step 3's code, a probe that sends one update and ends the flow fails under `-race` with `WARNING: DATA
+  RACE` and `panic: send on closed channel`. Pre-existing. The window is narrow in production (`ready_to_activate`
+  followed at once by completion) and its effect is a daemon panic. Resolutions put to the owner: fix it inside step 3
+  (recommended); fix it in a commit of its own first; leave it and remove the update from the test, which was refused
+  as a workaround. Decision: the owner chose to fix it inside step 3 ("fix the race inside step 3", 2026-11-11, in this
+  session, after a relayed answer from the coordinator session was held for that confirmation). Added to the step's
+  scope: `reservation.go`'s `forward` and `finish`, and `TestUpdateThenFinishDoesNotRace`. The MADR's D33 carries the
+  amendment.

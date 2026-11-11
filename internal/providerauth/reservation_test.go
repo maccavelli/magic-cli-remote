@@ -14,6 +14,9 @@ import (
 type stubHandle struct {
 	release chan struct{}
 	err     error
+	// cancelErr, when set, is what Wait returns once Cancel has been called, as
+	// a real handle returns ErrFlowCancelled. Unset keeps the old behaviour.
+	cancelErr error
 
 	mu        sync.Mutex
 	cancels   int
@@ -36,6 +39,12 @@ func (h *stubHandle) Wait(ctx context.Context) error {
 	}
 	select {
 	case <-h.release:
+		h.mu.Lock()
+		cancelled, cancelErr := h.cancels > 0, h.cancelErr
+		h.mu.Unlock()
+		if cancelled && cancelErr != nil {
+			return cancelErr
+		}
 		return h.err
 	case <-ctx.Done():
 		return ctx.Err()

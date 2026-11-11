@@ -2351,7 +2351,15 @@ func authStatePayload(st *provider.AuthState, deviceOK, switchOK bool) *protocol
 // transports declare StartDeviceAuth unconditionally, so the type assertion
 // alone would promise flows that return ErrAuthUnsupported (MADR 0083 D4);
 // DeviceAuthCapable is the ground truth where it exists.
+//
+// A provider that implements OwnedDeviceAuth is wired whatever its Spec's
+// legacy hook says (MADR 0074 D34): the server prefers the owned flow, so the
+// legacy answer describes a path that is never taken. grok's owned flow was
+// offered only because acpagent's SupportsDeviceAuth reads the legacy hook.
 func deviceAuthWired(p any) bool {
+	if _, ok := p.(provider.OwnedDeviceAuth); ok {
+		return true
+	}
 	if c, ok := p.(provider.DeviceAuthCapable); ok {
 		return c.SupportsDeviceAuth()
 	}

@@ -84,7 +84,20 @@ type Reservation struct {
 	handle   OwnedHandle
 	flow     DeviceFlowInfo
 	detached bool
-	timer    *time.Timer
+	// timer is the resume window's: detach replaces it and reattach clears
+	// it. The code's deadline must not live here, or any disconnect and
+	// resume would lose it (MADR 0074 D33).
+	timer *time.Timer
+	// deadline ends the flow when the provider's code expires, or, once the
+	// flow is ready_to_activate, when ActivationGrace runs out. Only Attach,
+	// armGrace and finish touch it.
+	deadline *time.Timer
+	// expired is set by the deadline before it cancels, so the terminal state
+	// reads expired and not cancelled.
+	expired bool
+	// updatesClosed is set, under mu, when finish closes updates, so forward
+	// never sends on a closed channel.
+	updatesClosed bool
 
 	updates chan string
 
@@ -108,9 +121,13 @@ func (r *Reservation) Flow() DeviceFlowInfo {
 	return r.flow
 }
 
-// ExpiresIn is the whole seconds left, floored at zero.
+// ExpiresIn is the whole seconds left, floored at zero. After Attach it is the
+// code's own lifetime, capped at the reservation's DefaultTTL (MADR 0074 D33).
 func (r *Reservation) ExpiresIn() int {
-	d := time.Until(r.expiresAt)
+	r.mu.Lock()
+	exp := r.expiresAt
+	r.mu.Unlock()
+	d := time.Until(exp)
 	if d <= 0 {
 		return 0
 	}
@@ -154,10 +171,44 @@ func (r *Reservation) Attach(h OwnedHandle, flow DeviceFlowInfo) error {
 	}
 	r.handle = h
 	r.flow = flow
+	// The deadline is the code's lifetime from now, never past the
+	// reservation's own cap.
+	d := r.expiresAt.Sub(r.reg.now())
+	if flow.ExpiresIn > 0 {
+		if life := time.Duration(flow.ExpiresIn) * time.Second; life < d {
+			d = life
+			r.expiresAt = r.expiresAt.Add(life - r.expiresAt.Sub(r.reg.now()))
+		}
+	}
+	r.deadline = time.AfterFunc(d, r.expire)
 	r.mu.Unlock()
 
 	go r.own(h)
 	return nil
+}
+
+// expire is the deadline's callback: the code ran out, or the activation
+// grace did. It marks the flow expired and cancels it through the handle, so
+// the child dies and the transaction aborts on the one cleanup path.
+func (r *Reservation) expire() {
+	r.mu.Lock()
+	r.expired = true
+	r.mu.Unlock()
+	r.Cancel()
+}
+
+// armGrace replaces the code's deadline once the flow is ready_to_activate.
+// The exchange succeeded and the candidate is validated, so the code's expiry
+// no longer applies; ActivationGrace bounds the wait for an idle provider
+// instead (MADR 0074 D33).
+func (r *Reservation) armGrace() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.deadline == nil {
+		return
+	}
+	r.deadline.Stop()
+	r.deadline = time.AfterFunc(ActivationGrace, r.expire)
 }
 
 // own is the reservation's single owner goroutine. It forwards updates, calls
@@ -185,12 +236,22 @@ func (r *Reservation) own(h OwnedHandle) {
 
 func (r *Reservation) forward(in <-chan string) {
 	for s := range in {
+		if s == ResultReadyToActivate {
+			r.armGrace()
+		}
+		// The send and finish's close share r.mu: finish can run while the
+		// handle's last update is still in flight, and a send on a closed
+		// channel panics. The send never blocks, so holding the lock is safe.
+		r.mu.Lock()
+		if r.updatesClosed {
+			r.mu.Unlock()
+			return
+		}
 		select {
 		case r.updates <- s:
-		case <-r.done:
-			return
 		default:
 		}
+		r.mu.Unlock()
 	}
 }
 
@@ -200,11 +261,22 @@ func (r *Reservation) finish(err error) {
 		r.mu.Lock()
 		r.result = err
 		r.state = classify(err)
+		if r.expired && r.state == ResultCancelled {
+			// The deadline cancelled it; say so. A flow that completed or
+			// failed on its own in the same instant keeps that outcome.
+			r.state = ResultExpired
+		}
 		if r.timer != nil {
 			r.timer.Stop()
 			r.timer = nil
 		}
+		if r.deadline != nil {
+			r.deadline.Stop()
+			r.deadline = nil
+		}
 		detached := r.detached
+		r.updatesClosed = true
+		close(r.updates)
 		res := TerminalResult{
 			FlowID:     r.id,
 			ProviderID: r.providerID,
@@ -219,7 +291,6 @@ func (r *Reservation) finish(err error) {
 			// Nobody is connected to receive it; retain the bounded record.
 			r.reg.retain(r.deviceID, res)
 		}
-		close(r.updates)
 		close(r.done)
 	})
 }

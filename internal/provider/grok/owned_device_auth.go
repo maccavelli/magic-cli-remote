@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
@@ -80,10 +81,13 @@ func (c *CoordinatedProvider) StartOwnedDeviceAuth(
 		Bin:         spawnBin,
 		Args:        args,
 		ScanTimeout: deviceCodeScanTimeout,
-		EnvFor:      ownedGrokEnv,
-		Busy:        c.busy,
-		Source:      providerauth.SourceDeviceAuth,
-		Log:         c.log,
+		// The code's own lifetime, so expires_in and the daemon's deadline are
+		// grok's 600 seconds and not the reservation's 15 minutes (MADR 0074 D33).
+		CodeLifetime: time.Duration(grokDeviceExpirySeconds) * time.Second,
+		EnvFor:       ownedGrokEnv,
+		Busy:         c.busy,
+		Source:       providerauth.SourceDeviceAuth,
+		Log:          c.log,
 	})
 	if err != nil {
 		return nil, err

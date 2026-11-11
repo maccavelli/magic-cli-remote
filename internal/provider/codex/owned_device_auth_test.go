@@ -55,6 +55,21 @@ func coordinatedCodex(t *testing.T, bin string) (*Provider, string) {
 	return p, live
 }
 
+// TestOwnedCodexFlowReportsItsCodesLifetime: codex states 15 minutes in its own
+// output, and the flow reports that (MADR 0074 D33).
+func TestOwnedCodexFlowReportsItsCodesLifetime(t *testing.T) {
+	bin := fakeCodexLogin(t, `sleep 30`)
+	p, _ := coordinatedCodex(t, bin)
+	h, err := p.StartOwnedDeviceAuth(context.Background(), "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { h.Cancel(); _ = h.Wait(context.Background()) }()
+	if got, want := h.Flow().ExpiresIn, int((15 * time.Minute).Seconds()); got != want {
+		t.Fatalf("expires_in = %d, want codex's %d", got, want)
+	}
+}
+
 // TestCoordinatedCodexPublishesOnSuccess proves the isolated login publishes
 // only after its own probe passes.
 func TestCoordinatedCodexPublishesOnSuccess(t *testing.T) {

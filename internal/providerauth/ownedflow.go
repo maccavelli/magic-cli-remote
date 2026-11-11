@@ -30,6 +30,12 @@ type OwnedFlowConfig struct {
 	Args []string
 	// ScanTimeout bounds only the wait for the device code to appear.
 	ScanTimeout time.Duration
+	// CodeLifetime is how long the provider's device code stays valid, from
+	// the provider's own contract (codex 15 minutes, grok 600 seconds). It is
+	// what DeviceFlowInfo.ExpiresIn reports and what the reservation's
+	// deadline enforces (MADR 0074 D33). Zero means the provider states none,
+	// and the reservation's DefaultTTL alone bounds the flow.
+	CodeLifetime time.Duration
 	// EnvFor builds the child environment overlay for an isolated home. The
 	// home always starts empty of credential material (MADR 0074 D22/F14).
 	EnvFor func(home string) []string
@@ -126,6 +132,7 @@ func StartOwnedFlow(ctx context.Context, cfg OwnedFlowConfig) (*OwnedFlow, error
 		flow: DeviceFlowInfo{
 			VerificationURI: cls.VerificationURI,
 			UserCode:        cls.UserCode,
+			ExpiresIn:       int(cfg.CodeLifetime.Seconds()),
 		},
 		log:       cfg.Log,
 		updates:   make(chan string, 1),

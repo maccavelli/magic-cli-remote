@@ -53,6 +53,22 @@ func coordinatedGrok(t *testing.T, bin string) (*CoordinatedProvider, string) {
 	return c, live
 }
 
+// TestOwnedGrokFlowReportsItsCodesLifetime: grok's code lives 600 seconds, and
+// the flow says so; the reservation's 15 minutes is a cap, not the answer
+// (MADR 0074 D33).
+func TestOwnedGrokFlowReportsItsCodesLifetime(t *testing.T) {
+	bin := fakeGrokLogin(t, `sleep 30`)
+	c, _ := coordinatedGrok(t, bin)
+	h, err := c.StartOwnedDeviceAuth(context.Background(), "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { h.Cancel(); _ = h.Wait(context.Background()) }()
+	if got := h.Flow().ExpiresIn; got != grokDeviceExpirySeconds {
+		t.Fatalf("expires_in = %d, want grok's %d", got, grokDeviceExpirySeconds)
+	}
+}
+
 func TestCoordinatedGrokPublishesOnSuccess(t *testing.T) {
 	bin := fakeGrokLogin(t, `printf '{"https://auth.x.ai::c1":{"key":"NEW","auth_mode":"oauth","refresh_token":"NEW","expires_at":"2026-08-22T00:00:00Z"}}' > "$GROK_HOME/auth.json"; chmod 600 "$GROK_HOME/auth.json"`)
 	c, live := coordinatedGrok(t, bin)
