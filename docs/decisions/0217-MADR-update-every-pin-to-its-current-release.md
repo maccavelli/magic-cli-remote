@@ -454,6 +454,136 @@ of the module trees in the module cache).*
   the second. gobble's move is gobble-cli's own record and commit. As in F3d, 0184 D12's shared
   pin is needed only before `live-gobble`.
 
+**F3i. On 2026-11-10, three of Magic's five sibling modules have newer tags. None changes a
+library requirement. Two of them change a behaviour that can reach Magic, and none breaks anything
+Magic asserts.** *Observed 2026-11-10 (`git ls-remote --tags` of each sibling repository; `go list
+-m -json @latest` with `GOPROXY=direct`; `go mod download -json` and a file-by-file comparison of
+the module trees in the module cache; each library's `CHANGELOG.md` or release notes at the new
+tag; `gh api …/compare` for `go-selfupdate-lib`'s `.github/`).*
+
+| Module | Pinned | Newest tag | Peeled commit |
+| :--- | :--- | :--- | :--- |
+| `acp-go-sdk2` | v1.34.2 (F3h) | **v1.35.0** | `644cfe4e…` (tag object `8e991669…`), tagged 2026-11-10 |
+| `go-llmprovider-sdk` | v1.28.0 (F3h) | **v1.29.0** | `4e338da5…`, dated 2026-11-10 in its changelog |
+| `go-selfupdate-lib` | v1.24.0 (F3e) | **v1.26.0** (v1.25.0 between) | `7c677842…`, dated 2026-11-09 in its changelog |
+| `go-tui-lib/v2` | v2.12.0 (F3f) | v2.12.0, current | (no change) |
+| `gobble-cli/acpext` | v0.3.0 (0243) | v0.3.0, current | (no change) |
+
+* **Five sibling modules now.** F3h counted four. `gobble-cli/acpext` came with
+  [0243-PLAN-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md](0243-PLAN-show-exactly-which-usage-limit-an-agent-hit-and-when-it-lifts.md)'s
+  P4, at v0.3.0, which is its newest tag. No sibling repository has a newer major version: the
+  highest tag per major is `acp-go-sdk2` v1.34.2, `go-llmprovider-sdk` v1.29.0, `go-selfupdate-lib`
+  v1.26.0, `go-tui-lib` v2.12.0 (no v3), and `gobble-cli` `acpext/v0.3.0`.
+* **The owner's word on `acp-go-sdk2`:** "one sdk, acp-go-sdk2 is currently building and will be
+  finished with CI, tagged v1.35.0 in a few minutes when i get it tagged." The tag appeared
+  10 minutes 38 seconds into the wait (`wait_tag.py` in the session scratchpad).
+* **No library's `go.mod` changed.** For each, the new tag's `GoModSum` equals the pinned tag's:
+  `Iz5f3g3L…` for `acp-go-sdk2`, `dE+W7oDy…` for `go-llmprovider-sdk` and `DIqb0hzm…` for
+  `go-selfupdate-lib`. So no transitive requirement moves.
+* **`acp-go-sdk2` v1.35.0, its 0052 MADR** (`docs/reports/0052-REPORT-release-notes-v1-35-0.md` at
+  the tag in that repository). The schema stays 1.25.0. `go.mod`, `go.sum`, `.github/`,
+  `unstable/`, `agentproc/` and `acptest/` are unchanged. Its `make api` against v1.34.2: "0
+  incompatible, 7 compatible", all in the root package.
+  * **Added:** `ToolCallStream`, which lets an **agent** send a running tool call's whole state at
+    most every 250 ms, as replace-whole `tool_call_update`s. Also `StartToolCallStream`, its two
+    options, and two errors.
+  * **Changed, D3:** on the **agent** side, a prompt turn's unfinished streams are written before
+    its `session/prompt` answer. "An agent that starts no stream sees no change."
+  * **Changed, D6:** `WithMaxMessageSize`'s default goes from 10 MiB to 32 MiB. "An explicit
+    option is unchanged."
+  * **Moved:** `clienthost`'s terminal output buffer, to `internal/tailbuf`. `clienthost`'s API and
+    behaviour are unchanged.
+* **What `acp-go-sdk2` v1.35.0 changes for Magic: nothing it builds or asserts.**
+  * **D6 does not reach Magic's connections.** `clientConnOptions` sets
+    `acp.WithMaxMessageSize(maxACPMessageSize)` (`internal/provider/acpagent/acpagent.go:1346`),
+    and `maxACPMessageSize` is `10 << 20` (`:1357`). So an agent's line over 10 MiB is still
+    refused, as before. Only Magic's test agents' agent-side connections take the new default. They
+    send nothing near 10 MiB.
+  * **D3 and `ToolCallStream` are agent-side.** Magic is a client, its test agents start no
+    stream, and it imports no `clienthost` (`git grep` for `clienthost`, `StartToolCall` and
+    `ToolCallTimeline`: no match).
+  * **What could reach Magic later:** an agent that adopts `ToolCallStream`, such as gobble once
+    its tools get an output hook (the 0052 MADR's F15, F19). Magic would then receive many
+    replace-whole `tool_call_update`s for one call. How Magic and the phone handle them is a
+    question for the record that registers that agent, not for this pin.
+  * **A fact in that MADR about Magic is wrong.** Its decision drivers say Magic's connections use
+    `OverflowDropNewest`. They use `OverflowBlock` (F3e, and `clientConnOptions`). It doesn't
+    change that MADR's decision, which holds for a client that drops and for one that blocks.
+    Correcting it is the SDK repository's job.
+* **`go-llmprovider-sdk` v1.29.0, its 0072 MADR.**
+  * **Added:** `APIError.ResetAt`, the instant a limit lifts; `APIError.Limit`, of the new type
+    `Limit`, which holds what the service said about the limit; and `ClassifyStreamFailureBody`.
+  * **Fixed:** an OpenCode `BudgetLimitError` and `CreditLimitExceeded` are
+    `ErrQuotaExhausted` and not retried. A Gemini per-day quota reported inside a stream is
+    `ErrQuotaExhausted`. A failure inside a stream carries the delay its error states.
+  * **What changes:** in the root package, `api_error.go` and the new `api_limit.go`. Also
+    `internal/transport`, the four `internal/wire` readers, and `providers/gemini/interactions.go`.
+    No file under `catalog/` changes.
+  * **What reaches Magic: two package-level regular expressions, and nothing else.** Magic uses
+    `catalog.Static`, `catalog.SortByRank`, `catalog.LabelName` and `llmprovider.ProviderGrok`,
+    in `internal/provider/grok` only (`TestSDKIsImportedOnlyByGrok`). The first three are
+    unchanged. `ProviderGrok` is in the root package, so `api_error.go` and `api_limit.go` compile
+    into Magic. At package level they add `tryAgainIn` and `hoursName`, two `regexp.MustCompile`
+    values that v1.28.0 did not have. They are compiled once, at program start, and add no
+    `init`. Magic builds no `APIError` and reads none, so `ResetAt`, `Limit` and the
+    reclassifications do not reach it.
+  * **Not taken here:** `APIError.ResetAt` and `Limit`. They are the SDK's own counterpart to
+    `agenterr.Limit` (0243). Magic has no HTTP-API provider that returns an `APIError` (D5's
+    rule: "Adopting its new APIs … is not a pin").
+    * *Added 2026-11-10.* Using them is the subject of issue #38 in this repository. The detail
+      reaches Magic through gobble, which maps it into `acpext`'s `ErrorData` (gobble-cli#15,
+      open). It is 0243's topic, the usage-limit notices, and not this record's. The issue's
+      text-path entries (`creditlimitexceeded`, `budgetlimiterror`) do not depend on the pin,
+      and its `windowMinutes` item waits on a newer `acpext` tag.
+* **`go-selfupdate-lib` v1.25.0, its 0041 MADR (issue #9 there).**
+  * **Fixed:** a program started through a symlink to its binary is refused on Linux, as it
+    already was on macOS and Windows. On Linux `os.Executable` returns the resolved path, so the
+    library now checks the path in `os.Args[0]` too. "A Linux program that updated through a link
+    before is now refused."
+  * **Added:** `ErrSymlinkInvocation` and the `failed` event class `symlink-invocation`. The
+    refusal's message names the link and its target.
+  * It also made `CleanupPending` and `KeptBackups` fail for a program started through a link.
+    v1.26.0 fixes that.
+* **`go-selfupdate-lib` v1.26.0, its 0041 MADR's amendment A1 and its 0042 MADR.**
+  * **Added:** `SymlinkInvocationError` and `SymlinkSource`. Four sentinels:
+    `ErrSpecialModeBits`, `ErrNoAllowedRoot`, `service.ErrBinaryMismatch` and
+    `taskscheduler.ErrLogonType`. Two `failed` event classes, `special-mode-bits` and
+    `no-allowed-root`.
+  * **Changed:** the symlink refusal's text, and ten other run-time messages, which no longer name
+    a Go identifier. Nine of them now wrap a sentinel.
+  * **Fixed:** `CleanupPending` and `KeptBackups` no longer fail for a program started through a
+    link (issue #10).
+  * `.github/` is unchanged from v1.24.0: 10 commits ahead, 0 behind, 49 files, none under
+    `.github/`. So the two reusable workflows `ci.yml` calls are v1.24.0's.
+* **What `go-selfupdate-lib` changes for Magic: the Linux symlink refusal.**
+  * **It reaches Magic.** In production, `updateclient.New` sets no `TargetPolicy`, because
+    `Options.TargetPath` is set only in tests (`internal/updateclient/client.go:64-66`, `:121-126`).
+    So the library finds the target itself, and since v1.25.0 it also checks `os.Args[0]`
+    (`selfupdate/target.go:45-48` at v1.26.0). On Linux, `mcremote update` or `mcrelay update`
+    started through a symlink to the binary is now refused, where it updated before.
+  * **No Magic install creates such a link.** `make install` and `scripts/install-binary.sh`
+    write a regular file (`install -m 755`, then `mv -f`). The systemd unit's `ExecStart` is the
+    installed binary at `~/.local/bin`, or `os.Executable` with symlinks resolved
+    (`internal/cli/service/setup.go:1030-1045`). So the refusal reaches only a user who made a
+    link themselves. macOS and Windows already refused it, so the three platforms now agree.
+  * **Nothing Magic reads changes meaning.** Magic matches no library message text and no
+    `failed` event class (`git grep` for the changed texts, the new sentinels and the classes:
+    no match outside Magic's own fake errors). Its reporter is `selfupdate.DiscardReporter()`
+    (`client.go:153`). It calls neither `CleanupPending` nor `KeptBackups`.
+  * **`ci.yml`'s two `uses:` pins** (`:756`, `:777`) name v1.24.0's commit `74ab5dd3…`, and
+    `TestWorkflowPinsMatchGoMod` (`internal/updateclient/spec_test.go`) ties them to `go.mod`.
+    They move to `7c677842dface4b14b65b2e8b46aa0a7543bed13` with it.
+  * **Not taken here:** the new sentinels and `SymlinkInvocationError`. Magic's update command
+    could name the remedy for a symlink refusal from them. That is a source change, and D5's rule
+    leaves it to a record of its own.
+* **gobble** pins `acp-go-sdk2 v1.34.2`, `go-llmprovider-sdk v1.28.0`, `go-selfupdate-lib v1.25.0`,
+  `go-tui-lib/v2 v2.12.0` and `acpext v0.2.0` (gobble-cli's `go.mod` on GitHub, read 2026-11-10).
+  gobble's move is gobble-cli's own record and commit. As in F3d, 0184 D12's shared pin is needed
+  only before `live-gobble`.
+  * The owner, 2026-11-10: "i am also pinning gobble to latest now in its own repo". Magic
+    requires no gobble-cli module but `acpext`, so gobble's move changes no Magic pin unless it
+    comes with a newer `acpext` tag. The PLAN re-reads `acpext`'s tags before it moves anything.
+
 **F4. CI actions: four of eight are behind.** Each is pinned by commit, with a version comment.
 
 | Action | Pinned | Newest release, peeled commit |
@@ -778,6 +908,11 @@ Chosen option: **"B — Tiered by risk"**, because:
     again 2026-11-07 (PLAN Deviation 22), by the owner: "go-llmprovider-sdk, acp-go-sdk2 both
     have new releases. we need to pin them."* Then `acp-go-sdk2` to v1.34.2 and
     `go-llmprovider-sdk` to v1.28.0 (F3h). `go-selfupdate-lib` and `go-tui-lib/v2` are current.
+    *Amended again 2026-11-10 (PLAN Deviation 25), by the owner: "we need to refresh the sibling
+    lib/sdk pins they have updated tagged releases. ensure these pins are pinning current releases
+    for these dependencies."* Then `go-llmprovider-sdk` to v1.29.0, `go-selfupdate-lib` to
+    v1.26.0 with both `ci.yml` pins, and `acp-go-sdk2` to v1.35.0, tagged the same day (F3i).
+    `go-tui-lib/v2` and `gobble-cli/acpext` are current.
   * `make vulncheck` must stay "clear" apart from `GO-2026-5932`.
 * **D5 — `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1, as an amendment to 0207 (F3, F3a).**
   *Amended 2026-10-30 by the owner, before phase 3: "pin go-selfupdate-lib to current v1.23.1".*

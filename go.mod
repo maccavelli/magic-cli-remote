@@ -8,9 +8,9 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/libdns/route53 v1.6.2
-	github.com/maccavelli/acp-go-sdk2 v1.34.2
-	github.com/maccavelli/go-llmprovider-sdk v1.28.0
-	github.com/maccavelli/go-selfupdate-lib v1.24.0
+	github.com/maccavelli/acp-go-sdk2 v1.35.0
+	github.com/maccavelli/go-llmprovider-sdk v1.29.0
+	github.com/maccavelli/go-selfupdate-lib v1.26.0
 	github.com/maccavelli/go-tui-lib/v2 v2.12.0
 	github.com/maccavelli/gobble-cli/acpext v0.3.0
 	github.com/mdp/qrterminal/v3 v3.2.1

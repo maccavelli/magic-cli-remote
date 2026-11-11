@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-11-08
+date: 2026-11-10
 associated-madr: "0217-MADR-update-every-pin-to-its-current-release.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -2339,6 +2339,169 @@ v1.28.0"). `make check-libs` on it: exit 0, `acp-go-sdk2` "pinned v1.34.2, check
 checking v1.28.0", every check ok, "0 failing checks; scratch removed"
 (`p3g-make-check-libs.log` in the session scratchpad). It is the first `make check-libs` run to
 include `go-llmprovider-sdk` from the committed `check_libs.json` (Deviation 23).
+
+### P3h — `go-llmprovider-sdk` v1.29.0, `go-selfupdate-lib` v1.26.0 and `acp-go-sdk2` v1.35.0
+
+#### Deviation 25 (2026-11-10): three sibling libraries tagged after P3g
+
+**Found** by the owner: "we need to refresh the sibling lib/sdk pins they have updated tagged
+releases. ensure these pins are pinning current releases for these dependencies. one sdk,
+acp-go-sdk2 is currently building and will be finished with CI, tagged v1.35.0 in a few minutes
+when i get it tagged. pin the others, then wait for the tag on that sdk, and pin it to current
+also." At `37aebdcb`, `go.mod` requires `go-llmprovider-sdk v1.28.0` and `go-selfupdate-lib
+v1.24.0`. Their newest tags are v1.29.0 and v1.26.0 (v1.25.0 between). `acp-go-sdk2`'s newest tag
+is v1.34.2, the pin, until the owner tags v1.35.0. `go-tui-lib/v2 v2.12.0` and `gobble-cli/acpext
+v0.3.0` are current. What each release changes, and what reaches Magic, is the MADR's F3i. The
+owner is also moving gobble-cli's own pins in that repository (F3i).
+
+**Proposed: pin all three,** by P3g's steps, as one phase and one commit. `ci.yml`'s two
+`go-selfupdate-lib` workflow pins move with `go.mod`. The `Makefile` names no version of any of
+them. Adopting `APIError.ResetAt` and `Limit`, or the new selfupdate sentinels, is not in this
+phase (F3i). Waiting for the owner's approval.
+
+1. **P0.**
+   * **The tree is not clean.** 0179 P4's work sits unstaged in it (`Makefile`, four config files,
+     `docs/guides/config.md`, `internal/command/resolve_order_test.go`,
+     `internal/config/prewarm_write.go` and its test, `internal/provider/registered/registered.go`,
+     and the untracked `internal/provider/gobble/live_gobble_test.go`). None of them is a file this
+     phase changes. So every gate runs on a scratch clone of `HEAD` plus this phase's files, and
+     only this phase's files are staged.
+   * Every sibling repository's tags are re-read with `git ls-remote`. `go-llmprovider-sdk`'s
+     newest must still be `v1.29.0^{}` (`4e338da5…`), `go-selfupdate-lib`'s `v1.26.0^{}`
+     (`7c677842…`), and `go-tui-lib/v2` and `acpext` must still be current. Any newer tag
+     (a new `acpext` from gobble's move, say) is a stop, to amend F3i.
+   * **`acp-go-sdk2` v1.35.0** is waited for with `wait_tag.py` in the session scratchpad, in the
+     background. Once it is tagged, F3i gains what it changes: its `GoModSum` against v1.34.2's,
+     its release notes, its `make api` result, and what reaches Magic. A changed requirement, an
+     incompatible API change, or a change Magic's tests assert against is a stop.
+     *Done 2026-11-10, before approval:* tagged, `v1.35.0^{}` is `644cfe4e…`. F3i records it: no
+     requirement change, "0 incompatible, 7 compatible", and nothing that reaches Magic, whose
+     explicit 10 MiB message size is unchanged. So this is not a stop. P0 re-reads the tag like
+     the others.
+   * `go.mod` and `go.sum` are copied to the session scratchpad.
+2. `go get github.com/maccavelli/go-llmprovider-sdk@v1.29.0
+   github.com/maccavelli/go-selfupdate-lib@v1.26.0 github.com/maccavelli/acp-go-sdk2@v1.35.0`,
+   then `go mod tidy`.
+   * `go.mod` changes only those three lines, and `go 1.27.3` stays.
+   * `go.sum` changes only those modules' lines, with each `/go.mod` hash as F3i records.
+   * `go list -m -u`, filtered to direct modules, shows no sibling module behind.
+3. **`ci.yml:756` and `:777`:**
+   `@7c677842dface4b14b65b2e8b46aa0a7543bed13 # go-selfupdate-lib v1.26.0`, through a scratchpad
+   script that asserts the old pin occurs exactly twice. Read back.
+4. **The gates of P3g step 3,** on the scratch clone:
+   * `make pre-add-check`;
+   * `go vet ./...` with `CGO_ENABLED=0` for darwin/arm64, windows/amd64 and linux/amd64, and
+     `make vet-tags`;
+   * `make staticcheck`;
+   * `make vulncheck`;
+   * `make race`. `TestWorkflowPinsMatchGoMod` and `TestSDKIsImportedOnlyByGrok` must pass, and
+     `internal/updateclient`, `internal/cli/service`, `internal/provider/acpagent`,
+     `internal/provider/grok` and `internal/wirecap` must be among its packages;
+   * check-libs on the step's content.
+
+   Then `make check-libs` runs on the owner's commit. There is no live agent run.
+5. **P3f step 4's host runs** (C2): `go test -race -count=1 ./...` on the Linux test host, where
+   the symlink refusal is new (F3i), and `make ci-windows` on the Windows test host, where
+   `scm` and `taskscheduler` changed their messages.
+6. Stage `go.mod`, `go.sum`, `.github/workflows/ci.yml`, this PLAN and the 0217 MADR, with this
+   phase's execution record. The owner commits.
+7. **After the owner's push:** every Go job and `Live supervisors (runit, s6)` pass. The release
+   jobs, which call the two moved workflows, run only on a tag. Record the run id.
+
+**Scope.** No file is added. No source or test changes. No check is added, so there is nothing to
+see fail.
+
+**Rollback.** Restore `go.mod` and `go.sum` from step 1's copy and the two `ci.yml` pins, or revert
+the phase's commit. No library changed its requirements, so nothing else moves back.
+
+**Approved** by the owner, 2026-11-10: "acp-go-sdk2 v1.35.0 is released, pin it", after "pin the
+others, then wait for the tag on that sdk, and pin it to current also". The host runs were part of
+the phase as proposed (C2).
+
+#### Deviation 26 (2026-11-10): the Linux host gate fails on the gobble fixture, before this phase
+
+**Found** at step 5. On the Linux test host, `go test -race -count=1 ./...` failed one test,
+`TestCommittedFixturesCarryNoIdentifiers`, on the gobble 0.4.0 fixture (lines 7, 8, 9, 12 and 310:
+"this host's name, unredacted"). The Windows test host passed.
+
+* **It predates this phase.** The test fails on that host at `37aebdcb` alone, with no P3h file
+  applied (`p3h_headcheck.py`). P3h changes neither the fixture nor the test.
+* **The cause.** The fixture's `meta.json` names no capture host, and a public model id holds the
+  host's name as an ordinary word. The full account is in the 0179 PLAN's "P3 deviation —
+  2026-11-10", in
+  [0179-PLAN-gobble-native-acp-provider.md](0179-PLAN-gobble-native-acp-provider.md).
+
+**Decision (owner, 2026-11-10): "follow recommendations and proceed".** The owner first asked for
+the fix to be tested on the Linux and Windows hosts too. The fix is the 0179 PLAN's, in its own
+commit before this phase's: the fixture's `capture_host` becomes this Mac's wirecap tag. Declined:
+staging P3h with the Linux gate failing, and folding the fix into P3h. **No file is added to this
+phase.** Step 5 re-runs on `HEAD` plus that fix and this phase's three files.
+
+#### P3h, executed (2026-11-10)
+
+Scripts and logs are in the session scratchpad (`p3h_step1.py`, `p3h_step2.py`, `p3h_step4.py`,
+`p3h_step5.py`, `p3h_step5b.py`, `p3h_remote.py`, `p3h_headcheck.py`, `p3h-*.log`).
+
+* **Step 1** (`37aebdcb`). The tree held 0179 P4's unstaged files and this pair, and nothing was
+  staged. Newest tags, each as F3i expects:
+  * `acp-go-sdk2` v1.35.0, peeled `644cfe4ef6c3`;
+  * `go-llmprovider-sdk` v1.29.0, peeled `4e338da59fe8`;
+  * `go-selfupdate-lib` v1.26.0, peeled `7c677842dfac`;
+  * `go-tui-lib` v2.12.0, peeled `bbfd52fa4036`;
+  * `gobble-cli` `acpext/v0.3.0`. The owner's move of gobble's pins brought no newer `acpext` tag.
+
+  `go.mod` and `go.sum` were copied aside and checked byte for byte.
+* **Steps 2 and 3,** in a scratch clone of `37aebdcb`. The tree's own `go mod tidy` would also read
+  0179 P4's unstaged files.
+  * `go get`: "upgraded … acp-go-sdk2 v1.34.2 => v1.35.0", "… go-llmprovider-sdk v1.28.0 =>
+    v1.29.0", "… go-selfupdate-lib v1.24.0 => v1.26.0".
+  * After `go mod tidy`, `go.mod` changes only those three lines, `go 1.27.3` stays, and there is
+    no `toolchain` line.
+  * `go.sum` changes 12 lines, the three modules' only. Each `/go.mod` hash is unchanged
+    (`Iz5f3g3L…`, `dE+W7oDy…`, `DIqb0hzm…`).
+  * `go list -m -u` shows no direct sibling module behind. Three non-sibling direct modules are:
+    `spf13/pflag` v1.0.10 → v1.1.0, `golang.org/x/mod` v0.42.0 → v0.43.0, and `golang.org/x/sys`
+    v0.49.0 → v0.50.0. D4's 2026-11-04 amendment limits these moves to sibling libraries, so they
+    stay.
+  * `ci.yml`: the old pin occurred exactly twice (`:756`, `:777`). Both now read
+    `@7c677842dface4b14b65b2e8b46aa0a7543bed13 # go-selfupdate-lib v1.26.0`, and read back, the old
+    commit is gone.
+* **Step 4, this Mac,** on the clone:
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check` | exit 0, "1028 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go vet ./...`, `CGO_ENABLED=0` | darwin/arm64, windows/amd64, linux/amd64: exit 0 each |
+  | `make vet-tags` | exit 0, every tag ok |
+  | `make staticcheck` | exit 0, "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" for each GOOS |
+  | `make vulncheck` | exit 0, "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+  | `TestWorkflowPinsMatchGoMod`, `TestSDKIsImportedOnlyByGrok` (`-v`) | both `--- PASS` |
+  | `make race` | exit 0; 50 `ok` lines, among them `internal/updateclient`, `internal/cli/service`, `internal/provider/acpagent`, `internal/provider/grok` and `internal/wirecap`; no FAIL, panic or data race |
+  | check-libs, on a scratch commit of the clone | exit 0. `acp-go-sdk2` "pinned v1.35.0, checking v1.35.0", `go-selfupdate-lib` "pinned v1.26.0, checking v1.26.0", `go-llmprovider-sdk` "pinned v1.29.0, checking v1.29.0"; "0 failing checks; scratch removed" |
+
+* **Step 5, first run** (`37aebdcb` plus the three files, carried as a bundle of `master`): the
+  Windows test host passed. `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED CHECKS
+  PASSED", 50 `ok` lines. The Linux test host failed on Deviation 26.
+* **Step 5, again** (`p3h_step5b.py`: `37aebdcb` plus the three files and 0179's fixed `meta.json`,
+  which is what the two commits give):
+  * the Linux test host: `go1.27.3`, `go test -race -count=1 ./...` exit 0, 50 `ok` lines, no FAIL,
+    panic or race line;
+  * the Windows test host: `go1.27.3`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED
+    CHECKS PASSED", 50 `ok` lines.
+
+  Each host's clone and scratch directory were removed and checked gone.
+* **Step 6.** `go.mod`, `go.sum` and `ci.yml` were copied from the clone into the tree. Each one's
+  diff against `HEAD` is the clone's. 0179's fix landed first, as the owner's `995d442b`. These
+  three files were staged on top of it, with this PLAN and the 0217 MADR, so the two commits stay
+  apart. `make check-libs` runs on the owner's commit.
+
+**Not done in P3h:**
+
+* Adopting `ToolCallStream`, `APIError.ResetAt` and `Limit`, or the new selfupdate sentinels (F3i).
+  The SDK's reset detail reaching the phone is issue #38, under 0243.
+* gobble-cli's pins, which are gobble-cli's own record and commit.
+* `spf13/pflag`, `x/mod` and `x/sys` (step 2), non-sibling modules.
+* No live agent run. No value Magic sends changes (F3i).
 
 ## Status note — 2026-11-08
 
