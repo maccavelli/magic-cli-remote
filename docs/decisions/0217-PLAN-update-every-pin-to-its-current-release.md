@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-11-10
+date: 2026-11-11
 associated-madr: "0217-MADR-update-every-pin-to-its-current-release.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -2672,6 +2672,172 @@ Steps 0 to 6 ran three times:
   and release jobs skipped, as they do on a push. `Go (test)` set up `go1.27.4` and printed "vulncheck: clear;
   allowlisted required-module findings: GO-2026-5932". This run covers P3h's `912b9aa1` and this phase's `3c3d64d7`.
   Step 7 is done.
+
+### P3j — `acp-go-sdk2` v1.36.0
+
+#### Deviation 29 (2026-11-11): `acp-go-sdk2` v1.36.0 is tagged after P3i, and its move is tied to gobble's
+
+**Found** by the owner's ruling of 2026-11-11, relayed by the cross-repository coordinator of the
+auth-contract work; none of the owner's wording was relayed, so none is quoted. Magic moves
+`acp-go-sdk2` from v1.35.0 to v1.36.0, together with gobble-cli, before gobble's `v0.6.0`. At
+`14200b6e`, `go.mod` requires v1.35.0, and the newest tag is v1.36.0 (`3be7af61…`, dated
+2026-11-11). What the release changes, and what reaches Magic, is the MADR's F3k.
+
+**The move is decided (the MADR's D4, amended 2026-11-11). This phase is proposed,** and waits for
+the owner's approval. Nothing below has run. It follows P3i's steps, with one new check.
+
+**The lockstep.** gobble-cli's `main` moves to v1.36.0 under gobble-cli's own record 0054, and
+Magic under this phase. The two land together. gobble's `v0.6.0`, cut after both, is the release
+that must carry Magic's tag. Until it exists, D14's gate 3 of
+`0179-MADR-gobble-native-acp-provider.md` is knowingly unmet (its A10). Magic changes no gobble-cli
+file.
+
+**Where it lands.** The owner's order of 2026-11-11 for this repository is in
+[0179-PLAN-gobble-native-acp-provider.md](0179-PLAN-gobble-native-acp-provider.md), entry "P4 —
+2026-11-11". This phase is not one of its eight steps. Proposed:
+
+* **after 0179 P4's commit** (that order's step 2). P4 changes neither `go.mod` nor `go.sum`, so
+  the two cannot collide by file. But P4's files sit unstaged in the tree, and this phase's gates
+  then run over a registered gobble, its fixture tests included;
+* **before 0179 P7a** (step 4), which moves the `acpext` line of the same two files, so each of
+  the two phases can assert that its one line moved;
+* **at a commit boundary:** nothing of another series is staged when this phase stages. Another
+  session is working through 0074's P23 in the same index;
+* **in any case before gobble's `v0.6.0` is cut,** so that 0246's gate G2 can find one tag on both
+  sides.
+
+1. **P0.**
+   * **The tree is not clean** until 0179 P4 is committed, and 0074's P23 may have a step staged.
+     Record `git status --short` and `git diff --cached --stat`. A file staged by another series
+     is a stop: wait for its commit. Every gate runs on a scratch clone of `HEAD` plus this
+     phase's files, and only this phase's files are staged.
+   * Re-read every sibling's tags with `git ls-remote`:
+     * `acp-go-sdk2`'s newest must still be `v1.36.0^{}` (`3be7af61…`);
+     * `go-llmprovider-sdk` v1.29.0, `go-selfupdate-lib` v1.26.2 and `go-tui-lib/v2` v2.12.0 must
+       still be the newest of the modules `go.mod` requires. A tag `authcontract/v*` in
+       go-llmprovider-sdk belongs to another module, which 0246's P1 pins, and is not a newer tag
+       of this one;
+     * `acpext`'s newest must still be `v0.4.0`, which 0179 P7a moves.
+
+     Any other newer tag is a stop, to amend F3k.
+   * **gobble's half.** Read gobble-cli's `main` `go.mod` and the state of its record 0054, and
+     write down the commit and its `acp-go-sdk2` line. If `main` is not at v1.36.0 and its move is
+     not approved to land in the same sitting, stop and ask.
+   * Copy `go.mod` and `go.sum` to the session scratchpad.
+2. **The pin,** in the scratch clone: `go get github.com/maccavelli/acp-go-sdk2@v1.36.0`, then
+   `go mod tidy`.
+   * `go.mod` changes that one line. `go 1.27.4` stays, and no `toolchain` line appears: the
+     library's new floor, `go 1.26.11`, is below it.
+   * `go.sum` changes that module's two lines and no other. Both hashes change, the `/go.mod` one
+     too, because the library's `go.mod` changed its `go` and `toolchain` lines (F3k). In P3g to
+     P3i that hash stayed.
+   * `go list -m -u`, filtered to direct modules, shows no sibling module behind.
+   * Any other line that moves, in either file, is a stop.
+3. **The new check: Magic sends no `systemPrompt`.** From v1.36.0 the SDK refuses to send a system
+   prompt an agent did not advertise, and an agent built on it answers one `-32602` (F3k). Magic
+   sends none today. Two tests hold that, in new files, so that a later change cannot add one
+   without reading the agent's capability:
+
+   | Test | Asserts | Planted break, in the scratch clone at v1.36.0 |
+   | :--- | :--- | :--- |
+   | `TestSessionOpenRequestsCarryNoSystemPrompt` (`internal/provider/acpagent/system_prompt_test.go`) | against the `acptest` agent, a new session's `session/new` params, and the `session/load` params of a start whose `Options.Start` names an agent session, hold no `systemPrompt` member (`Agent.ParamsFor`) | (a) `SystemPrompt` set in `sessionOpenNew` (`session_meta.go:67-73`): the start fails, since the scripted agent advertises no `sessionCapabilities.systemPrompt` and the SDK refuses to send. (b) The same plant with the capability added through `Options.AgentCapabilities`: the request goes out and the member assertion fails. (c) `SystemPrompt` set in the load request (`acpagent.go:1148-1153`), with the capability advertised: the load half fails |
+   | `TestResumeSnapshotRequestNamesTwoMembers` (`internal/provider/grok/resume_request_test.go`) | `resumeSnapshotRequest` returns exactly `sessionId` and `cwd` (`grok/fallback.go:72-74`) | a `systemPrompt` entry added to the map |
+
+   * Each test reads JSON members or map keys and names no v1.36.0 identifier. So it compiles at
+     v1.35.0 too, and reverting the pin leaves it valid. The plants do name v1.36.0's
+     `SystemPrompt`, and exist only in the scratch clone.
+   * The record quotes each plant's failure (C6), plant (a)'s SDK error among them, since it is
+     the behaviour F3k describes and Magic has not seen it yet.
+   * This phase adds no use of the system prompt. That is a source change for a record of its own
+     (F3k).
+   * *(2026-11-11, later the same day, the owner's ruling on gobble-cli
+     `0054-MADR-go-1-27-4-and-sibling-pin-refresh.md`, relayed by the coordinator; the MADR's F3k note
+     of this date.)* gobble at `v0.6.0` will advertise `sessionCapabilities.systemPrompt` and honour a
+     client's system prompt, so gobble's `initialize` answer changes then. The two tests above stay:
+     the daemon sends no `systemPrompt` whatever the agent advertises. The changed `initialize` frame
+     is covered by the fixture recapture of
+     `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` at its G2
+     and L4, not by this phase. Sending a client system prompt from the phone is not in scope here or
+     in 0246.
+4. **The wire fixtures do not change.** In the scratch clone after steps 2 and 3, `git status
+   --short` lists `go.mod`, `go.sum` and the two new test files, and `git diff --stat HEAD --
+   '*testdata*'` is empty. The committed fixtures, which every gate below must read unchanged:
+   * `internal/provider/gobble/testdata/wire/0.4.0`;
+   * `internal/provider/grok/testdata/wire/1.0.13`, `1.0.50` and `1.0.70`;
+   * `internal/provider/opencode/testdata/wire/2.2.3`;
+   * `internal/provider/codex/testdata/wire/0.152.1`, `0.166.0` and `0.167.0`;
+   * `internal/provider/kilo/testdata/wire/7.5.6` and `7.8.18`;
+   * `internal/provider/acpagent/testdata/vendor`.
+
+   The first three groups are ACP agents' frames, decoded through the SDK. A fixture test that
+   passes only after a fixture edit is a stop: it means v1.36.0 reads a recorded frame
+   differently.
+   *(2026-11-11: `0.4.0` stays the gobble fixture this phase reads. gobble's `v0.6.0` `initialize`
+   frame, which adds `sessionCapabilities.systemPrompt`, arrives with 0246's recapture, not here.)*
+5. **The gates of P3g step 3,** on the scratch clone:
+   * `make pre-add-check FILES="internal/provider/acpagent/system_prompt_test.go
+     internal/provider/grok/resume_request_test.go"`;
+   * `go vet ./...` with `CGO_ENABLED=0` for darwin/arm64, windows/amd64 and linux/amd64, and
+     `make vet-tags`;
+   * `make staticcheck`. Its ignored findings are compared by name with the same run on `HEAD`
+     (`staticcheck -show-ignored -f json`, per GOOS), and the two sets must be equal. F3k has only
+     a count of the library's `Deprecated:` marks, and "56 ignored finding(s)" printed again
+     would not prove the same 56. A name that is new is a stop
+     (`scripts/check_staticcheck_ignored.py` bounds what may be ignored);
+   * `make vulncheck`: "clear; allowlisted required-module findings: GO-2026-5932";
+   * `make race`. By name, with `-v`, these must pass: step 3's two tests;
+     `TestFixtureSendsOnlyKnownMethods`, `TestFixtureShapesAreAcpexts`,
+     `TestFixtureCompactionIsTheStandardUpdate`, `TestRecordedSessionSendsOnlyTheContract` and
+     `TestFixtureIsTheKnownGoodRelease` (`internal/provider/gobble`);
+     `TestCommittedFixturesCarryNoIdentifiers` (`internal/wirecap`);
+     `TestSDKIsImportedOnlyByGrok`; `TestNoProviderIsNamedInAcpagent`. Among its `ok` packages:
+     `internal/provider/acpagent`, `acpagent/acptest`, `acpcommon`, `gobble`, `grok`, `opencode`,
+     `internal/wirecap` and `internal/relay`. `test/supervisors/probeagent`, an agent built on the
+     SDK with no tests of its own, is covered by the vet runs above;
+   * check-libs on the step's content;
+   * `python3 -B scripts/check_records.py --check-all` and the redact preview
+     (`python3 ~/.global-git-hooks/github-disclosure.py redact`, from the repository root).
+6. **The host runs** (C2, on the owner's word): `go test -race -count=1 ./...` on the Linux test
+   host and `make ci-windows` on the Windows test host, each on a scratch copy of the clone. The
+   library's generated dispatch changed on every platform.
+7. **Stage** `go.mod`, `go.sum`, the two test files, this PLAN and the 0217 MADR, with this
+   phase's execution record. The agent stages by path; the owner commits with `git commit
+   --no-edit` (C1). Nothing is pushed.
+8. **After the commit,** `make check-libs` on it. **After the owner's push,** every Go job and
+   `Live supervisors (runit, s6)` pass; record the run id.
+
+**Acceptance.** The phase is done when all of these hold, and its record shows each:
+
+* `go list -m github.com/maccavelli/acp-go-sdk2` prints v1.36.0. No other module moved. `go.mod`
+  still says `go 1.27.4` and has no `toolchain` line.
+* Step 3's two tests pass, and each plant was seen failing, with its failure quoted.
+* No file under any `testdata` changed, and step 5's named fixture tests pass.
+* Every gate of step 5 exits 0, and staticcheck's ignored names equal `HEAD`'s.
+* Both host runs pass.
+* `make check-libs` exits 0 on the commit, "pinned v1.36.0, checking v1.36.0".
+* gobble-cli's `main` pins v1.36.0, at a recorded commit, under its record 0054.
+* No live agent ran and no quota was spent (C9).
+
+Not an acceptance criterion of this phase: gobble's `v0.6.0`. Gate 3 of 0179 stays unmet after
+this phase, until that release (its A10).
+
+**Scope.** `go.mod`, `go.sum` and two new test files. No source changes, no fixture changes, no
+workflow changes. One check is added, in two tests, each seen failing.
+
+**Rollback.** Restore `go.mod` and `go.sum` from step 1's copy, or revert the phase's commit. The
+two tests stay valid at v1.35.0, so they need not be reverted with the pin. A revert after
+gobble-cli's `main` has moved leaves the two sides apart again: say so to the owner before
+reverting, and after `v0.6.0` is cut treat it as a stop, because it un-meets gate 3.
+
+**Not in P3j:**
+
+* Sending a system prompt, or any other v1.36.0 API (F3k).
+* gobble-cli's pins and its `v0.6.0`, which are gobble-cli's own records and commits.
+* `acpext` v0.4.0 (0179 P7a) and the `authcontract` module (0246 P1).
+* The non-sibling direct modules `go list -m -u` shows behind (D4's 2026-11-04 amendment).
+* No live agent run.
+
+Waiting for the owner's approval.
 
 ## Status note — 2026-11-08
 

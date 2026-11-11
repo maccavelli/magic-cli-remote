@@ -1063,7 +1063,9 @@ Existing records to amend or supersede:
 
 New pairs, each at the next free number (0246 at the time of writing, by `scripts/check_records.py --next`):
 
-1. `NNNN-MADR-take-provider-auth-types-from-the-sdk-contract.md`: M1-M4, M6, M18, M20, M21. It supersedes 0185 in part,
+1. `NNNN-MADR-take-provider-auth-types-from-the-sdk-contract.md` *(became
+   `0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`, 2026-11-11)*: M1-M4, M6, M18, M20,
+   M21. It supersedes 0185 in part,
    and makes the one cut-over.
 2. `NNNN-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md`: M19 and M23. This is the only non-relay logic,
    so it gets its own decision.
@@ -1071,7 +1073,8 @@ New pairs, each at the next free number (0246 at the time of writing, by `script
 Defect fixes go into amendments of the open pairs, because they are the same topic:
 
 * 0074: M5, M7, M8, M10-M14, M16, M17, M22;
-* 0179: M9, M15, and the hold at acpext v0.3.0.
+* 0179: M9, M15, and the hold at acpext v0.3.0 *(the owner answered Q14 against the hold on 2026-11-10:
+  `0179-MADR-gobble-native-acp-provider.md` A9 moves to acpext v0.4.0 now, with the device-rule patch)*.
 
 ### 8.4 Sequencing and cross-repository choreography
 

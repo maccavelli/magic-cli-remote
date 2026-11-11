@@ -614,6 +614,120 @@ check-libs` on the owner's commit `912b9aa1` (PLAN, P3h's execution record). Bot
   APIs": the test keeps asserting the same refusal, by text the library now prints. Because the
   move changes a test, the PLAN proposes it as its own phase (P3i) for the owner's approval.
 
+**F3k. On 2026-11-11, `acp-go-sdk2` has a newer tag, v1.36.0. It moves the ACP schema and adds one
+gate on the wire, which Magic never reaches. This move is tied to gobble's.** *Observed 2026-11-11,
+read-only: a local clone of `acp-go-sdk2` (`git rev-list`, `git diff` and `git show` between the
+tags, and its `docs/reports/0054-REPORT-release-notes-v1-36-0.md` at the tag); this repository at
+`14200b6e` (`git grep`); a local clone of gobble-cli (`git show <ref>:go.mod`). Nothing was built
+and no module was downloaded for this finding. Two items below come from an audit the
+cross-repository coordinator of the auth-contract work ran the same day. They were not re-run
+here, and each is marked "relayed".*
+
+| Module | Pinned | Newest tag | Peeled commit |
+| :--- | :--- | :--- | :--- |
+| `acp-go-sdk2` | v1.35.0 (F3i) | **v1.36.0** | `3be7af61…` (tag object `0e68b2b9…`), dated 2026-11-11 |
+
+The other four sibling modules were not re-read for this finding. P3j's P0 re-reads them.
+
+* **The owner's ruling, 2026-11-11,** relayed by the coordinator; none of the owner's wording was
+  relayed, so none is quoted. Magic moves from v1.35.0 to v1.36.0, together with gobble-cli, before
+  gobble's `v0.6.0`. gobble-cli's `main` moves under gobble-cli's own record 0054, which was being
+  drafted that day and was not in its tree when this was written, so it is named by number.
+  `v0.6.0` is the gobble release that must carry the same tag
+  (`0179-MADR-gobble-native-acp-provider.md` A10).
+* **This is not F3d's case.** F3d to F3i each say that 0184 D12's shared pin "is needed only
+  before `live-gobble`", and Magic moved ahead of gobble on that footing. Since 2026-11-11 the shared pin
+  is a recorded gate that is knowingly unmet: Magic has pinned v1.35.0 since `912b9aa1`, gobble's
+  releases `v0.4.0` and `v0.5.0` pin v1.34.2, and only gobble-cli's `main` (`17d1605`) pins
+  v1.35.0. So this move does not go ahead alone. It is one half of a pair.
+* **Fifteen commits** (`git rev-list --count v1.35.0..v1.36.0`). Two of that repository's records
+  carry the change: its 0054 MADR (schema 1.31.0 and client system prompts) and its 0055 MADR (the
+  Go pin).
+* **Its `go.mod` changed, and its requirements did not.** `go 1.26.10` becomes `go 1.26.11`, and
+  `toolchain go1.27.3` becomes `toolchain go1.27.4`. Its `go.sum` is identical at both tags.
+  * Magic's `go.mod` says `go 1.27.4` with no `toolchain` line, which is above the new floor. So
+    Magic's `go` line should not move and no `toolchain` line should appear *(inferred from the
+    two files; P3j step 2 checks it)*.
+  * Unlike F3i and F3j, the new tag's `/go.mod` hash differs from the pinned tag's, because the
+    file changed. So `go.sum`'s `/go.mod` line for the module changes as well as its `h1:` line.
+* **The API.** Its release notes: `make api` against v1.35.0, "0 incompatible, 57 compatible", 11
+  in the root package, all for the client system prompt, and 46 in package `unstable`, which is
+  "reported and not gated".
+  * Of the root package's files that are not tests, only the generated `types_gen.go`,
+    `agent_gen.go` and `client_gen.go` changed (`git diff --name-only`).
+  * `connection.go` and `middleware.go` are byte-identical at the two tags (`git diff --quiet`,
+    exit 0). So
+    `0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`'s cites of
+    v1.35.0 hold at v1.36.0: `acp.RequestIDFromContext` (`middleware.go:133-155`, `:192`) in its
+    D8, and `connection.go:23`, `:2668-2694` and `:2494-2518` in its table's row T7.
+* **The schema pin moves from 1.25.0 to 1.31.0.** From its release notes: the names package `acp`
+  took from the unstable schema at 1.25.0 "keep that shape"; the new keyword
+  `x-deserialize-default-on-null` marks 14 stable arrays and objects, the decoders "already read
+  `null` that way at all 14, so nothing changes on the wire"; 134 doc comments change "wording and
+  links, and nothing else". Package `unstable` gains 46 generated names that package `acp` does
+  not dispatch.
+* **One change on the wire: the system prompt's gates.** Its release notes: "Only a `session/new`,
+  `session/load` or `session/resume` that carries `systemPrompt`. `v1.35.0`'s types had no such
+  field. An agent built on this release that does not advertise the capability answers such a
+  request `-32602`. A request without the field is handled as before." On the client side, "A
+  typed method returns the error and writes nothing": a client cannot send a prompt the agent did
+  not advertise.
+* **Magic never sends `systemPrompt`.** As an ACP client it builds a session request in three
+  places, and none sets the field:
+  * `session/new`, in `sessionOpenNew`: `Cwd`, `McpServers` and `Meta`
+    (`internal/provider/acpagent/session_meta.go:67-73`);
+  * `session/load`: `Cwd`, `McpServers`, `SessionId` and `Meta`
+    (`internal/provider/acpagent/acpagent.go:1148-1153`);
+  * grok's raw `session/resume`, a read-back after `session/set_model`: `sessionId` and `cwd`
+    (`internal/provider/grok/fallback.go:58-59`, its body at `:72-74`).
+
+  At `14200b6e`, `git grep -i systemprompt` over tracked and untracked files finds the word in
+  three earlier decision records (0038, 0081 and 0106) and in no Go, Dart, YAML or script file.
+  So no request Magic sends changes, and the gate is not reached with any agent.
+* **Magic's test agents.** `acptest`'s agent is scripted and is not built on the SDK's agent side.
+  `test/supervisors/probeagent` is. At v1.36.0 it would answer a `systemPrompt` request `-32602`,
+  and nothing sends it one.
+* **What could reach Magic later.** Sending a system prompt is a source change, and D5's rule
+  leaves it to a record of its own ("Adopting its new APIs … is not a pin"). That record has to
+  read the agent's `sessionCapabilities.systemPrompt` first, or every agent that does not
+  advertise it fails to start. P3j adds a test that holds "Magic sends none", so the change
+  cannot arrive unnoticed.
+  *(2026-11-11, later the same day: the owner ruled that gobble, at `v0.6.0`, will advertise
+  `sessionCapabilities.systemPrompt` and honour a client's system prompt (gobble-cli
+  `0054-MADR-go-1-27-4-and-sibling-pin-refresh.md`, as the coordinator relayed it; that record was
+  being edited the same day, so what it finally says is gobble-cli's). Three things follow here.
+  First, gobble's `initialize` answer changes at `v0.6.0`: at `0.4.0` its `sessionCapabilities` are
+  `additionalDirectories`, `close`, `list` and `resume` (the first frame of
+  `internal/provider/gobble/testdata/wire/0.4.0/frames.jsonl`). That change is covered by the fixture
+  recapture of `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`,
+  at its gate G2 and its run L4, not here, and P3j's step 4 still finds no fixture changed, since
+  P3j moves no gobble release. Second, the daemon still sends no `systemPrompt`, so the advertised
+  capability changes no request Magic makes, and P3j's two tests that pin that stay as written (they
+  run against the `acptest` agent, whose capabilities each test sets). Third, sending a client system prompt from the phone is not in scope of this record or of 0246;
+  it stays a source change for a record of its own, which reads the agent's capability first, as
+  above.)*
+* **Deprecations.** `Deprecated:` occurs 278 times in that repository's non-test Go files at
+  v1.34.2, at v1.35.0 and at v1.36.0 (`git grep -c`, summed). That is a count, and not a
+  comparison of the sets. So `make staticcheck`'s "56 ignored finding(s), each an acp-go-sdk2
+  unstable-schema name" should not grow *(inferred)*, and P3j compares the names, not the number.
+* **Relayed, and not re-run here:**
+  * a scratch `git archive` of `bcde74ab`, with a `replace` onto the v1.36.0 tree, built, vetted
+    and passed its tests in `internal/provider/acpagent`, `acpagent/acptest`, `acpcommon`,
+    `gobble`, `wirecap` and `relay`, as the coordinator named them;
+  * a probe of request-scoped elicitation inside `authenticate` passed on both tags. 0246's D8
+    rests on that behaviour.
+* **gobble-cli was built against this tree by the SDK's own check.** Its release notes, "The
+  consumers": gobble-cli at `d6c10a5`, unpacked into a scratch directory with a `replace` onto the
+  v1.36.0 tree, "builds, vets and passes its tests with no other change". That bears on gobble's
+  own move, which is gobble-cli's record and commit.
+* **Alternatives to moving now.** The ruling, as relayed, decides the move and names no option it
+  declined, so none is recorded as declined. Two exist:
+  * stay on v1.35.0 until after the auth cut-over. gobble's `v0.6.0` would then be cut on v1.35.0,
+    or 0246's gate G2 would stop on a mismatch;
+  * move in the same commit as 0246's `authcontract` pin. That plan's P1 step 1 calls any other
+    requirement that moves a deviation, and gobble's release would wait for Magic's cut-over to
+    start.
+
 **F4. CI actions: four of eight are behind.** Each is pinned by commit, with a version comment.
 
 | Action | Pinned | Newest release, peeled commit |
@@ -946,6 +1060,10 @@ Chosen option: **"B — Tiered by risk"**, because:
     Deviation 27), by the owner: "Run p3i".* Then `go-selfupdate-lib` to v1.26.2, with both
     `ci.yml` pins and one test assertion (F3j). `gobble-cli/acpext` v0.4.0 is moved under
     `0179-MADR-gobble-native-acp-provider.md` A9, not here.
+    *Amended again 2026-11-11 (PLAN Deviation 29), by the owner's ruling of that day, relayed by
+    the cross-repository coordinator of the auth-contract work with none of the owner's wording
+    to quote.* Then `acp-go-sdk2` to v1.36.0, together with gobble-cli's own move and before
+    gobble's `v0.6.0` (F3k). The move is decided; its phase, P3j, is proposed and has not run.
   * `make vulncheck` must stay "clear" apart from `GO-2026-5932`.
 * **D5 — `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1, as an amendment to 0207 (F3, F3a).**
   *Amended 2026-10-30 by the owner, before phase 3: "pin go-selfupdate-lib to current v1.23.1".*
