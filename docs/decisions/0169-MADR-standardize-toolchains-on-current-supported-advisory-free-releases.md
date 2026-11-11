@@ -742,3 +742,56 @@ first. The two test hosts are moved before they run this repository's gates agai
 
 Sources: OSV `POST /v1/query` and `GET /v1/vulns/GO-2026-6809`; [go.dev downloads](https://go.dev/dl/?mode=json);
 the run's log, job 119012412412.
+
+## Amendment — 2026-11-10: Go 1.27.4 is the standard (D2)
+
+**Decided by the owner on 2026-11-10,** for the commit that moves this repository's `go` directive:
+"Separate commit first", then "I prepare it". These were the answers to 0217-PLAN Deviation 28,
+recorded in `0217-PLAN-update-every-pin-to-its-current-release.md`. The record stays `accepted`.
+This applies D1 as written; it changes no rule.
+
+**What happened.** `make vulncheck` on this repository, and check-libs' `govulncheck` for each
+sibling library, reported a standard-library advisory that the module calls:
+
+```text
+vulncheck: GO-2026-6859 is called by this module.
+  Vulnerability #1: GO-2026-6859
+    Standard library
+      Found in: net/http@go1.27.3
+      Fixed in: net/http@go1.27.4
+```
+
+**OSV,** `POST /v1/query` for `stdlib` and `toolchain`, on 2026-11-10:
+
+| Package | 1.27.3 | 1.27.4 |
+| --- | --- | --- |
+| `stdlib` | 1 | 0 |
+| `toolchain` | – | 0 |
+
+| OSV | CVE | Package | Fixed in | Published | Summary |
+| --- | --- | --- | --- | --- | --- |
+| GO-2026-6859 | CVE-2026-97054 | `net/http` | 1.27.4, 1.26.11 | 2026-11-11 02:51 UTC | HTTP/1 server crash due to MaxBytesReader header race in net/http |
+
+go.dev lists `go1.27.4` and `go1.26.11` as the current releases (`https://go.dev/dl/?mode=json`).
+
+Under D1, 1.27.3 is no longer the standard: it has a published advisory, and 1.27.4 is the newest
+stable patch of the newest supported line with none. The floor moves to 1.26.11.
+
+**D2 now reads:** Go **1.27.4** on every host and in CI, with the `go` directive of Go modules moved
+to 1.27.4 repository by repository after each passes its own gates. Until a repository has passed,
+the floor is **1.26.11**. The standard Go tools are rebuilt with 1.27.4.
+
+Confirmation for Go is `go version` = `go1.27.4`, or `go1.26.11` while a repository is on the floor.
+PLAN 0169 P15 moves this repository.
+
+**The hosts moved first, by the owner, before this amendment.** On 2026-11-10 the owner moved this
+Mac and both test hosts, and each now reports `go version go1.27.4`. Each sets
+`GOTOOLCHAIN=go1.27.4`, so its `go` command runs the `golang.org/toolchain` module for go1.27.4
+from its module cache. That module's `GOROOT` is under `pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.<os>-<arch>`.
+The installed `go` itself stays the 1.27.3 build: this Mac's `~/.local/bin/go` still points at
+`~/.local/go1.27.3/bin/go`. That is not P13's and P14's archive-and-PATH install, but it meets D2's
+confirmation. CI reads its Go from `go.mod` (`go-version-file: go.mod`), so CI moves only with
+the directive.
+
+Sources: OSV `POST /v1/query` and `GET /v1/vulns/GO-2026-6859`; [go.dev downloads](https://go.dev/dl/?mode=json);
+`go env GOTOOLCHAIN GOROOT` on each host; 0217-PLAN Deviation 28's check-libs logs.

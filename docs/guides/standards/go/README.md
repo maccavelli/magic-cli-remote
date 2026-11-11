@@ -1,10 +1,10 @@
 ---
 title: "Go Standards"
-version: "1.27.3-v1"
-last_updated: "2026-10-21"
+version: "1.27.4-v1"
+last_updated: "2026-11-10"
 status: "active"
 applies_to: ["cmd/mcremote", "cmd/mcrelay", "internal", "scripts/smoke-protocol"]
-go_version: "1.27.3"
+go_version: "1.27.4"
 ---
 
 # Go Standards
@@ -16,7 +16,7 @@ to those roles; this is not a general microservice template.
 
 ## Repository facts
 
-- The module declares Go 1.27.3 in `go.mod`.
+- The module declares Go 1.27.4 in `go.mod`.
 - Entrypoints are `cmd/mcremote/main.go` and `cmd/mcrelay/main.go`; application
   packages are private under `internal/`.
 - The Makefile builds with `CGO_ENABLED=0`, `-trimpath` and `-ldflags '-s -w'`,

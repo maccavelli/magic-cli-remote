@@ -1479,6 +1479,89 @@ P14", each the recommended option.
 **Rollback:** restore the host's backup, so `go` is 1.27.2 again. That host then cannot build this
 module at the P13 commit until it moves.
 
+### P15 — This repository on Go 1.27.4 (D2 amendment 2026-11-10)
+
+The owner approved this on 2026-11-10 ("Separate commit first", then "I prepare it"). The owner
+moved the three hosts first (MADR amendment, 2026-11-10), so this phase installs nothing. It lands
+as its own commit, before `0217-PLAN-update-every-pin-to-its-current-release.md` P3i (Deviation 28).
+
+1. **Fail-first,** in a scratch clone of `HEAD`: `make vulncheck` with `GOTOOLCHAIN=go1.27.3`
+   must report GO-2026-6859.
+2. `go mod edit -go=1.27.4`, then `go mod tidy`. Record exactly what tidy rewrote.
+3. **The live files that name the pin:**
+   - `README.md` Requirements: Go **1.27.4** (module pins `go 1.27.4`);
+   - `docs/guides/standards/go/README.md`: `version`, `last_updated`, `go_version`, and the declared
+     module version, **1.27.4**;
+   - `scripts/test-linux-arm64.sh`: the default `GO_IMAGE=golang:1.27.4`. Docker Hub must have that
+     tag;
+   - `internal/updateclient/testdata/fixture/go.mod`: `go 1.27.4`. It is the module
+     `client_test.go` builds as the release fixture (`:90`); it came after P13, which therefore did
+     not list it.
+
+   As in P13, the test strings in `internal/modguard_test.go` and the `Makefile` comment are not
+   pins, and stay.
+4. **Gates on go1.27.4,** on the scratch clone:
+   - `make vulncheck`, which must no longer report GO-2026-6859;
+   - `make pre-add-check` over every tracked Go file;
+   - `go vet ./...` for darwin/arm64, windows/amd64 and linux/amd64, with cgo off;
+   - `make staticcheck` and `make race`;
+   - check-libs, which runs each library on `go.mod`'s toolchain and must now pass `govulncheck`;
+   - `make check-records`.
+5. **The hosts,** at `HEAD` plus this phase's files: `go test -race -count=1 ./...` on the Linux
+   test host, and `make ci-windows` on the Windows test host.
+6. **Stage** `go.mod`, the three live files, the fixture's `go.mod`, the 0169 MADR and this PLAN.
+   Nothing else is staged. In particular, 0217's P3i files stay out: they follow in their own
+   commit. The owner commits. Push and CI wait for an explicit ask.
+
+**Verification:** `go version` is `go1.27.4` on every host; `go.mod` line 3 is `go 1.27.4`; the
+live files name 1.27.4; every gate in steps 4 and 5 exits 0.
+
+**Rollback:** revert the phase commit. The hosts' `GOTOOLCHAIN` is the owner's setting, not this
+phase's.
+
+#### P15 execution record, 2026-11-10 — staged for the owner's commit
+
+Scripts and logs are in the session scratchpad (`p15_0169.py`, `p15_hosts.py`, `p15_remote.py`,
+`p15_copyback.py`, `p15-*.log`). The clone is of `3e2f784b`.
+
+* **Step 1, fail-first.** With `GOTOOLCHAIN=go1.27.3`, `go version go1.27.3 darwin/arm64`,
+  `make vulncheck` exited 2 and reported GO-2026-6859.
+* **Step 2.** `go mod edit -go=1.27.4`, then `go mod tidy`. Tidy rewrote nothing else: the diff is
+  line 3 of `go.mod` alone, and `go.sum` is unchanged.
+* **Step 3, the live files.** Each old text was found once and read back new:
+  * `README.md` Requirements: **Go 1.27.4** (module pins `go 1.27.4`);
+  * `docs/guides/standards/go/README.md`: `version: "1.27.4-v1"`, `last_updated: "2026-11-10"`,
+    `go_version: "1.27.4"`, and "The module declares Go 1.27.4";
+  * `scripts/test-linux-arm64.sh`: `GO_IMAGE="${GO_IMAGE:-golang:1.27.4}"`. Docker Hub's
+    `library/golang` tag `1.27.4` exists (HTTP 200);
+  * `internal/updateclient/testdata/fixture/go.mod`: `go 1.27.4`.
+
+  `git grep 1.27.3` outside `docs/decisions`, `docs/reports` and `apps/mobile/docs` finds nothing.
+* **Step 4, the gates on `go1.27.4`:**
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make vulncheck` | exit 0; GO-2026-6859 no longer reported |
+  | `make pre-add-check` | exit 0 |
+  | `go vet ./...`, `CGO_ENABLED=0` | darwin/arm64, windows/amd64, linux/amd64: exit 0 each |
+  | `make staticcheck` | exit 0 |
+  | `make race` | exit 0; 50 `ok` lines; no FAIL, panic or data race |
+  | `make check-records` | exit 0 |
+  | check-libs | "toolchain: go1.27.4"; `govulncheck` ok for all three libraries. It exits 1 on one check, `go-selfupdate-lib test` at v1.26.2: `TestUpdateHandOffNeedsYes` and `TestWorkflowPinsMatchGoMod`. Those two are 0217-PLAN P3i's own change (its Deviation 28), which follows this commit. |
+
+* **Step 5, the hosts,** at `3e2f784b` plus this phase's five files:
+  * the Linux test host: `go1.27.4`, `go test -race -count=1 ./...` exit 0, 50 `ok` lines;
+  * the Windows test host: `go1.27.4`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED
+    CHECKS PASSED", 50 `ok` lines.
+
+  Each host's clone and scratch directory were removed and checked gone.
+* **Step 6.** The five files were copied from the clone into the tree. Each one's diff against
+  `HEAD` equals the clone's.
+
+**Files for this commit:** `go.mod`, `README.md`, `docs/guides/standards/go/README.md`,
+`scripts/test-linux-arm64.sh`, `internal/updateclient/testdata/fixture/go.mod`, the 0169 MADR and
+this PLAN.
+
 ## Verification (whole plan)
 
 ### Acceptance criteria (mapped to MADR Confirmation)
