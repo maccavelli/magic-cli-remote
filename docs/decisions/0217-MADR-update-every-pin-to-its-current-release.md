@@ -1063,7 +1063,8 @@ Chosen option: **"B — Tiered by risk"**, because:
     *Amended again 2026-11-11 (PLAN Deviation 29), by the owner's ruling of that day, relayed by
     the cross-repository coordinator of the auth-contract work with none of the owner's wording
     to quote.* Then `acp-go-sdk2` to v1.36.0, together with gobble-cli's own move and before
-    gobble's `v0.6.0` (F3k). The move is decided; its phase, P3j, is proposed and has not run.
+    gobble's `v0.6.0` (F3k). The move is decided. *Its phase, P3j, was approved by the owner on
+    2026-11-11 and ran that day; the PLAN's "P3j, executed" records it.*
   * `make vulncheck` must stay "clear" apart from `GO-2026-5932`.
 * **D5 — `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1, as an amendment to 0207 (F3, F3a).**
   *Amended 2026-10-30 by the owner, before phase 3: "pin go-selfupdate-lib to current v1.23.1".*

@@ -2837,7 +2837,111 @@ reverting, and after `v0.6.0` is cut treat it as a stop, because it un-meets gat
 * The non-sibling direct modules `go list -m -u` shows behind (D4's 2026-11-04 amendment).
 * No live agent run.
 
-Waiting for the owner's approval.
+**Approved** by the owner, 2026-11-11, for this phase as proposed, the host runs of step 6 included (C2).
+None of the owner's wording was relayed, so none is quoted.
+
+#### P3j, executed (2026-11-11)
+
+Scripts and logs are in the session scratchpad (`p0_tags.py`, `plants.py`, `gates.py`, `p3j_hosts.py`,
+`p3j_remote.py`, `plant_*.log`, `g_*.log`). Every command wrote a log, and its exit status was taken
+before any filter. Go was `go1.27.4` on this Mac and on both test hosts.
+
+* **Step 1, P0** (`5380ffbf`). Branch `master`, five commits ahead of `origin/master`, `git status
+  --short --untracked-files=all` empty, `git diff --cached --stat` empty. `go.mod` said
+  `acp-go-sdk2 v1.35.0` and `go 1.27.4`, with no `toolchain` line. `go.mod` and `go.sum` were copied
+  aside, and the copies checked byte for byte. Newest tags by `git ls-remote --tags`, each as F3k
+  expects:
+  * `acp-go-sdk2` v1.36.0, peeled `3be7af61937c`;
+  * `go-llmprovider-sdk` v1.29.0, peeled `4e338da59fe8`, with no `authcontract/v*` tag listed;
+  * `go-selfupdate-lib` v1.26.2, peeled `e62d77cddaf2`;
+  * `go-tui-lib/v2` v2.12.0, peeled `bbfd52fa4036` (its `command/*` tags belong to other modules);
+  * `gobble-cli` `acpext/v0.4.0`, peeled `d6c10a5e15f2`.
+* **gobble's half,** read-only, in gobble-cli's tree. `main` is at `88655c5`, "chore(go): bump
+  toolchain to Go 1.27.4 for GO-2026-6859", which is gobble's own Go move. `git show main:go.mod`
+  there still says `acp-go-sdk2 v1.35.0`. Its record 0054 is `status: in-progress`, its P0 and P1 are
+  committed, and its P2, the move to v1.36.0, is in progress: `go.mod` in its working tree carries
+  `acp-go-sdk2 v1.36.0`, uncommitted, with other P2 files modified beside it. The text of this step
+  stops only if `main` is not at v1.36.0 *and* its move is not approved to land in the same sitting.
+  gobble's P2 is approved and under way, so this is not a stop. It leaves one acceptance item open
+  (below).
+* **Steps 2 and 4,** in a scratch clone of `5380ffbf`:
+  * `go get`: "upgraded github.com/maccavelli/acp-go-sdk2 v1.35.0 => v1.36.0". `go mod tidy` exit 0.
+  * `go.mod` changes that one line, `go 1.27.4` stays, and there is no `toolchain` line.
+  * `go.sum` changes the module's two lines and no other: `h1:hRWy4hVp…` and, for `/go.mod`,
+    `h1:Gzr1jyDv…`. Both changed from v1.35.0's (`h1:PABn1wEc…`, `h1:Iz5f3g3L…`), the `/go.mod`
+    one too, as F3k predicted.
+  * `go list -m github.com/maccavelli/acp-go-sdk2` prints v1.36.0.
+  * `go list -m -u`, direct modules: no sibling module is behind except `gobble-cli/acpext` v0.3.0
+    → v0.4.0, which 0179 P7a moves and this phase leaves. Three non-sibling direct modules are behind:
+    `spf13/pflag` v1.0.10 → v1.1.0, `golang.org/x/mod` v0.42.0 → v0.43.0 and `golang.org/x/sys`
+    v0.49.0 → v0.50.0. D4's 2026-11-04 amendment limits these moves to sibling libraries, so they
+    stay.
+  * `git status --short` in the clone listed `go.mod`, `go.sum` and the two new test files.
+    `git diff --stat HEAD -- '*testdata*'` was empty. No file under any `testdata` changed, and every
+    fixture test below passed on the committed fixtures.
+* **Step 3, the new check.** Two new files, `gofmt` clean:
+  * `internal/provider/acpagent/system_prompt_test.go`, package `acpagent_test` (`acptest` imports
+    `acpagent`, so an in-package test would make an import cycle).
+    `TestSessionOpenRequestsCarryNoSystemPrompt` starts a session on the `acptest` agent four ways:
+    `session/new` and `session/load` (`Options.Start.AgentSessionID` set, `loadSession` advertised),
+    each with `sessionCapabilities.systemPrompt` not advertised and advertised. Each reads
+    `Agent.ParamsFor` and fails if a `systemPrompt` member is present. The advertised cases do not rest
+    on the SDK's own refusal.
+  * `internal/provider/grok/resume_request_test.go`.
+    `TestResumeSnapshotRequestNamesTwoMembers` requires `resumeSnapshotRequest` to equal exactly
+    `{"sessionId", "cwd"}`.
+  * Both pass at v1.36.0. Neither names a v1.36.0 identifier: both also pass in a scratch clone of
+    `5380ffbf` at v1.35.0 (`t_at_135.log`, both `ok`).
+  * **Each planted break, seen failing on a scratch copy** (`plants.py`; the file restored after each,
+    and the same run then passed). The plants name v1.36.0's `SystemPrompt`:
+
+    | Plant | Failure |
+    | :--- | :--- |
+    | (a) `SystemPrompt` set in `sessionOpenNew` (`session_meta.go`) | `new, capability not advertised`: "acptest: StartOn: acp session/new: session/new: capability sessionCapabilities.systemPrompt not advertised: systemPrompt". This is the SDK's refusal F3k describes. `new, capability advertised`: "session/new params carry systemPrompt map[content:[map[text:planted type:text]] mode:append]; the daemon sends none". The two load cases passed. |
+    | (b) the same plant, only the capability-advertised case run (the capability reaches the agent through `Options.AgentCapabilities`) | "session/new params carry systemPrompt map[content:[map[text:planted type:text]] mode:append]; the daemon sends none" |
+    | (c) `SystemPrompt` set in the load request (`acpagent.go`), capability advertised | "session/load params carry systemPrompt map[content:[map[text:planted type:text]] mode:append]; the daemon sends none". Run whole, `load, capability not advertised` fails with "acptest: StartOn: acp session/load: session/load: capability sessionCapabilities.systemPrompt not advertised: systemPrompt"; the two new cases passed |
+    | grok: `"systemPrompt": {"mode": "append"}` added to the map in `fallback.go` | "resumeSnapshotRequest = map[cwd:/work sessionId:agent-1 systemPrompt:map[mode:append]], want exactly map[cwd:/work sessionId:agent-1]" |
+* **Step 5, gates on the scratch clone:**
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check FILES="…"` on the two new files | exit 0, "go-precheck: 2 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go vet ./...`, `CGO_ENABLED=0` | darwin/arm64, windows/amd64, linux/amd64: exit 0 each |
+  | `make vet-tags` | exit 0, nine tags, each ok |
+  | `make staticcheck` | exit 0, "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" on each GOOS |
+  | ignored names against `HEAD` | `staticcheck -show-ignored -f json ./...`, per GOOS, in a clone of `HEAD` and in this phase's clone: 56 ignored findings each; the sets of (check, file, message) equal; with line numbers equal; 16 distinct names on both sides. No name is new |
+  | `make vulncheck` | exit 0, "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+  | `make race` | exit 0; 50 `ok` lines, among them `internal/provider/acpagent`, `acpagent/acptest`, `acpcommon`, `gobble`, `grok`, `opencode`, `internal/wirecap` and `internal/relay`; no FAIL, panic or data race |
+  | the named tests, `go test -race -count=1 -v -run … ./...` | exit 0; each is one `--- PASS` line: `TestSessionOpenRequestsCarryNoSystemPrompt`, `TestResumeSnapshotRequestNamesTwoMembers`, `TestFixtureSendsOnlyKnownMethods`, `TestFixtureShapesAreAcpexts`, `TestFixtureCompactionIsTheStandardUpdate`, `TestRecordedSessionSendsOnlyTheContract`, `TestFixtureIsTheKnownGoodRelease`, `TestCommittedFixturesCarryNoIdentifiers`, `TestSDKIsImportedOnlyByGrok`, `TestNoProviderIsNamedInAcpagent` |
+  | check-libs, on a scratch commit of the clone (`go.mod`, `go.sum` and the two files, on a scratch branch) | exit 0; "toolchain: go1.27.4"; `acp-go-sdk2` "pinned v1.36.0, checking v1.36.0", `go-selfupdate-lib` "pinned v1.26.2, checking v1.26.2", `go-llmprovider-sdk` "pinned v1.29.0, checking v1.29.0"; "0 failing checks; scratch removed" |
+
+  `test/supervisors/probeagent` has no tests of its own, and the vet runs cover it.
+* **Step 6, the host runs,** on `5380ffbf` plus `go.mod`, `go.sum` and the two files, carried as a
+  bundle of `master`:
+  * the Linux test host: `go1.27.4`, `go test -race -count=1 ./...` exit 0, 50 `ok` lines, no FAIL,
+    panic or race line;
+  * the Windows test host: `go1.27.4`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED
+    CHECKS PASSED", 50 `ok` lines, no FAIL or panic line.
+
+  Each host's clone and scratch directory were removed and checked gone.
+* **Step 7, staging.** The four Go-side files were copied from the clone into the tree, each checked
+  byte for byte against the clone. `make pre-add-check` on the two new files in the tree exited 0. The
+  0217 MADR's D4 amendment said P3j "is proposed and has not run"; it now says the owner approved it
+  on 2026-11-11 and that it ran. Staged by path: `go.mod`, `go.sum`, the two test files, this PLAN
+  and that MADR.
+* **Records.** `python3 -B scripts/check_records.py --check-all` exit 0. The redact preview
+  (`github-disclosure.py redact`, without `--apply`, which its source shows only prints a diff) exit 0:
+  "would edit 0 file(s), 0 path(s) need a rename by hand; nothing renamed, staged or committed".
+
+**Not done in P3j:**
+
+* The owner's commit, the push and the push's CI run id (step 8). `make check-libs` on the committed
+  `HEAD` is the owner's step after the commit. The run above was on a scratch commit of the clone.
+* **gobble-cli's `main` pinning v1.36.0** (an acceptance item): at `88655c5` it still pins v1.35.0.
+  Its record 0054 P2 has the v1.36.0 pin in its working tree and has not committed. The two sides are
+  apart until it does.
+* Sending a system prompt or any other v1.36.0 API, `acpext` v0.4.0, the `authcontract` module, the
+  non-sibling modules above, and gobble's `v0.6.0`. No live agent ran and no quota was spent (C9).
 
 ## Status note — 2026-11-08
 
