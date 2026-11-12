@@ -1418,4 +1418,5 @@ files there are gobble-cli's own pair, written on the owner's word (Q4, 2026-11-
   now, in its own commit with the two device id tables and their partition test (A9.1, A9.2); the code read bounded
   at 30 s (A9.3); gobble's `reason` read (A9.4); the PLAN's P6 moved to
   `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7 (A9.5). The PLAN's P7a
-  applied A9.1 and A9.2 on 2026-11-12; 7b and 7c wait.
+  applied A9.1 and A9.2 on 2026-11-12, and its 7b applied A9.3 the same day (the device-code read bounded at 30 s,
+  the silent child cancelled); 7c waits.

@@ -34,6 +34,15 @@ const statusTTL = 15 * time.Second
 // commandTimeout bounds one short gobble auth command.
 const commandTimeout = 10 * time.Second
 
+// deviceCodeScanTimeout bounds the wait for `gobble auth login --method
+// device` to print its device_code event (MADR 0179 A9.3), as the other device
+// flows bound theirs (grok, codex: 30 s). A variable only so a test can shorten
+// it.
+var deviceCodeScanTimeout = 30 * time.Second
+
+// errNoDeviceCode is the cause of a start that gave no device code in time.
+var errNoDeviceCode = errors.New("gobble printed no device code")
+
 // The method id suffixes, after the upstream id (as grok's catalog has them).
 const (
 	methodAPI     = ":api"
@@ -371,8 +380,14 @@ func (a *auth) startDeviceAuth(ctx context.Context, bin, upstreamID, methodID st
 		return err
 	}
 
-	flow, firstErr := firstDeviceCode(ctx, events)
+	flow, firstErr := firstDeviceCode(events, deviceCodeScanTimeout)
 	if firstErr != nil {
+		if errors.Is(firstErr, errNoDeviceCode) {
+			// Silent past the bound: end the child, or end's wait for it
+			// would hold this call as long as the child lives (MADR 0179
+			// A9.3).
+			cancel()
+		}
 		_ = end()
 		return provider.DeviceFlow{}, nil, fmt.Errorf("gobble auth login %s: %w", upstreamID, firstErr)
 	}
@@ -400,9 +415,34 @@ func (a *auth) startDeviceAuth(ctx context.Context, bin, upstreamID, methodID st
 	return flow, wait, nil
 }
 
-// firstDeviceCode reads events up to the device_code event, or the error
-// that came instead.
-func firstDeviceCode(ctx context.Context, events *bufio.Scanner) (provider.DeviceFlow, error) {
+// firstDeviceCode reads events up to the device_code event, or the error that
+// came instead, for at most timeout (MADR 0179 A9.3). The scan runs in a
+// goroutine, so a gobble that prints nothing and does not exit cannot hold the
+// caller; at the timeout the goroutine is left to end when the caller kills
+// the child, and events is not read again.
+func firstDeviceCode(events *bufio.Scanner, timeout time.Duration) (provider.DeviceFlow, error) {
+	type result struct {
+		flow provider.DeviceFlow
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		flow, err := scanDeviceCode(events)
+		done <- result{flow, err}
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case r := <-done:
+		return r.flow, r.err
+	case <-timer.C:
+		return provider.DeviceFlow{}, fmt.Errorf("%w within %s", errNoDeviceCode, timeout)
+	}
+}
+
+// scanDeviceCode is firstDeviceCode's read: the first device_code event, the
+// first error event, or the end of the output.
+func scanDeviceCode(events *bufio.Scanner) (provider.DeviceFlow, error) {
 	for events.Scan() {
 		var ev loginEvent
 		if json.Unmarshal(events.Bytes(), &ev) != nil {
@@ -418,9 +458,6 @@ func firstDeviceCode(ctx context.Context, events *bufio.Scanner) (provider.Devic
 		case "error":
 			return provider.DeviceFlow{}, errors.New(ev.Message)
 		}
-	}
-	if err := ctx.Err(); err != nil {
-		return provider.DeviceFlow{}, err
 	}
 	return provider.DeviceFlow{}, errors.New("the sign-in ended before it gave a device code")
 }

@@ -1087,8 +1087,8 @@ but a later public model id could collide in the same way. Each is its own provi
 
 ## P7 — proposed 2026-11-10, approved 2026-11-11: MADR A9, acpext `v0.4.0`, the device table, the bounded code read, gobble's `reason`
 
-**Status: approved 2026-11-11; 7a staged 2026-11-12 (the entry "P7a — 2026-11-12" at the end of this plan), 7b and
-7c not started.** The owner accepted MADR A9 and approved this phase on 2026-11-11
+**Status: approved 2026-11-11; 7a committed as `af8c42fb` and 7b staged 2026-11-12 (the entries "P7a — 2026-11-12"
+and "P7b — 2026-11-12" at the end of this plan), 7c not started.** The owner accepted MADR A9 and approved this phase on 2026-11-11
 ("accept and approve 0179 a9"). It starts at its place in the order (the entry "P4 — 2026-11-11" below): after
 `0074-PLAN-remote-provider-auth-from-phone.md` P23 steps 6 to 9, on the owner's word for each of 7a, 7b and 7c.
 ~~Nothing here starts before the owner accepts MADR A9 and approves this phase.~~ The owner answered
@@ -1413,3 +1413,86 @@ unmet by MADR A10. The pin is ahead of every gobble release (A9.1), `KnownGoodVe
 
 **Staged for the commit:** `go.mod`, `go.sum`, `internal/provider/gobble/auth.go`,
 `internal/provider/gobble/auth_test.go`, this plan and `0179-MADR-gobble-native-acp-provider.md`.
+
+## P7b — 2026-11-12: the device-code read bounded at 30 s (MADR A9.3)
+
+The coordinator committed 7a as `af8c42fb`, on the owner's authorization.
+
+Run on the owner's word of 2026-11-11 ("accept and approve 0179 a9"), who approved 7a, 7b and 7c to run back to back.
+This entry records 7b only: step 3 of P7, MADR A9.3, with step 5's `TestDeviceCodeReadIsBounded`. 7c (A9.4) is not
+started. Nothing here spent quota or ran a live suite. Every command wrote a log in the session scratchpad with its
+exit status taken before any filter. Go was `go1.27.4` on this Mac and on both test hosts.
+
+**Start state, verified.** Branch `master`, HEAD `af8c42fb`, four commits ahead of `origin/master`, working tree
+clean, index empty. Per C2 the lines the MADR cites were read again: `firstDeviceCode` was the unbounded `events.Scan()`
+loop of the 2026-11-09 commit, and its trailing `ctx.Err()` check was reached with the `context.WithoutCancel` context
+of `startDeviceAuth`'s caller, as A9 says.
+
+**The change,** in `internal/provider/gobble/auth.go`, in a scratch clone of `af8c42fb` first and then copied in:
+
+* `deviceCodeScanTimeout`, 30 s, next to `commandTimeout`. It is a variable, only so the test can shorten it, which no
+  other test of the package reads or writes; the package has no `t.Parallel`.
+* `firstDeviceCode(events, timeout)` runs the old scan (now `scanDeviceCode`, unchanged but for the dropped `ctx.Err()`
+  tail) in a goroutine and returns at its result or at the timeout, with `gobble printed no device code within 30s`
+  (wrapping `errNoDeviceCode`). The result channel is buffered, so a late scan never blocks.
+* On that error `startDeviceAuth` calls `cancel()` before `end()`, as A9.3 says, so `end`'s wait for the child ends with
+  the child. The other first errors (an `error` event, the end of output) keep the old path: `end()` alone.
+* `firstDeviceCode` no longer takes `ctx`: the plan's signature has none, and the check it held could not fire (A9, "The
+  code read has no bound"). Nothing else in the package called it.
+
+After the timeout the scan goroutine is still reading the child's stdout while `end` drains it. Both end at the kill's
+EOF, `end`'s `Wait` closes the pipe, and the scanner is not read again by the caller, so nothing is shared; the race
+detector run below covers the test.
+
+**Test,** in `internal/provider/gobble/auth_test.go`:
+
+* `TestDeviceCodeReadIsBounded` (new): a stub that prints nothing and runs `exec sleep 20`, with the bound shortened to
+  100 ms. `startDeviceAuth` for `grok:device` must fail with `errNoDeviceCode` and the text `gobble printed no device
+  code within 100ms`, and must return in under 10 s. `startDeviceAuth` waits for its child, so returning long before the
+  stub's 20 s shows the child was killed rather than waited out.
+* `TestDeviceAuthGivesTheCode` and the other tests of the package pass unchanged; no fixture or golden changed.
+
+**Planted breaks, each seen failing on a scratch copy of the scratch clone** (`plants.py`; the clean copy then passed,
+`ALL PLANTS CAUGHT`):
+
+```text
+the timeout case removed                 auth_test.go:188: err = gobble auth login grok: the sign-in ended before it gave a device code, want "gobble printed no device code within 100ms"
+cancel() before end() removed            auth_test.go:191: the start returned after 20.039852s: the silent child was waited out, not killed
+the old unbounded read (timeout unused)  auth_test.go:188: err = gobble auth login grok: the sign-in ended before it gave a device code, want "gobble printed no device code within 100ms"
+```
+
+The first is the plan's plant; the second is the kill half of the same test; the third puts the old loop back.
+
+**Gates, on the scratch clone** with the two Go-side files:
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check FILES="internal/provider/gobble/auth.go internal/provider/gobble/auth_test.go"` | exit 0; the same in the tree after the copy |
+| `make test` | exit 0; 50 `ok` lines, no FAIL |
+| `go test -race -count=1 ./...` | exit 0; 50 `ok` lines, no FAIL, panic or data race |
+| `make lint` | exit 0 |
+| `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" on each GOOS |
+| ignored findings against `HEAD` | per GOOS, `staticcheck -show-ignored -f json ./...` in a clone of `HEAD` and in this clone: 56 each; the sets of (check, file, message) equal after the clone root is removed from the path, with line numbers equal; 16 distinct names on both sides. No name is new |
+| `make vet-tags` | exit 0; nine tags, each ok |
+| `make vulncheck` | exit 0; "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+| `make check-libs`, on a scratch commit of the clone, with `GO_SHARED` pointing at the go-shared clone | exit 0; "toolchain: go1.27.4"; acp-go-sdk2 "pinned v1.36.0, checking v1.36.0", go-selfupdate-lib "pinned v1.26.2, checking v1.26.2", go-llmprovider-sdk "pinned v1.29.0, checking v1.30.0", "0 failing checks; scratch removed" |
+
+**Host runs,** on `af8c42fb` plus the two files, carried as a pack of the refreshed scratch clone:
+
+* the Linux test host: `go1.27.4`, `go test -race -count=1 ./...` exit 0, 50 `ok` lines, no FAIL, panic or race line;
+* the Windows test host: `go1.27.4`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED", 50 `ok`
+  lines, no FAIL or panic line. Its log is not verbose, so it does not show whether the new test ran there or skipped
+  for want of a POSIX shell.
+
+Each host's remote copy was removed by the runner.
+
+**Records.** `make check-records` and `python3 -B scripts/check_records.py --check-all` exit 0; `make
+markdownlint-docs` exit 0; the redact preview (`github-disclosure.py redact`, without `--apply`) exit 0 with nothing to
+edit. The MADR's History line for A9 now says 7b applied A9.3; the PLAN's P7 status line says 7a is committed as
+`af8c42fb` and 7b staged.
+
+**Not done here:** 7c; the commit, which is the coordinator's after the gates; any push. D14's gate 3 stays unmet by
+MADR A10; the pin and `KnownGoodVersion` are as 7a left them.
+
+**Staged for the commit:** `internal/provider/gobble/auth.go`, `internal/provider/gobble/auth_test.go`, this plan and
+`0179-MADR-gobble-native-acp-provider.md`.

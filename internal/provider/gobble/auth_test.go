@@ -6,13 +6,16 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maccavelli/gobble-cli/acpext"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // Item 8: the catalog is acpext's providers, in its order, each with a key
@@ -159,6 +162,33 @@ func TestDeviceAuthGivesTheCode(t *testing.T) {
 	}
 	if runs := st.runs(t); len(runs) != 1 || runs[0] != "auth login grok --method device --json" {
 		t.Fatalf("argv = %q", runs)
+	}
+}
+
+// A9.3: the read of the device code is bounded. A gobble that prints nothing
+// and does not exit fails the start at deviceCodeScanTimeout (shortened here to
+// 100 ms), and its child is killed: startDeviceAuth waits for the child to
+// end, so returning long before the stub's own 20 s sleep ran out shows the
+// kill.
+func TestDeviceCodeReadIsBounded(t *testing.T) {
+	const sleepSeconds = 20
+	dir := t.TempDir()
+	bin := testexec.WriteShellStub(t, filepath.Join(dir, "gobble"), "exec sleep "+strconv.Itoa(sleepSeconds)+"\n")
+	old := deviceCodeScanTimeout
+	deviceCodeScanTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { deviceCodeScanTimeout = old })
+
+	start := time.Now()
+	_, wait, err := newAuth(bin, nil).startDeviceAuth(context.Background(), "", "grok", "grok"+methodDevice, nil, false)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatalf("a silent gobble gave a flow (wait %v)", wait != nil)
+	}
+	if !errors.Is(err, errNoDeviceCode) || !strings.Contains(err.Error(), "gobble printed no device code within 100ms") {
+		t.Fatalf("err = %v, want \"gobble printed no device code within 100ms\"", err)
+	}
+	if elapsed > sleepSeconds*time.Second/2 {
+		t.Fatalf("the start returned after %s: the silent child was waited out, not killed", elapsed)
 	}
 }
 
