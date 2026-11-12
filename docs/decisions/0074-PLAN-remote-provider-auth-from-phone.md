@@ -16,7 +16,9 @@ Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote
   (D30–D42), accepted the same day; ~~in progress~~ complete 2026-11-12
   (step 9), with the MADR's 16.5 item 14 open under
   `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.
-- **Date**: 2026-08-10, revised 2026-08-12; repair approved 2026-08-21; P23 approved 2026-11-11
+  **Cleanup step decided 2026-11-12:** P24 (§26), a cleanup after P23, ~~held on its
+  Q24-A~~ approved 2026-11-12 with Q24-A answered (a), not yet executed; when it lands this PLAN is `complete`.
+- **Date**: 2026-08-10, revised 2026-08-12; repair approved 2026-08-21; P23 approved 2026-11-11; P24 decided 2026-11-12
 - **Scope**: Workstreams **W1** (auth status, credential injection, active-upstream
   switch), **W2** (device OAuth, Strategy A), **W4** (polish), and **W5** (full
   vendor coverage) from MADR 0074 §11.
@@ -2190,3 +2192,215 @@ python3 ~/.global-git-hooks/github-disclosure.py redact
   0 issues"; the redact preview, `python3 ~/.global-git-hooks/github-disclosure.py redact`, "would edit 0
   file(s)"; the item tests and gates above (`items_go.log`, `item6_grep.log`, `preflight.log`, `race.log`).
   Staged: the two 0074 records. Commit: the coordinator's.
+
+## 26. Phase P24 — decided 2026-11-12: a cleanup after P23 (`confirm_required`'s text and the dead `confirmDestructive` names)
+
+**Status: ~~proposed 2026-11-12, held on Q24-A~~ approved 2026-11-12, not yet executed.** The owner decided this
+step on 2026-11-12, in the coordinator session. Drafting found that one fact the decision rests on differs from the
+code (below, "Where the code differs from the decision"), and ~~the step does not run until the owner answers
+Q24-A~~ the owner answered Q24-A (a) and approved the step on 2026-11-12, in the coordinator session. It runs after
+`0179-PLAN-gobble-native-acp-provider.md` P7c, which landed as `4614263c`, and before the release. It is one commit.
+
+### Goal
+
+P23 step 9 found two leftovers of the legacy codex device flow. `confirm_required` is described in three places as
+a deletion code, and the codex surface also sends it for execution writes. The field and parameter the phone once set
+to confirm a destructive codex sign-in remain, with nothing left to confirm. After P24 the three descriptions say what
+the code sends, both names are gone, and this PLAN is complete.
+
+### The owner's decision (2026-11-12)
+
+> "Small 0074 cleanup step" — amend 0074's PLAN with a dated step P24 that (1) corrects `docs/guides/protocol-v1.md`'s
+> `confirm_required` text, the `ErrConfirmRequired` comment in `internal/protocol/errors.go` (~:184-188) and the
+> 0074-MADR D35 note from deviation 3, so they say `confirm_required` is the codex surface's code for actions that need
+> an explicit confirmation — the permanent, section and project deletions (`internal/ws/codex_handlers.go`
+> ~:366/385/404) AND an unsandboxed `shell`/`spawn` without its confirmation phrase and `select_environment` without
+> confirmation (`codex_execution.go` ~:224/228) — and that provider auth never sends it; and (2) removes the two dead
+> names the legacy codex device flow left: `protocol.StartAuthPayload.ConfirmDestructive`
+> (`internal/protocol/messages.go` ~:914-923, read by no daemon code) and the phone's unused `confirmDestructive`
+> parameter on `startProviderDeviceAuth` (`apps/mobile/lib/data/ws/mcremote_client.dart` ~:3720-3737), with tests.
+
+The owner also decided that this PLAN is marked complete when P24 lands, with W3 (the loopback tunnel) recorded as
+deferred to a record of its own and the MADR's 16.5 item 14 as owned by
+`0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.
+
+### What the code says (re-read at `4614263c`)
+
+* **`confirm_required`'s senders.** `codex.threads.write` sends it for a `delete` whose `confirm` is not "delete
+  permanently", a `delete_section` without "delete section" and a `delete_project` without "delete project"
+  (`internal/ws/codex_handlers.go:366`, `:385`, `:404`). `codex.execution.write` sends it for a `shell` or `spawn`
+  whose `confirm` is not `confirmUnsandboxed` ("run unsandboxed") and for a `select_environment` without
+  `confirmEnvironment` ("change execution environment") (`internal/ws/codex_execution.go:223-230`, the phrases at
+  `:36`, `:38`). No provider-auth path sends it (P23 deviation 3; the MADR's 16.5 item 6).
+* **The three texts.** `docs/guides/protocol-v1.md:1139-1142` names only the deletions. `ErrConfirmRequired`'s comment
+  (`internal/protocol/errors.go:184-187`) says "the operation is destructive" and names only the deletions. The
+  MADR's D35 note of deviation 3 calls the code "the codex surface's live code for a deletion sent without
+  confirmation" and cites `codex_execution.go` as one. None of the three mentions the execution writes.
+* **`StartAuthPayload.ConfirmDestructive`** (`internal/protocol/messages.go:912-924`). Its comment says the daemon
+  refuses a destructive flow without it. No flow is destructive, and nothing refuses.
+* **The phone's `confirmDestructive`** (`apps/mobile/lib/data/ws/mcremote_client.dart:3720-3737`). Its comment says
+  "Without it the daemon refuses". The only caller (`apps/mobile/lib/features/settings/provider_detail_screen.dart:609`)
+  has not passed it since P23 step 5, and no test calls `startProviderDeviceAuth`.
+* **The guide's `provider.start_auth` row** (`docs/guides/protocol-v1.md:1095`) lists `confirm_destructive?`. The
+  decision does not name this row. It is in the same file as (1) and becomes false with (2).
+* **Wire compatibility.** The guide says "future protocol fields are optional and must be ignored when unknown"
+  (`docs/guides/protocol-v1.md:1942`). `handleStartAuth` decodes with `json.Unmarshal` (`internal/ws/server.go:2639`),
+  which ignores unknown members. A phone built before P23 step 5 sends `confirm_destructive: true` for codex. The
+  daemon must go on accepting that frame, so P24 adds a test that holds it (step 4).
+
+### Where the code differs from the decision
+
+**The daemon does read the field.** `handleStartAuth` passes `p.ConfirmDestructive` to the legacy
+`provider.DeviceAuth.StartDeviceAuth` (`internal/ws/server.go:2665`). That method's `confirmDestructive bool`
+parameter (`internal/provider/auth.go:281-284`) runs through `acpagent.Spec.StartDeviceAuth`
+(`internal/provider/acpagent/acpagent.go:157`, `:422-426`) and `httpagent.DeviceAuthDialect`
+(`internal/provider/httpagent/httpagent.go:296`, `:307-315`) to four implementations. Each discards it as `_ bool`:
+grok (`internal/provider/grok/device_auth.go:59`), gobble (`internal/provider/gobble/auth.go:359`), opencode
+(`internal/provider/opencode/acp_auth.go:621`) and kilo (`internal/provider/kilo/device_auth.go:21`).
+`auth.go:281-283` says so itself: "so no implementation reads it". So the field is read and passed on, and nothing
+acts on it. Removing the field breaks the build at `server.go:2665`, a file the decision does not name.
+`0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` D11 removes `provider.start_auth`,
+its payload and `DeviceAuth` at its cut-over.
+
+### Q24-A, ~~open~~ answered (a) 2026-11-12: how far the removal goes
+
+* **(a) Recommended: remove the whole chain.** Remove the field, `server.go:2665`'s argument, and the parameter from
+  `provider.DeviceAuth`, `acpagent.Spec.StartDeviceAuth`, `acpagent.Provider.StartDeviceAuth`,
+  `httpagent.DeviceAuthDialect`, `httpagent.Provider.StartDeviceAuth` and the four implementations, together with
+  their test call sites. Cost: ten Go production files and eight test files, each change a dropped `bool` argument or
+  parameter or a comment, in code that 0246's cut-over rewrites anyway. Result: the name is gone from the daemon and
+  the phone, which is what the decision intends.
+* **(b) Remove the field and pass `false` at `server.go:2665`.** The parameter stays on `provider.DeviceAuth` and
+  below, read by nothing, until 0246 removes the interface. Its comment (`auth.go:281-283`) is corrected to say it
+  carries nothing. Cost: `server.go` and `auth.go` are added to the decision's files. The daemon passes a constant
+  that every implementation discards, and step 5's search finds the parameter chain.
+* **(c) Keep the field. Remove only the phone's parameter, and correct the field's comment.** Cost: the least. The
+  dead wire field stays until the cut-over, which goes against the decision's (2).
+
+**Answer, 2026-11-12:** the owner chose (a), in the coordinator session, relayed by the coordinator.
+
+Doing nothing means the decision's (2) cannot run as written, because removing the field alone does not build. The
+steps below are written for (a). Under (b), step 2's chain shrinks to `server.go:2665` and `auth.go`'s comment,
+`TestStartDeviceAuthPassesTheMethodAndInputs` keeps its `confirm` assertion, and step 5's search expects the chain.
+Under (c), step 2 is the field's comment alone, the protocol test of step 4 is not written, and step 5's search
+expects the field.
+
+### Files
+
+* Records and guide: this PLAN; `docs/decisions/0074-MADR-remote-provider-auth-from-phone.md`;
+  `docs/guides/protocol-v1.md`.
+* Go, production: `internal/protocol/errors.go` (comment), `internal/protocol/messages.go`, `internal/ws/server.go`,
+  `internal/provider/auth.go`, `internal/provider/acpagent/acpagent.go`, `internal/provider/httpagent/httpagent.go`,
+  `internal/provider/grok/device_auth.go`, `internal/provider/gobble/auth.go`, `internal/provider/opencode/acp_auth.go`,
+  `internal/provider/kilo/device_auth.go`.
+* Go, tests changed: `internal/provider/acpagent/credential_test.go`, `internal/provider/gobble/auth_test.go`,
+  `internal/provider/grok/live_auth_test.go` (`live_grok`), `internal/provider/kilo/device_auth_test.go`,
+  `internal/provider/kilo/live_auth_write_test.go` (`live_kilo`), `internal/provider/opencode/acp_auth_test.go`,
+  `internal/ws/device_auth_wired_test.go`, `internal/provider/codex/owned_device_auth_test.go` (two comments).
+* Go, tests added: `internal/protocol/provider_auth_test.go` (one test), `internal/ws/provider_start_auth_test.go`
+  (new).
+* Dart: `apps/mobile/lib/data/ws/mcremote_client.dart`; `apps/mobile/test/provider_start_auth_client_test.dart` (new).
+
+No fixture or golden changes. If a gate shows one changing, the step stops with a dated entry.
+
+### Steps
+
+1. **The three texts (decision (1)).**
+   * `docs/guides/protocol-v1.md:1139-1142`: `confirm_required` is the codex surface's code for an action sent
+     without the explicit confirmation it needs. That is a `codex.threads.write` permanent, section or project
+     deletion without its `confirm` phrase, an unsandboxed `codex.execution.write` `shell` or `spawn` without
+     `confirm: "run unsandboxed"`, or a `select_environment` without `confirm: "change execution environment"`.
+     Provider auth never sends it (MADR 0074 D35).
+   * `internal/protocol/errors.go:184-187`: the same, as a comment. The last sentence (the code once also meant codex
+     device auth) stays.
+   * The MADR's D35 note: "a deletion sent without confirmation" struck through, followed by a dated italic note
+     (2026-11-12, P24). The note names both surfaces and their lines, and says that `codex_execution.go`'s two sends
+     are not deletions. Nothing else in the note is rewritten.
+2. **The wire field and its chain (decision (2), under Q24-A (a)).**
+   * `protocol.StartAuthPayload.ConfirmDestructive` and its comment paragraph removed. The type's comment keeps its
+     first line.
+   * The guide's `provider.start_auth` row (`docs/guides/protocol-v1.md:1095`) loses `confirm_destructive?`.
+   * `internal/ws/server.go:2665` calls `StartDeviceAuth(flowCtx, p.UpstreamID, p.MethodID, p.Inputs)`.
+   * The `confirmDestructive bool` parameter removed from `provider.DeviceAuth.StartDeviceAuth`, together with its
+     comment (`auth.go:281-283`). `OwnedDeviceAuth`'s comment (`auth.go:337-339`) loses its contrast with a parameter
+     that no longer exists: an owned flow runs against an isolated, empty pending home, so there is nothing to confirm.
+   * The parameter is removed from `acpagent.Spec.StartDeviceAuth`, `acpagent.Provider.StartDeviceAuth`,
+     `httpagent.DeviceAuthDialect`, `httpagent.Provider.StartDeviceAuth`, grok's `startDeviceAuth`, gobble's and
+     opencode's `startDeviceAuth`, and kilo's `httpDialect.StartDeviceAuth`.
+   * Test call sites drop the argument, and `legacyOff` drops the `bool`.
+     `TestStartDeviceAuthPassesTheMethodAndInputs` (`acpagent/credential_test.go:64`) loses `gotConfirm` and its
+     `!gotConfirm` clause, because the value it checked is no longer passed. It still holds the bin, upstream, method
+     and inputs. `codex/owned_device_auth_test.go:151-158`'s two comments say "takes no confirmation" in place of the
+     parameter's name.
+3. **The phone's parameter (decision (2)).** `startProviderDeviceAuth` loses `confirmDestructive`, its doc paragraph
+   and `if (confirmDestructive) 'confirm_destructive': true`. The caller is unchanged.
+4. **Tests, each seen failing on a planted break in a scratch clone, never in the tree.** The record quotes each
+   failure line.
+   * `TestStartAuthPayloadHasNoConfirmDestructive` (`internal/protocol/provider_auth_test.go`): the JSON member names
+     of `StartAuthPayload`'s exported fields, read from their tags, are exactly `provider_id`, `upstream_id`,
+     `method_id` and `inputs`. **Planted:** the field restored in `messages.go`.
+   * `TestStartAuthIgnoresAnOlderPhonesConfirmDestructive` (`internal/ws/provider_start_auth_test.go`, `ws_test`, on
+     `startAuthServer` of `provider_auth_test.go`). A provider with a legacy `provider.DeviceAuth` records its start.
+     Over protocol 2, `provider.start_auth` is sent with `confirm_destructive: true` beside the method id. The reply is
+     `ok`, an `oauth.device_flow` carries the provider's code, and the provider saw the method id. This is the
+     tolerance the guide's line 1942 requires of a removed member. **Planted:** `handleStartAuth` decoding with a
+     `json.Decoder` that has `DisallowUnknownFields`, so the reply is `bad_payload`.
+   * The chain's removal is compile-checked. **Planted:** one call in `kilo/device_auth_test.go` restored with its
+     fifth `false` argument; `go vet ./internal/provider/kilo/` fails with "too many arguments".
+   * `apps/mobile/test/provider_start_auth_client_test.dart`, on a stub daemon in the form of
+     `projects_list_client_test.dart`'s `_StubDaemon`. `startProviderDeviceAuth` sends `provider.start_auth` whose
+     payload keys are exactly `provider_id`, `upstream_id`, `method_id` and `inputs`, with `inputs` absent when
+     empty, and it returns on the `ok` reply. **Planted:** `'confirm_destructive': true` added back to the client's
+     payload.
+   * The parameter's removal is compile-checked on the phone. **Planted:** the caller at
+     `provider_detail_screen.dart:609` passing `confirmDestructive: true`; `flutter analyze` reports
+     `undefined_named_parameter`.
+   * All pass clean in the tree's copy of the step.
+5. **Assertions by search, on the final tree.**
+   `git grep -n 'confirm_destructive\|confirmDestructive\|ConfirmDestructive' -- ':!docs'` finds only step 4's two Go
+   tests: the frame literal of the tolerance test and the protocol test's member name. `git grep -n confirm_required
+   -- ':!docs'` finds the constant, its registry entry and the five senders, as at `4614263c`.
+6. **Gates** run on a scratch clone of the commit that holds this section, with the step's files copied in, as P23's
+   steps ran them:
+   * `make pre-add-check FILES="<the step's Go files>"`, `make test`, `go test -race -count=1 ./...`, `make lint`,
+     `make vet-tags` and `make vulncheck`;
+   * `make staticcheck`, with its ignored findings compared by name against the same run at `HEAD`;
+   * after `flutter pub get` in the clone: `dart format --output=none --set-exit-if-changed .`, `flutter analyze` and
+     `flutter test`;
+   * the Linux test host runs `go test -race -count=1 ./...` and the Windows test host `make ci-windows`, through the
+     scratchpad's host runner with a fresh tag. Host names are arguments only and are never written to a record;
+   * the records: `python3 -B scripts/check_records.py --check-all`, `make markdownlint-docs`, and the redact preview
+     `python3 ~/.global-git-hooks/github-disclosure.py redact` (no `--apply`).
+
+   No sign-in, no live run, no quota. The live-tagged tests are compiled by `make vet-tags`, not run.
+7. **Close-out.** An execution entry below whose first line is "The coordinator committed P24's plan as `<sha>`, on
+   the owner's authorization."
+   * This section's status: complete.
+   * This PLAN's status bullet and top note: the PLAN is `complete`. W3 (the loopback tunnel) is deferred to a record
+     of its own, as the MADR's status cell and §16 (P16) already say, and no number is allocated here. The MADR's 16.5
+     item 14 is owned by `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.
+   * The MADR's status cell gets a dated italic note saying the same.
+   * Q24-A's answer is recorded with its date.
+   * **Stage** exactly the files above, and show `git diff --cached --stat`.
+
+### Verification
+
+```bash
+make pre-add-check FILES="<the step's Go files>"
+make test
+go test -race -count=1 ./...
+make lint staticcheck vet-tags vulncheck
+cd apps/mobile && flutter pub get && dart format --output=none --set-exit-if-changed . && flutter analyze && flutter test
+go test -race -count=1 ./...        # the Linux test host
+make ci-windows                     # the Windows test host
+python3 -B scripts/check_records.py --check-all
+make markdownlint-docs
+python3 ~/.global-git-hooks/github-disclosure.py redact
+```
+
+### Rollout and rollback
+
+* The wire changes only by a phone→daemon member that is no longer sent. An older phone that still sends it is
+  accepted (step 4's tolerance test), and an older daemon never acted on it, so a newer phone against an older daemon
+  loses nothing.
+* Rollback: revert the commit. No state is written.
