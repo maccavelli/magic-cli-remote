@@ -635,6 +635,12 @@ The other four sibling modules were not re-read for this finding. P3j's P0 re-re
   drafted that day and was not in its tree when this was written, so it is named by number.
   `v0.6.0` is the gobble release that must carry the same tag
   (`0179-MADR-gobble-native-acp-provider.md` A10).
+  *(2026-11-12: by the owner's decision of that day, recorded in gobble-cli
+  `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md` (accepted), gobble `v0.6.0` is released now, from
+  gobble-cli's `main`, ahead of the ACP sign-in redesign, which becomes `v0.7.0`. "before gobble's `v0.6.0`" and
+  "`v0.6.0` is the gobble release that must carry the same tag" stay true of that release: Magic moved in `83aac453`
+  and gobble-cli's `main` in its `f441c73`, both before it, so it carries v1.36.0 and meets
+  `0179-MADR-gobble-native-acp-provider.md`'s gate 3 when published (that record's A10 note of this date).)*
 * **This is not F3d's case.** F3d to F3i each say that 0184 D12's shared pin "is needed only
   before `live-gobble`", and Magic moved ahead of gobble on that footing. Since 2026-11-11 the shared pin
   is a recorded gate that is knowingly unmet: Magic has pinned v1.35.0 since `912b9aa1`, gobble's
@@ -706,6 +712,13 @@ The other four sibling modules were not re-read for this finding. P3j's P0 re-re
   run against the `acptest` agent, whose capabilities each test sets). Third, sending a client system prompt from the phone is not in scope of this record or of 0246;
   it stays a source change for a record of its own, which reads the agent's capability first, as
   above.)*
+  *(2026-11-12, by gobble-cli `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md`: the ruling holds of the `v0.6.0`
+  released now, whose `initialize` advertises `sessionCapabilities.systemPrompt`, `append` mode alone (that record's
+  F4). The second and third things above stay true. The first's "That change is covered by the fixture recapture of
+  `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`, at its gate G2 and its run L4" no longer holds as written: G2's release is now gobble `v0.7.0`, so
+  `v0.6.0`'s `initialize` frame is in no fixture of this repository until a recapture. Recapturing at `v0.6.0`, with
+  `KnownGoodVersion` moved to `0.6.0`, before 0246's P4 is an option for the owner and is not decided
+  (`0179-MADR-gobble-native-acp-provider.md` A10's note of this date).)*
 * **Deprecations.** `Deprecated:` occurs 278 times in that repository's non-test Go files at
   v1.34.2, at v1.35.0 and at v1.36.0 (`git grep -c`, summed). That is a count, and not a
   comparison of the sets. So `make staticcheck`'s "56 ignored finding(s), each an acp-go-sdk2
@@ -1065,6 +1078,10 @@ Chosen option: **"B — Tiered by risk"**, because:
     to quote.* Then `acp-go-sdk2` to v1.36.0, together with gobble-cli's own move and before
     gobble's `v0.6.0` (F3k). The move is decided. *Its phase, P3j, was approved by the owner on
     2026-11-11 and ran that day; the PLAN's "P3j, executed" records it.*
+    *(2026-11-12: "before gobble's `v0.6.0`" stays true. By the owner's decision of that day
+    (gobble-cli `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md`, accepted), gobble `v0.6.0` is cut now
+    from gobble-cli's `main`, which pins v1.36.0 since its `f441c73`, and the ACP sign-in redesign becomes `v0.7.0`.
+    F3k's notes of this date.)*
   * `make vulncheck` must stay "clear" apart from `GO-2026-5932`.
 * **D5 — `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1, as an amendment to 0207 (F3, F3a).**
   *Amended 2026-10-30 by the owner, before phase 3: "pin go-selfupdate-lib to current v1.23.1".*

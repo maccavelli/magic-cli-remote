@@ -361,6 +361,18 @@ gobble-cli `v0.6.0`, and the tag both sides must pin is acp-go-sdk2 `v1.36.0`. T
 releases `v0.4.0` and `v0.5.0` pin `v1.34.2`, and gobble-cli's `main` pins `v1.35.0`. At this gate the release's
 `go.mod` and this repository's must both read `v1.36.0`. Anything else is a stop, a release tagged `v0.6.0` on
 another tag included. The gate is verified again at P7 step 3.)*
+*(2026-11-12, the owner's decision of that day, recorded in gobble-cli
+`0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md` (accepted) and relayed by the cross-repository
+coordinator: gobble-cli releases `v0.6.0` now, from its `main`, and the ACP sign-in redesign this gate waits for
+(gobble-cli's 0051 and 0052) is released as `v0.7.0`. Read this gate with `v0.7.0` for the redesign's `v0.6.0`: "a
+gobble release at or above `v0.6.0`" is "at or above `v0.7.0`"; "the G2 release is gobble-cli `v0.6.0`" is `v0.7.0`;
+"a release tagged `v0.6.0` on another tag" is one tagged `v0.7.0`. The gate-3 check stays, read from `v0.7.0`'s
+`go.mod`, which must read `v1.36.0` as this repository's does; anything else is a stop, as above. "Until `v0.6.0`,
+gate 3 is knowingly unmet" names the release cut now: both sides pin `v1.36.0` (this repository since `83aac453`, P3j
+having landed; gobble-cli's `main` since its `f441c73`), so gate 3 is met when `v0.6.0` is published
+(`0179-MADR-gobble-native-acp-provider.md` A10's note of this date). `v0.6.0` does not open G2: it adds no
+`_meta.gobble.methods`, and the acpext it is built with has no `fresh` (that record's F5, F6), so an unamended reading
+of this gate would stop on it.)*
 *(2026-11-11, later the same day, the owner's rulings R1, R2 and R4, relayed by the coordinator. Each is read from
 the G2 release's tagged source, and from its `--help` or its tests where a behaviour is not a type, never assumed;
 nothing signs in and no quota is spent. A miss is a stop, recorded as a deviation (C6), except where a bullet says
@@ -751,6 +763,13 @@ echo "refs/heads/master $(git rev-parse HEAD) refs/heads/master $(git rev-parse 
      At step 3, `v0.6.0` must pin acp-go-sdk2 `v1.36.0`, G2's note of that day.)*
      *(2026-11-11, later: P4a lands between P4 and P5 in the same release. At step 3, `v0.6.0` must also hold G2's
      R1 and R2 checks of that day.)*
+     *(2026-11-12: step 3's release is now gobble `v0.7.0`: gobble-cli tags `acpext/v0.5.0` and releases `v0.7.0`, and
+     G2 opens then. By gobble-cli `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md`
+     (accepted that day), gobble `v0.6.0` is released earlier, from gobble-cli's `main` and without the redesign; it
+     comes after step 0, is not one of these steps, meets 0179's gate 3 when published, and opens nothing here. "At
+     step 3, `v0.6.0` must pin acp-go-sdk2 `v1.36.0`" and "`v0.6.0` must also hold G2's R1 and R2 checks" now read
+     `v0.7.0`. Whether this repository adopts `v0.6.0` before P4 (`KnownGoodVersion` and the fixture) is the owner's,
+     not decided (`0179-MADR-gobble-native-acp-provider.md` A10's note of this date).)*
 * **Rollout:** after the release, a phone of the old build is refused at connect with `app_outdated`, and an old
   daemon is refused by the new app. The owner updates both. Stored credentials are untouched: the agents own them
   (`0074-MADR-remote-provider-auth-from-phone.md` D2), and the coordinator's manifests do not change.

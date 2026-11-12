@@ -1243,6 +1243,10 @@ give gobble's row its value in the new column. Its text names codex's and grok's
 **Gate 3 while P4 lands.** P4 is committed with this repository on acp-go-sdk2 `v1.35.0`, or `v1.36.0` if 0217's P3j
 has landed, and gobble `0.4.0` built on `v1.34.2`. MADR A10 states that risk and where the gate is checked again.
 P4's close records the two tags as they are at its commit.
+*(2026-11-12: by the owner's decision of that day, recorded in gobble-cli
+`0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md` (accepted), gobble `v0.6.0` is released now from gobble-cli's `main`, which pins
+acp-go-sdk2 `v1.36.0`, as this repository has since `83aac453`. The window this paragraph describes ends when `v0.6.0`
+is published. P4 stays against `0.4.0`. MADR A10's note of this date has the rest.)*
 
 ## P4 — 2026-11-11: registration, executed
 
@@ -1305,6 +1309,10 @@ P7's L4 (MADR A9.5, proposed), by the owner's Q19 answer and under C10.
 **Gate 3 at this commit** (MADR A10). `go.mod` pins acp-go-sdk2 `v1.35.0` and `acpext v0.3.0`; 0217's P3j has not
 landed. gobble `0.4.0`, the supported release, pins acp-go-sdk2 `v1.34.2`. The two sides are on different tags, which
 D14's gate 3 forbids; A10 records it as knowingly unmet until gobble `v0.6.0`.
+*(2026-11-12: "knowingly unmet until gobble `v0.6.0`" still names the release that ends the window, now cut early:
+gobble-cli releases `v0.6.0` from its `main`, on acp-go-sdk2 `v1.36.0` like this repository since `83aac453` (0217's
+P3j), so gate 3 is met when it is published (gobble-cli `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md`, accepted 2026-11-12). The ACP sign-in redesign, 0246's
+G2 release, is now gobble `v0.7.0`. MADR A10's note of this date.)*
 
 **Staged for the owner's commit:** `Makefile`, the four configs, `docs/guides/config.md`,
 `internal/command/resolve_order_test.go`, `internal/config/prewarm_write.go` and its test,

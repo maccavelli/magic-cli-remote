@@ -84,6 +84,18 @@ For A10, each gobble-cli ref's `go.mod` was read with `git show <ref>:go.mod` in
 gobble-cli. acp-go-sdk2 was read in a local clone, read-only: the three tags, `git diff` and `git rev-list` between
 them, and its own release notes for `v1.35.0` and `v1.36.0`.
 
+**Re-read 2026-11-12, for A10's note of that date.** The tables above stay as written.
+
+| Side | Read at | acp-go-sdk2 | go-llmprovider-sdk | acpext |
+| :--- | :--- | :--- | :--- | :--- |
+| This repository | `d78d42ea` (master, tag `v0.26.0`) | `v1.36.0`, since `83aac453` (0217's P3j) | `v1.29.0` | `v0.4.0` |
+| gobble-cli `main` | `cc1d55e`, the tree gobble `v0.6.0` is cut from (gobble-cli `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md` D1) | `v1.36.0`, since `f441c73` | `v1.29.0` | `v0.3.0` |
+| gobble-cli `v0.6.0` | not tagged on this date: `git ls-remote --tags origin 'v0.6*' 'v0.7*'` lists nothing | — | — | — |
+
+For this note, this repository's `go.mod` and `internal/provider/gobble/gobble.go` (`KnownGoodVersion = "0.4.0"`)
+were read at `d78d42ea`, gobble-cli's `go.mod` at `cc1d55e` with `git show`, and gobble-cli's 0055 MADR and PLAN at
+its `554f3f4`, all read-only. Nothing was built or run.
+
 The `initialize`, `session/new`, `session/list` and `authenticate` facts marked **(run)** come from one run of the
 installed `gobble acp`. It ran under `env -i`, with `HOME` and `GOBBLE_HOME` in a scratch directory, so no credential
 was present and no provider could be reached. No prompt was sent. The directory was removed afterwards.
@@ -728,6 +740,14 @@ gobble is registered when all of these hold:
    repository pins `v1.35.0`; gobble `v0.4.0` and `v0.5.0` pin `v1.34.2`; only gobble-cli's `main` pins `v1.35.0`.
    `v0.6.0` must pin this repository's tag, which is `v1.36.0` by then. The gate is a stop at 0246's G2 and is
    verified again at its P7.*
+   *(2026-11-12, on the owner's decision of that day, recorded in gobble-cli
+   `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md` (accepted; committed in gobble-cli as `554f3f4`): the A10 note's "knowingly
+   unmet until gobble `v0.6.0`" and "`v0.6.0` must pin this repository's tag, which is `v1.36.0` by then" now name a
+   release cut early, from gobble-cli's `main`, ahead of the ACP sign-in redesign. That `main` pins acp-go-sdk2
+   `v1.36.0` (since gobble-cli `f441c73`), as this repository has since `83aac453` (0217's P3j), so **gate 3 is met
+   when gobble-cli publishes `v0.6.0`** (its 0055-PLAN P2; not tagged on this date). The redesign, which 0246's G2
+   waits for, is now gobble `v0.7.0`: "The gate is a stop at 0246's G2" holds, read from `v0.7.0`'s `go.mod`, and it
+   is verified again at that plan's P7. A10's note of this date says what else is read anew.)*
 4. D12's unit tests pass, each seen failing first; `live-gobble` passes on the owner's word.
 5. grok's, opencode's, kilo's and codex's suites pass unchanged.
 6. An `acpext` tag on the proxy, the one the gate-2 release was built with. **Met: `acpext/v0.1.0`.** *A2: for
@@ -1068,6 +1088,44 @@ four-repository auth-contract work (go-llmprovider-sdk, gobble-cli, this reposit
 owner's wording was relayed, so none is quoted. A9, above, is not part of this amendment: it stays a proposed draft,
 and nothing here accepts or changes it. *Later the same day the owner accepted A9 on its own; this amendment still
 neither accepts nor changes it.*
+
+*(Note, 2026-11-12, on the owner's decision of that day, recorded in gobble-cli
+`0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md` (accepted; committed in gobble-cli as `554f3f4`) and relayed by the
+cross-repository coordinator: gobble-cli releases `v0.6.0` now, from its `main` as it stands, and the ACP sign-in
+redesign (gobble-cli's 0051 and 0052), which this amendment and
+`0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` and its PLAN call `v0.6.0`, is
+released as `v0.7.0`. The text below is kept as written; read it with these points.)*
+
+* *The heading's and the ruling's "knowingly unmet … until gobble-cli `v0.6.0`" and "`v0.6.0` is the gobble release
+  that must pin the same acp-go-sdk2 tag as this repository": true of the release cut now. gobble-cli's `main` pins
+  `v1.36.0` since its `f441c73`, and this repository since `83aac453` (0217's P3j), so **gate 3 is met when
+  gobble-cli publishes `v0.6.0`** (its 0055-PLAN P2), and the window this amendment opened ends there. It was not
+  tagged on this date (the Baselines' re-read of this date).*
+* *"the two together and before `v0.6.0` is cut", and item 3 of "Where the gate is checked again" ("`v0.6.0` is cut
+  after both"): met. Both moves landed before the tag.*
+* *"It holds again from `v0.6.0`" (A1's rule): from the release cut now.*
+* *"No interim gobble release is cut to close the gate": still true. `v0.6.0` is the release this amendment named, cut
+  earlier and for gobble's own reason (a build on Go 1.27.4 for GO-2026-6859, that record's Context), not a release
+  cut for the pin alone. The option declined under "Alternatives" ("an interim gobble release on this repository's
+  tag … shortly before `v0.6.0`") and the one left unanswered ("holding P4 until `v0.6.0`") are history and stay.*
+* *"`KnownGoodVersion` and the `0.4.0` fixture stay until `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P4 replaces them with the G2 release's": still the
+  rule, and the G2 release is now gobble `v0.7.0`. **Adopting `v0.6.0` earlier** (raising `KnownGoodVersion` to
+  `0.6.0` and recapturing the wire fixture) **is an option for the owner, not decided here and in no plan.** What
+  bears on it, from gobble-cli's record: `v0.6.0`'s `initialize` advertises `sessionCapabilities.systemPrompt`, which
+  the `0.4.0` fixture does not hold (this daemon sends no `systemPrompt`,
+  `0217-MADR-update-every-pin-to-its-current-release.md` F3k); a failed turn's error data and `_gobble/retry` gain
+  members, additions to acpext's shapes that acpext `v0.4.0` decodes (its F4 and Consequences); it does not change
+  `gobble auth login --json`, ACP `authenticate` or `_meta.gobble.*` (its F5); and it is built with acpext `v0.3.0`,
+  where this repository requires `v0.4.0`, so the binary does not ship acpext's newer facts (its F6, F9).*
+* *Item 1 of "Where the gate is checked again" ("The G2 release's `go.mod` is read there … Its note of 2026-11-11
+  names `v0.6.0` and `v1.36.0`"): the G2 release is now `v0.7.0`; the check stays, read from `v0.7.0`'s `go.mod`
+  (that note gains a note of this date). Item 2, at that PLAN's P7 step 3, is unchanged.*
+* *"The risk, as it is": "every gobble a user can install … was built on another" stops being true when `v0.6.0` is
+  published. "The fixture proves less than D12 meant" stays true while the fixture is `0.4.0`'s, built on
+  `v1.34.2`. "it runs once, at the cut-over, against the G2 release" now means `v0.7.0`. "Bounded by nothing" gains
+  an installed `v0.6.0`: both sides on `v1.36.0`, and still no live run and no fixture of it.*
+* *"Consequences of A10": the first Bad ("gobble is a registered provider whose release fixture was captured from a
+  build on another SDK tag") holds while `KnownGoodVersion` is `0.4.0`.*
 
 **What D14 says, and what is so** [observed 2026-11-11; Baselines, A10's re-read]. Gate 3 ends "*A2 (2026-11-09):
 **met again**: gobble `v0.4.0` and this repository both pin `v1.34.2`.*" That held for one day.
@@ -1413,6 +1471,8 @@ files there are gobble-cli's own pair, written on the owner's word (Q4, 2026-11-
   repository's acp-go-sdk2 tag, `v1.36.0`. No interim gobble release is cut, P4 lands inside the window, and the
   gate is checked as a stop at 0246's G2 and again at its P7. A9 is still a proposed draft and has no line here
   yet.
+  *(2026-11-12: gate 3 is met when gobble `v0.6.0` is published, now cut early; the G2 release is `v0.7.0`. The
+  entry of that date below.)*
 * **2026-11-12.** Amendment A9, proposed 2026-11-10 and accepted on its own on 2026-11-11 (after A10's line above),
   with the owner's answers of 2026-11-10 (Q14, Q19, QB (a), QC (i), A9.2 (a), and the timing DF): `acpext v0.4.0`
   now, in its own commit with the two device id tables and their partition test (A9.1, A9.2); the code read bounded
@@ -1421,3 +1481,8 @@ files there are gobble-cli's own pair, written on the owner's word (Q4, 2026-11-
   applied A9.1 and A9.2 on 2026-11-12, its 7b applied A9.3 the same day (the device-code read bounded at 30 s,
   the silent child cancelled), and its 7c applied A9.4 (a status row with a `reason` is not ready: missing, no method
   `Configured`, not in the handshake's preference). With 7c committed, P7 is complete.
+* **2026-11-12.** A note on A10 and on D14's gate 3, with a dated re-read in the Baselines, on the owner's decision
+  of that day, recorded in gobble-cli `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md` (accepted): gobble `v0.6.0` is released now from gobble-cli's `main`,
+  which pins acp-go-sdk2 `v1.36.0` as this repository does, so gate 3 is met when it is published; the ACP sign-in
+  redesign that 0246's G2 waits for becomes gobble `v0.7.0`. `KnownGoodVersion` and the `0.4.0` fixture stay; adopting
+  `v0.6.0` before 0246's P4 is left to the owner as an option. No status changes.

@@ -868,6 +868,10 @@ section's line numbers in this repository are read at `14200b6e`, and re-read at
 * Neutral, because key writes, clears and the upstream switch keep their messages.
 * Bad, because the release order spans three repositories, and Magic's cut-over waits for the contract tag, gobble's
   `v0.6.0` and `acpext/v0.5.0`.
+  *(2026-11-12: gobble's release here is now `v0.7.0`. By the owner's decision of that day, recorded in gobble-cli
+  `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md` (accepted), gobble `v0.6.0` is released now from
+  gobble-cli's `main` without the ACP sign-in redesign: it changes neither `gobble auth login --json`, ACP
+  `authenticate` nor `_meta.gobble.*` (that record's F5). The redesign this cut-over waits for is `v0.7.0`.)*
 * Bad, because D7's kilo and opencode rows depend on `oauth`, `at_start` and `command`, which the owner's O1 and O3
   put into the contract before its first tag: the cut-over cannot start until that tag holds them (PLAN gate G1).
 * Bad, because a sign-in holds a gobble process for up to 16 minutes, one per session, within the 8-session limit.
@@ -880,11 +884,13 @@ section's line numbers in this repository are read at `14200b6e`, and re-read at
   new, ships while that window is open. It adds no new wait on another repository, since P4 already waits for
   gobble's `v0.6.0` (G2) and P4a reads the same release, but it lengthens the stretch from G2 to P6. The owner chose
   this, over a record of its own, on 2026-11-11.
+  *(2026-11-12: "gobble's `v0.6.0` (G2)" now reads `v0.7.0`, the note on the release order above.)*
 * *(2026-11-11, R1.)* Bad, because D13 rests on four more things gobble's `v0.6.0` must hold (the PLAN's G2's notes
   of R1), and gobble's records leave three questions about them open (More Information, "Dependencies D13 found",
   items 1 to 3).
   *(2026-11-11, later: aligned with gobble-cli's final 0052; items 1 to 3 are now resolved in gobble's records,
   each as its note in that subsection says. G2 still reads each from the tagged release.)*
+  *(2026-11-12: "four more things gobble's `v0.6.0` must hold" now reads `v0.7.0`, the G2 release.)*
 * *(2026-11-11, R2.)* Good, because no gobble sign-in the phone starts binds a port on the host, and the phone is
   never offered a gobble method it cannot finish.
 
@@ -990,6 +996,10 @@ section's line numbers in this repository are read at `14200b6e`, and re-read at
   says the gate is knowingly unmet from `912b9aa1` until gobble `v0.6.0`, on acp-go-sdk2 `v1.36.0`; the PLAN's G2
   and P7 step 3 carry the two checks)*; D16's "The gobble package does not import
   go-llmprovider-sdk" amended for `authcontract`.
+  *(2026-11-12, of the A10 note above: gate 3 is met when gobble `v0.6.0` is published. gobble-cli releases it now
+  from its `main`, on acp-go-sdk2 `v1.36.0` like this repository (gobble-cli
+  `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md`; 0179-MADR A10's note of this date). The G2 release, the
+  redesign, is now `v0.7.0`, and the gate is read again there and at P7 step 3.)*
 * [0086-MADR-phone-provider-auth-completion.md](0086-MADR-phone-provider-auth-completion.md) D6: its `browser_only`
   reason, already superseded for SuperGrok by `0074-MADR-remote-provider-auth-from-phone.md` §16 D30, is removed with the reason itself (D4).
 * [0095-MADR-post-0094-assessment-and-debug-pass.md](0095-MADR-post-0094-assessment-and-debug-pass.md) D7's table,

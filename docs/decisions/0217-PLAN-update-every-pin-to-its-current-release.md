@@ -2691,6 +2691,13 @@ Magic under this phase. The two land together. gobble's `v0.6.0`, cut after both
 that must carry Magic's tag. Until it exists, D14's gate 3 of
 `0179-MADR-gobble-native-acp-provider.md` is knowingly unmet (its A10). Magic changes no gobble-cli
 file.
+*(2026-11-12: by the owner's decision of that day, recorded in gobble-cli
+`0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md` (accepted), gobble `v0.6.0` is released now from
+gobble-cli's `main`, ahead of the ACP sign-in redesign, which becomes `v0.7.0`. "before gobble's `v0.6.0`" (Deviation
+29's Found), "gobble's `v0.6.0`, cut after both, is the release that must carry Magic's tag" and, below, "in any case
+before gobble's `v0.6.0` is cut" stay true of that release: both sides pinned v1.36.0 before it (`83aac453` here,
+`f441c73` in gobble-cli), so 0179's gate 3 is met when `v0.6.0` is published. 0246's G2 now reads `v0.7.0`'s
+`go.mod`, and the lockstep runs on to it.)*
 
 **Where it lands.** The owner's order of 2026-11-11 for this repository is in
 [0179-PLAN-gobble-native-acp-provider.md](0179-PLAN-gobble-native-acp-provider.md), entry "P4 —
@@ -2759,6 +2766,12 @@ file.
      `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` at its G2
      and L4, not by this phase. Sending a client system prompt from the phone is not in scope here or
      in 0246.
+   * *(2026-11-12: gobble's `v0.6.0`, released now by gobble-cli
+     `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md`, is the release that advertises
+     `sessionCapabilities.systemPrompt`, and the two tests above stay. "covered by the fixture recapture of
+     `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` at its G2 and L4" now means gobble `v0.7.0`, the G2 release: `v0.6.0`'s `initialize` frame is in no
+     fixture until a recapture, and recapturing at `v0.6.0` is an option for the owner, not decided
+     (`0179-MADR-gobble-native-acp-provider.md` A10's note of this date).)*
 4. **The wire fixtures do not change.** In the scratch clone after steps 2 and 3, `git status
    --short` lists `go.mod`, `go.sum` and the two new test files, and `git diff --stat HEAD --
    '*testdata*'` is empty. The committed fixtures, which every gate below must read unchanged:
@@ -2774,6 +2787,8 @@ file.
    differently.
    *(2026-11-11: `0.4.0` stays the gobble fixture this phase reads. gobble's `v0.6.0` `initialize`
    frame, which adds `sessionCapabilities.systemPrompt`, arrives with 0246's recapture, not here.)*
+   *(2026-11-12: "arrives with 0246's recapture" now means the recapture at 0246's G2 release, gobble `v0.7.0`,
+   unless the owner chooses to recapture at `v0.6.0` first (step 3's note of this date).)*
 5. **The gates of P3g step 3,** on the scratch clone:
    * `make pre-add-check FILES="internal/provider/acpagent/system_prompt_test.go
      internal/provider/grok/resume_request_test.go"`;
@@ -2820,6 +2835,9 @@ file.
 
 Not an acceptance criterion of this phase: gobble's `v0.6.0`. Gate 3 of 0179 stays unmet after
 this phase, until that release (its A10).
+*(2026-11-12: that release is now cut early, from gobble-cli's `main` on v1.36.0 (gobble-cli
+`0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md`), so gate 3 is met when it is published. It is still not
+this phase's criterion.)*
 
 **Scope.** `go.mod`, `go.sum` and two new test files. No source changes, no fixture changes, no
 workflow changes. One check is added, in two tests, each seen failing.
@@ -2828,6 +2846,9 @@ workflow changes. One check is added, in two tests, each seen failing.
 two tests stay valid at v1.35.0, so they need not be reverted with the pin. A revert after
 gobble-cli's `main` has moved leaves the two sides apart again: say so to the owner before
 reverting, and after `v0.6.0` is cut treat it as a stop, because it un-meets gate 3.
+*(2026-11-12: gobble-cli's `main` moved in `f441c73`, and gobble `v0.6.0` is now being cut from it (gobble-cli
+`0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md`). Once it is tagged, "treat it as a stop" applies: a revert of
+`83aac453` un-meets gate 3.)*
 
 **Not in P3j:**
 
@@ -2945,6 +2966,9 @@ before any filter. Go was `go1.27.4` on this Mac and on both test hosts.
   acp-go-sdk2 v1.36.0 from `f441c73`, its record 0054 P2, pushed with `b6adb5a`, whose CI run
   `43119674374` passed. The two sides share the tag from then on. 0179's gate 3 still waits for a gobble
   release, `v0.6.0`, per 0179-MADR A10.)*
+  *(2026-11-12: "0179's gate 3 still waits for a gobble release, `v0.6.0`" holds, and that release is now cut early,
+  from gobble-cli's `main` at `cc1d55e`, which pins v1.36.0 (gobble-cli `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md`,
+  accepted). Gate 3 is met when it is published. The ACP sign-in redesign is now gobble `v0.7.0`.)*
 * Sending a system prompt or any other v1.36.0 API, `acpext` v0.4.0, the `authcontract` module, the
   non-sibling modules above, and gobble's `v0.6.0`. No live agent ran and no quota was spent (C9).
 
