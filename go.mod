@@ -12,7 +12,7 @@ require (
 	github.com/maccavelli/go-llmprovider-sdk v1.29.0
 	github.com/maccavelli/go-selfupdate-lib v1.26.2
 	github.com/maccavelli/go-tui-lib/v2 v2.12.0
-	github.com/maccavelli/gobble-cli/acpext v0.3.0
+	github.com/maccavelli/gobble-cli/acpext v0.4.0
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/mholt/acmez/v3 v3.1.7
 	github.com/spf13/cobra v1.10.2

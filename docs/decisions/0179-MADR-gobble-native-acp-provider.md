@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-11-11
+date: 2026-11-12
 decision-makers: Project Owner
 consulted: "this repository at 938b0002, read from code; gobble-cli at v0.2.0 (0da1f2d, 2026-11-06) and acpext/v0.1.0 (4d1eb01), read from code and, for initialize, session/new, session/list and authenticate, from a no-credential run of the installed binary; acp-go-sdk2 v1.34.0, the pin of both; the module proxy for acpext/v0.1.0; this record's previous body (e020cd54); 0074, 0184, 0185, 0186, 0208, 0234 and 0235; gobble-cli's 0008, 0017, 0042 and 0043 records and its 0009-REPORT. For amendment A1 (2026-11-08): issue #36; this repository at 5b3533fc; gobble-cli's go.mod at v0.2.0, v0.3.0, v0.3.1 and main (4970cca), and acpext/v0.1.0's types.go, read through the GitHub API. For amendment A2 (2026-11-09): issue #37 and the owner's comment on it; this repository at 15cec5a8; gobble-cli v0.4.0 (2e83cce): its go.mod and internal/cli/version.go; acpext/v0.2.0 (253e366): methods.go, types.go, doc.go, go.mod and testdata/, and its diff from acpext/v0.1.0, read through the GitHub API"
 informed: gobble-cli, acp-go-sdk2
@@ -428,6 +428,9 @@ by gobble, not by this repository.
   the agent method id; its `Name` is the label. Source `static`.
   * Every upstream offers `api_key`. Claude's key takes an optional workspace input.
   * `oauth_device` for the providers `AuthProviders()` marks with a login: grok and kilo at `v0.1.0`.
+    *A9.2 (2026-11-12, applied in the PLAN's P7a): for the ids in the `deviceSignIn` table alone, grok and kilo. At
+    `acpext v0.4.0` openai is marked `Login` as well, but gobble refuses `--method device` for it, so it is in the
+    `noPhoneSignIn` table and has no device method. Both tables go at 0246's cut-over.*
   * `oauth_browser` for grok, marked unavailable (`host_oauth`, W3): gobble's browser login opens a browser on the
     host.
 * **Writes.**
@@ -437,6 +440,8 @@ by gobble, not by this repository.
   * `StartDeviceAuth` runs `gobble auth login <id> --method device --json`. It reads the `device_code` event for the
     phone's `DeviceFlow` (URL and code), then waits for the process to end, surfacing an `error` event's message. The
     child runs with the daemon's environment, so it writes the store gobble sessions read.
+    *A9.2 (2026-11-12, P7a): it accepts an id in `deviceSignIn` alone. Any other id, openai included, is
+    `ErrAuthMethodUnsupported`, with no child run.*
   * gobble is not added to the Codex/grok transactional coordinator (`internal/daemon/credentials.go`). Its writes are
     gobble's own, under gobble's own lock on `auth.json` (`internal/auth/store.go:26`).
 * **Status** (`AuthStatus`): presence per upstream, never the secret, fast enough for every `providers.list`.
@@ -493,6 +498,8 @@ This closes G8.
 * The `acpext` version required is the one the `KnownGoodVersion` release was built with: `v0.1.0` for `v0.2.0`.
   *A1: the same rule holds for the target release. Every gobble release so far, and `main`, carries `acpext v0.1.0`.*
   *A2 (2026-11-09): no longer so. `v0.4.0` requires `acpext v0.2.0`, so that is the version for it.*
+  *A9.1 (2026-11-12, P7a): amended for one bump. The pin is `acpext v0.4.0`, ahead of every gobble release, for the
+  auth table's sake; `KnownGoodVersion` stays `0.4.0`.*
 * *A2 (2026-11-09): **the supported minimum is gobble `v0.4.0`**, the first release that sends compaction as
   `compaction_update` (D10) and the first on this repository's acp-go-sdk2 tag (A1). It is stated here and in
   `docs/guides/config.md`, and not enforced: no `MinVersion` is set for it, since `MinVersion` counts a prerelease as
@@ -657,7 +664,10 @@ Unchanged from the second body.
      fails it, which no frozen fixture can;*
   8. `AuthCatalogList` equals `acpext.AuthProviders()`. `SetCredential` passes the key on stdin and never in argv.
      `StartDeviceAuth` for a provider without a login is `ErrAuthMethodUnsupported`. These run against a scratch
-     `GOBBLE_HOME` and a stub `gobble` binary, never the host's store;
+     `GOBBLE_HOME` and a stub `gobble` binary, never the host's store; *A9.2 (2026-11-12, P7a): "without a login"
+     reads "without a `deviceSignIn` entry", and the catalog's device methods are exactly that table's ids. Two
+     further tests: the two tables partition the providers acpext marks `Login`, and `StartDeviceAuth` for openai runs
+     no child;*
   9. every captured `_gobble/*` frame, and `initialize`'s `_meta.gobble`, decodes into its acpext type with unknown
      members refused, and encodes back to the same JSON; *A2: so does each captured `compaction_update`'s
      `_meta.gobble`, as `acpext.CompactionMeta`;*
@@ -700,6 +710,8 @@ The second body's D13, with its facts updated.
   ties the two.
 * A bump is a dependency change under a PLAN, with fixtures re-captured from the gobble release that carries it. acpext
   is gobble-cli's, changed only through gobble-cli's records, never through a `replace` or a fork.
+  *A9.1 (2026-11-12, P7a): waived for the bump to `acpext v0.4.0`, since no gobble release carries it. The `0.4.0`
+  fixture stays, and the fixture tests passed unchanged at the new pin.*
 
 ### D14. The gates, restated
 
@@ -1401,3 +1413,9 @@ files there are gobble-cli's own pair, written on the owner's word (Q4, 2026-11-
   repository's acp-go-sdk2 tag, `v1.36.0`. No interim gobble release is cut, P4 lands inside the window, and the
   gate is checked as a stop at 0246's G2 and again at its P7. A9 is still a proposed draft and has no line here
   yet.
+* **2026-11-12.** Amendment A9, proposed 2026-11-10 and accepted on its own on 2026-11-11 (after A10's line above),
+  with the owner's answers of 2026-11-10 (Q14, Q19, QB (a), QC (i), A9.2 (a), and the timing DF): `acpext v0.4.0`
+  now, in its own commit with the two device id tables and their partition test (A9.1, A9.2); the code read bounded
+  at 30 s (A9.3); gobble's `reason` read (A9.4); the PLAN's P6 moved to
+  `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7 (A9.5). The PLAN's P7a
+  applied A9.1 and A9.2 on 2026-11-12; 7b and 7c wait.

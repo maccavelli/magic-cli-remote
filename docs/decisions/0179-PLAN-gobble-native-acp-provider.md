@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-11-11
+date: 2026-11-12
 associated-madr: "0179-MADR-gobble-native-acp-provider.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -454,7 +454,7 @@ Files: `tools/vendor-icons/sync.sh`; `apps/mobile/assets/vendor_icons/gobble.svg
 5. **No Dart branch:** `rg -n "'gobble'" apps/mobile/lib` finds only the generated manifest.
 6. Dart gates (C6). **Commit.**
 
-### P6 — acceptance and close-out (MADR Confirmation)
+### P6 — acceptance and close-out (MADR Confirmation) — moved to 0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md P7 (MADR A9.5, 2026-11-12)
 
 **Gate:** P4 committed; the owner's word for the live run (C10). P5 may land before or after.
 
@@ -1087,7 +1087,8 @@ but a later public model id could collide in the same way. Each is its own provi
 
 ## P7 — proposed 2026-11-10, approved 2026-11-11: MADR A9, acpext `v0.4.0`, the device table, the bounded code read, gobble's `reason`
 
-**Status: approved 2026-11-11, not started.** The owner accepted MADR A9 and approved this phase on 2026-11-11
+**Status: approved 2026-11-11; 7a staged 2026-11-12 (the entry "P7a — 2026-11-12" at the end of this plan), 7b and
+7c not started.** The owner accepted MADR A9 and approved this phase on 2026-11-11
 ("accept and approve 0179 a9"). It starts at its place in the order (the entry "P4 — 2026-11-11" below): after
 `0074-PLAN-remote-provider-auth-from-phone.md` P23 steps 6 to 9, on the owner's word for each of 7a, 7b and 7c.
 ~~Nothing here starts before the owner accepts MADR A9 and approves this phase.~~ The owner answered
@@ -1308,3 +1309,107 @@ D14's gate 3 forbids; A10 records it as knowingly unmet until gobble `v0.6.0`.
 `internal/command/resolve_order_test.go`, `internal/config/prewarm_write.go` and its test,
 `internal/provider/registered/registered.go`, `internal/provider/auth_conformance_test.go`,
 `internal/provider/gobble/live_gobble_test.go`, `internal/provider/gobble/wirecap_host_test.go`, and this plan.
+
+## P7a — 2026-11-12: acpext `v0.4.0`, the two device id tables, their tests
+
+Run by the coordinator after the owner handed this repository over; 0074 P23 closed at `dde47a11`.
+
+On the owner's word of 2026-11-11 ("accept and approve 0179 a9"), who approved 7a, 7b and 7c to run back to back, this
+entry records 7a only: steps 0, 1 and 2 of P7, MADR A9.1 and A9.2, with step 5's tests for them. 7b (A9.3) and 7c
+(A9.4) are not started. Nothing here spent quota or ran a live suite. Every command wrote a log in the session
+scratchpad with its exit status taken before any filter. Go was `go1.27.4` on this Mac and on both test hosts.
+
+**Start state, verified.** Branch `master`, HEAD `dde47a11`, three commits ahead of `origin/master`, working tree
+clean, index empty. `go.mod` required `acpext v0.3.0`; `KnownGoodVersion` was `0.4.0`. Per C2 the lines the MADR cites
+were read again: `0074-PLAN-remote-provider-auth-from-phone.md` P23 step 5 left `internal/provider/gobble/auth.go`
+as the 2026-11-09 commit had it (`git log` of the file ends at `6c8f2623`), so `if p.Login` in `methods` and the
+`!p.Login` guard in `startDeviceAuth` were where A9 says.
+
+**The tag, read-only** in gobble-cli: `acpext/v0.4.0` peels to `d6c10a5e15f2`. Two commits since `acpext/v0.3.0`
+touch `acpext/`: `d6c10a5` (openai: `{Command: "gobble auth login openai", Login: true}`) and `6cee0af`
+(`ErrorData.WindowMinutes`, `omitzero`). `AuthProvider` is `{ID, Name, Command string; Login bool}` at both tags. At
+the tag the `Login` providers are exactly openai, grok and kilo.
+
+**Step 0, the records.** MADR A9 was already marked accepted. Dated italic notes (2026-11-12) were added to D3's
+catalog and `StartDeviceAuth` bullets, D5's acpext rule, D12 item 8 and D13's recapture rule, and a History line for A9;
+this plan's P7 status line and P6 heading were annotated ("moved to
+`0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7 (MADR A9.5)"); both records' `date` is
+2026-11-12.
+
+**Step 1, the pin,** in a scratch clone of `dde47a11` first: `go get github.com/maccavelli/gobble-cli/acpext@v0.4.0`
+("upgraded ... v0.3.0 => v0.4.0"), `go mod tidy` exit 0. `go.mod` changed one line; `go.sum` changed the module's two
+lines (the `h1:` of the zip, `9gYm1n6J…` to `99tSH9FL…`; the `/go.mod` line is byte-identical, the module requires
+nothing) and no other. No other module moved, `go 1.27.4` stays, there is no `toolchain` line, and no file under
+`testdata` changed. `go list -m github.com/maccavelli/gobble-cli/acpext` reports `v0.4.0`.
+
+**Step 2, the tables.** In `internal/provider/gobble/auth.go`, beside `methodAPI`: `deviceSignIn = {"grok", "kilo"}`
+and `noPhoneSignIn = {"openai"}`, each commented with MADR A9.2 and its removal at 0246's cut-over. `methods` lists
+`oauth_device` for `deviceSignIn` alone. `startDeviceAuth` still refuses an unknown id as before, and refuses any id
+not in `deviceSignIn` with `provider.ErrAuthMethodUnsupported` before it builds a command. `p.Login` is no longer read
+in non-test code. `noPhoneSignIn` is read by the partition test alone.
+
+**Tests,** in `internal/provider/gobble/auth_test.go`:
+
+* `TestCatalogIsAcpextsProviders` (rewritten): upstreams in acpext's order; `oauth_device` exactly for `deviceSignIn`;
+  openai has none; grok's browser row as before.
+* `TestDeviceTablesPartitionAcpextsLogins` (new): every acpext `Login` id is in exactly one table; every table id is one
+  acpext lists.
+* `TestDeviceAuthNeedsALogin` renamed `TestDeviceAuthNeedsADeviceSignIn`, assertions unchanged.
+* `TestDeviceAuthRefusesOpenAI` (new): `startDeviceAuth` for `openai:device` returns `ErrAuthMethodUnsupported` and the
+  stub records no run.
+* The fixture tests (`TestFixtureSendsOnlyKnownMethods`, `TestFixtureShapesAreAcpexts`,
+  `TestFixtureCompactionIsTheStandardUpdate`, `TestFixtureIsTheKnownGoodRelease`) and the others of the package pass
+  unchanged at `acpext v0.4.0`; no fixture changed.
+
+**Planted breaks, each seen failing on a scratch copy of the scratch clone** (`plants.py`; the clean copy then passed,
+`ALL PLANTS CAUGHT`):
+
+```text
+catalog, Login read again in methods          auth_test.go:49: openai methods [api_key oauth_device]; a device method only for deviceSignIn [grok kilo]
+                                              auth_test.go:52: openai methods [api_key oauth_device]; gobble refuses --method device for it
+catalog, openai added to deviceSignIn         auth_test.go:52: openai methods [api_key oauth_device]; gobble refuses --method device for it
+partition, kilo dropped from deviceSignIn     auth_test.go:74: kilo is marked Login by acpext and is in 0 of deviceSignIn [grok], noPhoneSignIn [openai]; want exactly one
+partition, openai in both tables              auth_test.go:74: openai is marked Login by acpext and is in 2 of deviceSignIn [grok kilo openai], noPhoneSignIn [openai]; want exactly one
+partition, a table id acpext does not list    auth_test.go:81: noPhoneSignIn names "planted", which acpext does not list
+openai refusal, the old !p.Login guard        auth_test.go:139: err = <nil>, want ErrAuthMethodUnsupported
+renamed test, the device guard removed        auth_test.go:126: err = <nil>, want ErrAuthMethodUnsupported
+```
+
+The first, third and sixth are the plan's three plants; the rest are the extra branches of the same tests (the
+openai line of the catalog test, the "exactly one" and "lists" halves of the partition test, and the renamed test).
+
+**Gates, on the scratch clone** with the four Go-side files:
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check FILES="internal/provider/gobble/auth.go internal/provider/gobble/auth_test.go"` | exit 0, "2 file(s) clean (gofmt, golint, govulncheck)"; the same in the tree after the copy |
+| `make test` | exit 0; 50 `ok` lines, none FAIL |
+| `go test -race -count=1 ./...` | exit 0; 50 `ok` lines, no FAIL, panic or data race |
+| `make lint` | exit 0 |
+| `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" on each GOOS |
+| ignored findings against `HEAD` | per GOOS, `staticcheck -show-ignored -f json ./...` in a clone of `HEAD` and in this clone: 56 each; the sets of (check, file, message) equal after the clone root is removed from the path, with line numbers equal; 16 distinct names on both sides. No name is new |
+| `make vet-tags` | exit 0; nine tags, each ok |
+| `make vulncheck` | exit 0; "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+| `make check-libs`, on a scratch commit of the clone, with `GO_SHARED` pointing at the go-shared clone | exit 0; "toolchain: go1.27.4"; acp-go-sdk2 "pinned v1.36.0, checking v1.36.0", go-selfupdate-lib "pinned v1.26.2, checking v1.26.2", go-llmprovider-sdk "pinned v1.29.0, checking v1.30.0", "0 failing checks; scratch removed" |
+
+check-libs names go-llmprovider-sdk `v1.30.0` as the newest tag. This phase does not move it; it is another record's.
+
+**Host runs,** on `dde47a11` plus the four files, carried as a pack of the refreshed scratch clone:
+
+* the Linux test host: `go1.27.4`, `go test -race -count=1 ./...` exit 0, 50 `ok`
+  lines, no FAIL, panic or race line;
+* the Windows test host: `go1.27.4`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED", 50 `ok`
+  lines, no FAIL or panic line.
+
+Each host's remote copy was removed by the runner.
+
+**Records.** `make check-records` and `python3 -B scripts/check_records.py --check-all` exit 0; `make
+markdownlint-docs` exit 0, "0 issues in 0 files"; the redact preview (`github-disclosure.py redact`, without `--apply`)
+exit 0: "would edit 0 file(s), 0 path(s) need a rename by hand".
+
+**Not done here:** 7b and 7c; the commit, which is the coordinator's after the gates; any push. D14's gate 3 stays
+unmet by MADR A10. The pin is ahead of every gobble release (A9.1), `KnownGoodVersion` stays `0.4.0`, and the
+`0.4.0` fixture is unchanged.
+
+**Staged for the commit:** `go.mod`, `go.sum`, `internal/provider/gobble/auth.go`,
+`internal/provider/gobble/auth_test.go`, this plan and `0179-MADR-gobble-native-acp-provider.md`.

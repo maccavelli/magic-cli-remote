@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +40,22 @@ const (
 	methodDevice  = ":device"
 	methodBrowser = ":browser"
 )
+
+// deviceSignIn is the upstreams gobble signs in by device code
+// (`gobble auth login <id> --method device`): the catalog lists oauth_device,
+// and startDeviceAuth accepts it, for these alone. gobble publishes its method
+// words nowhere structured, and acpext's Login says only that a provider has a
+// sign-in, not how it completes (MADR 0179 A9.2). Removed with noPhoneSignIn
+// and their test when the catalog becomes _meta.gobble.methods, at the cut-over
+// of 0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over
+// (its D11; its PLAN's P4 step 5).
+var deviceSignIn = []string{"grok", "kilo"}
+
+// noPhoneSignIn is the upstreams acpext marks Login whose sign-in the phone
+// cannot drive through gobble's CLI today: openai's is the ChatGPT plan
+// sign-in, which has no device code, and `--method device` is a usage error
+// for it (MADR 0179 A9.2). Removed with deviceSignIn, as above.
+var noPhoneSignIn = []string{"openai"}
 
 // workspaceInput is Claude's optional workspace, passed as --workspace.
 const workspaceInput = "workspace"
@@ -157,7 +174,7 @@ func methods(p acpext.AuthProvider, row *statusRow) []provider.AuthMethod {
 		}}
 	}
 	out := []provider.AuthMethod{api}
-	if p.Login {
+	if slices.Contains(deviceSignIn, p.ID) {
 		out = append(out, provider.AuthMethod{
 			ID: p.ID + methodDevice, Type: provider.AuthMethodOAuthDevice, Label: "Sign in to " + p.Name + " (device code)",
 		})
@@ -322,11 +339,10 @@ func (a *auth) clearCredential(ctx context.Context, upstreamID, _ string) error 
 // device_code event is the phone's DeviceFlow, and wait follows the sign-in
 // to its saved or error event (D3).
 func (a *auth) startDeviceAuth(ctx context.Context, bin, upstreamID, methodID string, _ map[string]string, _ bool) (provider.DeviceFlow, func(context.Context) error, error) {
-	p, ok := lookup(upstreamID)
-	if !ok {
+	if _, ok := lookup(upstreamID); !ok {
 		return provider.DeviceFlow{}, nil, fmt.Errorf("gobble has no upstream %q", upstreamID)
 	}
-	if !p.Login || methodID != upstreamID+methodDevice {
+	if !slices.Contains(deviceSignIn, upstreamID) || methodID != upstreamID+methodDevice {
 		return provider.DeviceFlow{}, nil, fmt.Errorf("%w: %s", provider.ErrAuthMethodUnsupported, methodID)
 	}
 	if bin == "" {

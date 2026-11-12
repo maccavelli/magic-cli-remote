@@ -16,7 +16,8 @@ import (
 )
 
 // Item 8: the catalog is acpext's providers, in its order, each with a key
-// method, a device method where acpext marks a login, and grok's browser
+// method, a device method for the deviceSignIn ids alone (MADR 0179 A9.2: at
+// acpext v0.4.0 openai is marked Login and has none), and grok's browser
 // sign-in marked unavailable.
 func TestCatalogIsAcpextsProviders(t *testing.T) {
 	cat, err := newAuth("gobble", nil).catalog(context.Background())
@@ -44,8 +45,41 @@ func TestCatalogIsAcpextsProviders(t *testing.T) {
 				t.Errorf("%s's browser sign-in is %+v, want unavailable, host_oauth", p.ID, m)
 			}
 		}
-		if slices.Contains(types, provider.AuthMethodOAuthDevice) != p.Login {
-			t.Errorf("%s methods %v; a device method only where acpext marks a login", p.ID, types)
+		if slices.Contains(types, provider.AuthMethodOAuthDevice) != slices.Contains(deviceSignIn, p.ID) {
+			t.Errorf("%s methods %v; a device method only for deviceSignIn %v", p.ID, types, deviceSignIn)
+		}
+		if p.ID == "openai" && slices.Contains(types, provider.AuthMethodOAuthDevice) {
+			t.Errorf("openai methods %v; gobble refuses --method device for it", types)
+		}
+	}
+}
+
+// A9.2: the two id tables partition the providers acpext marks Login. A new
+// Login provider in a later acpext is in neither and fails here, and someone
+// decides which table it belongs in.
+func TestDeviceTablesPartitionAcpextsLogins(t *testing.T) {
+	listed := map[string]bool{}
+	for _, p := range acpext.AuthProviders() {
+		listed[p.ID] = true
+		if !p.Login {
+			continue
+		}
+		n := 0
+		for _, table := range [][]string{deviceSignIn, noPhoneSignIn} {
+			if slices.Contains(table, p.ID) {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s is marked Login by acpext and is in %d of deviceSignIn %v, noPhoneSignIn %v; want exactly one",
+				p.ID, n, deviceSignIn, noPhoneSignIn)
+		}
+	}
+	for name, table := range map[string][]string{"deviceSignIn": deviceSignIn, "noPhoneSignIn": noPhoneSignIn} {
+		for _, id := range table {
+			if !listed[id] {
+				t.Errorf("%s names %q, which acpext does not list", name, id)
+			}
 		}
 	}
 }
@@ -84,8 +118,8 @@ func TestSetCredentialReportsGobblesError(t *testing.T) {
 	}
 }
 
-// Item 8: a device sign-in for a provider without a login is unsupported.
-func TestDeviceAuthNeedsALogin(t *testing.T) {
+// Item 8: a device sign-in for a provider without one is unsupported.
+func TestDeviceAuthNeedsADeviceSignIn(t *testing.T) {
 	st := newStub(t, stubStatus(sourceAuthJSON))
 	_, _, err := newAuth(st.bin, nil).startDeviceAuth(context.Background(), "", "claude", "claude"+methodDevice, nil, false)
 	if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
@@ -93,6 +127,19 @@ func TestDeviceAuthNeedsALogin(t *testing.T) {
 	}
 	if runs := st.runs(t); len(runs) != 0 {
 		t.Fatalf("gobble was run for a provider with no login: %q", runs)
+	}
+}
+
+// A9.2: openai is marked Login by acpext v0.4.0, but gobble refuses --method
+// device for it, so no child is run and the method is unsupported.
+func TestDeviceAuthRefusesOpenAI(t *testing.T) {
+	st := newStub(t, stubStatus(sourceAuthJSON))
+	_, _, err := newAuth(st.bin, nil).startDeviceAuth(context.Background(), "", "openai", "openai"+methodDevice, nil, false)
+	if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
+		t.Fatalf("err = %v, want ErrAuthMethodUnsupported", err)
+	}
+	if runs := st.runs(t); len(runs) != 0 {
+		t.Fatalf("gobble was run for openai's device sign-in: %q", runs)
 	}
 }
 
