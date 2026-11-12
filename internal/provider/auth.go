@@ -16,11 +16,6 @@ var ErrAuthUnsupported = errors.New("provider auth: unsupported operation")
 // it, so the caller is told to retry rather than losing work.
 var ErrAuthBusy = errors.New("provider auth: engine busy with an active turn")
 
-// ErrAuthConfirmRequired is returned when a flow would destroy an existing
-// credential before it can succeed and the caller did not confirm
-// (MADR 0074 D8). Today only codex device auth is in this class.
-var ErrAuthConfirmRequired = errors.New("provider auth: destructive flow needs explicit confirmation")
-
 // Auth status values, mirroring the protocol constants. Status is advisory:
 // AuthConfigured means a credential exists on the host, not that the next turn
 // will succeed — a key can be present and revoked.
@@ -28,8 +23,14 @@ const (
 	AuthConfigured = "configured"
 	AuthMissing    = "missing"
 	AuthError      = "error"
-	AuthQuota      = "quota"
 )
+
+// AuthReasonHostOAuth is the reason a method is host-only: its sign-in
+// finishes on the host, not the phone. protocol.AuthReasonHostOAuth is this
+// value; httpagent, opencode and gobble cannot import protocol (protocol
+// imports session, whose tests import the providers), so they use this one
+// (MADR 0074 D35).
+const AuthReasonHostOAuth = "host_oauth"
 
 // Auth method types (MADR 0074 D5).
 const (
@@ -277,9 +278,9 @@ type DeviceAuth interface {
 	// The returned wait func blocks until the flow completes, fails, or ctx is
 	// cancelled; callers run it off the request goroutine.
 	//
-	// confirmDestructive gates flows that destroy the existing credential
-	// before they can succeed; an implementation whose flow is destructive
-	// must return ErrAuthConfirmRequired when it is false (D8).
+	// confirmDestructive is passed through from the phone. No device flow
+	// destroys the existing credential now (codex's did, until the owned
+	// flow replaced it, MADR 0074 D20), so no implementation reads it.
 	StartDeviceAuth(ctx context.Context, upstreamID, methodID string, inputs map[string]string, confirmDestructive bool) (flow DeviceFlow, wait func(context.Context) error, err error)
 }
 

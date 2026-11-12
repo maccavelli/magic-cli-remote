@@ -1493,8 +1493,8 @@ class AuthMethod {
   /// Absent on the wire — an old daemon — reads as true.
   final bool available;
 
-  /// Why not, when [available] is false: `keyring_managed`, `browser_only`,
-  /// `device_unsupported`.
+  /// Why not, when [available] is false: `browser_only`, `device_unsupported`,
+  /// `host_oauth`.
   final String reason;
 
   /// Whether this specific method currently holds a credential the daemon can

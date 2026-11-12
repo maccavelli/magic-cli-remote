@@ -38,10 +38,9 @@ func (d *httpDialect) AuthCatalogList(ctx context.Context, api httpagent.API) (p
 
 // AuthStatus implements [httpagent.AuthDialect] (MADR 0074 D3).
 //
-// Three engine reads compose the picture, each optional:
+// Two engine reads compose the picture, each optional:
 //   - GET /provider/auth   — the method catalog (types, labels, prompt inputs)
 //   - GET /config/providers — which upstreams actually have a credential
-//   - GET /kilo/auth-status — the Kilo Gateway session
 //
 // When no engine is running every one of those fails; the on-disk auth.json
 // still answers "which upstreams are configured", which is the question the

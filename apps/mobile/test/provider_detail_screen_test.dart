@@ -260,10 +260,11 @@ void main() {
     expect(bottom, greaterThanOrEqualTo(96));
   });
 
-  testWidgets('a keyring-managed failure surfaces actionably, as an error', (
+  testWidgets('a recovery-required failure surfaces actionably, as an error', (
     tester,
   ) async {
-    // MADR 0083 D5 end to end: wire code → friendly copy → error styling.
+    // MADR 0083 D5 end to end: wire code → friendly copy → error styling. This
+    // test used a keyring code with no producer until MADR 0074 D35 removed it.
     final (client, _) = await pump(
       tester,
       providers: [
@@ -272,8 +273,8 @@ void main() {
       providerId: 'agent-x',
     );
     client.credentialError = McException(
-      'the agent keeps secrets in the OS keyring; …',
-      code: 'keyring_managed',
+      'provider auth: credential recovery required',
+      code: 'recovery_required',
     );
 
     await tester.tap(find.byTooltip('Remove credential'));
@@ -282,7 +283,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.textContaining('keyring'), findsOneWidget);
+    expect(find.textContaining('auth-recovery'), findsOneWidget);
     // The toast must carry error severity, not the default info style.
     final toast = tester.widget(
       find.byWidgetPredicate(

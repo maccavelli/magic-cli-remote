@@ -150,7 +150,7 @@ func TestCoordinatedCodexNeverSignsTheHostOut(t *testing.T) {
 
 // TestCoordinatedCodexNeedsNoDestructiveConfirmation proves D20: with an
 // isolated empty home the flow is not destructive, so there is nothing to
-// confirm and no ErrAuthConfirmRequired gate.
+// confirm: the owned contract has no confirmDestructive parameter at all.
 func TestCoordinatedCodexNeedsNoDestructiveConfirmation(t *testing.T) {
 	bin := fakeCodexLogin(t, `printf '{"tokens":{"access_token":"N","refresh_token":"N"}}' > "$CODEX_HOME/auth.json"; chmod 600 "$CODEX_HOME/auth.json"`)
 	p, _ := coordinatedCodex(t, bin)
@@ -181,19 +181,19 @@ func TestCoordinatedCodexRefusesUnsupportedBackend(t *testing.T) {
 	}
 }
 
-// TestProductionCodexExposesNoTransaction proves P18 stays dark: a provider
-// built the way the daemon builds it advertises no owned contract, so this
-// commit cannot activate a transactional flow before P20 (step 4).
+// TestProductionCodexExposesNoTransaction: a Provider built without a
+// coordinator carries none and cannot start an owned flow. It also has no
+// legacy device flow to fall back to: that flow signed the host out at the
+// start (MADR 0074 D35, which removed it), so a codex host without a
+// coordinator cannot start a device sign-in at all. This test read the
+// opposite, "the legacy contract must still be there", while P18 was dark.
 func TestProductionCodexExposesNoTransaction(t *testing.T) {
 	p := New(Config{Bin: "codex"})
-	if _, ok := any(p).(provider.OwnedDeviceAuth); ok {
-		if p.coord != nil {
-			t.Fatal("production construction carries a coordinator")
-		}
+	if p.coord != nil {
+		t.Fatal("construction without a coordinator carries one")
 	}
-	// The legacy contract must still be there for the pre-P20 path.
-	if _, ok := any(p).(provider.DeviceAuth); !ok {
-		t.Fatal("legacy DeviceAuth was removed before P20 could replace it")
+	if _, ok := any(p).(provider.DeviceAuth); ok {
+		t.Fatal("codex has a legacy DeviceAuth again; it signs the host out at the start (MADR 0074 D35)")
 	}
 	if _, err := p.StartOwnedDeviceAuth(context.Background(), "", "", nil); err == nil {
 		t.Fatal("an uncoordinated provider started an owned flow")

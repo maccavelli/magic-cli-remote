@@ -8,7 +8,7 @@
 ///
 /// The credential flows themselves — auth sheet, catalog sheet, device
 /// sign-in, removal — moved here verbatim from the settings screen; their
-/// recorded guarantees (MADR 0074 D8 destructive confirm, D11 secret hygiene,
+/// recorded guarantees (MADR 0074 D11 secret hygiene,
 /// D14 switch-only-to-configured, D16 paged catalog) are unchanged.
 library;
 
@@ -568,9 +568,9 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
   /// Run a device sign-in end to end (MADR 0074 Strategy A, D8, D13).
   ///
   /// The daemon does the polling; this waits for the `oauth.device_flow` push
-  /// that carries the code, shows it, and closes on the result. Codex is
-  /// guarded first: its flow deletes the host's existing ChatGPT session the
-  /// moment it starts, whether or not the user finishes (D8).
+  /// that carries the code, shows it, and closes on the result. No flow asks
+  /// for a confirmation first: codex's runs in an isolated home and cannot sign
+  /// the host out (MADR 0074 D20, D32).
   Future<void> _runDeviceSignIn({
     required UpstreamAuth upstream,
     required AuthMethod method,
@@ -578,33 +578,6 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
   }) async {
     final providerId = widget.providerId;
     final client = ref.read(mcremoteClientProvider);
-    final destructive = providerId == 'codex';
-    if (destructive) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          key: const Key('device-auth-destructive-confirm'),
-          title: const Text('Sign out of ChatGPT on the host?'),
-          content: const Text(
-            'This signs the host out of ChatGPT immediately, before you '
-            'finish signing in. If you abandon the flow, the host stays '
-            'signed out until you complete it.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Continue'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true || !mounted) return;
-    }
-
     // Subscribe before starting: the push can arrive before the request's own
     // ok frame, and a late listener would miss the code entirely.
     final flowFuture = client.deviceFlows
@@ -616,7 +589,6 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
         upstreamId: upstream.id,
         methodId: method.id,
         inputs: inputs,
-        confirmDestructive: destructive,
       );
     } catch (e) {
       if (!mounted) return;

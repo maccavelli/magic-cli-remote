@@ -40,7 +40,7 @@ func TestCatalogIsAcpextsProviders(t *testing.T) {
 		var types []string
 		for _, m := range cat.Upstreams[i].Methods {
 			types = append(types, m.Type)
-			if m.Type == provider.AuthMethodOAuthBrowser && (!m.Unavailable || m.Reason != "host_oauth") {
+			if m.Type == provider.AuthMethodOAuthBrowser && (!m.Unavailable || m.Reason != provider.AuthReasonHostOAuth) {
 				t.Errorf("%s's browser sign-in is %+v, want unavailable, host_oauth", p.ID, m)
 			}
 		}

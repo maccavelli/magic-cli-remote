@@ -44,9 +44,6 @@ String friendlyOpError(Object e) {
         return 'The host now requires re-pairing this device.';
       // Provider-auth taxonomy (MADR 0083 D5): each code is one actionable
       // sentence; the daemon's raw text stays in its log, not on a toast.
-      case 'keyring_managed':
-        return 'This agent keeps its keys in the host\'s OS keyring — add '
-            'the key on the host.';
       // MADR 0160 D13: a session whose agent the host no longer registers
       // (e.g. one started before that agent was removed) answers with
       // unknown_provider; say so instead of showing the bare code.

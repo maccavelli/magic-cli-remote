@@ -1336,7 +1336,12 @@ is as it was at `995d442b`, where this section was first drafted); none of these
   Spec's legacy hook says.
 * **D35. Dead code and vocabulary go (M16):** `keyring_managed` (constant, error code, test row, phone copy), the
   status `quota`, `ZeroString`, `CancelDevice` and its test, codex's legacy `StartDeviceAuth` with its tests,
-  `ErrAuthConfirmRequired` and `confirm_required`, and the two stale comments. `host_oauth` becomes one constant in
+  `ErrAuthConfirmRequired` and ~~`confirm_required`~~, and the two stale comments. *Narrowed 2026-11-11 (P23 step 5,
+  deviation 3): `confirm_required` is not dead. `protocol.ErrConfirmRequired` is the codex surface's live code for a
+  deletion sent without confirmation (`internal/ws/codex_handlers.go`, permanent, section and project deletion;
+  `codex_execution.go`). Only the provider-auth half goes: `provider.ErrAuthConfirmRequired`, its `authErrCode` case
+  and test row, and codex's legacy `StartDeviceAuth`. The wire code stays, with a corrected comment and guide
+  entry, and 16.5 item 6's search leaves `confirm_required` out.* `host_oauth` becomes one constant in
   `internal/provider`, which `protocol` re-exports, so the three packages that cannot import `protocol` use it.
 * **D36. Own error codes, and the phone reads them (M13).** `ErrTransactionBusy` → `provider_auth_busy`; `ErrConflict`
   → `credential_conflict`; `ErrUnsupportedBackend` → `unsupported_backend`; `ErrRecoveryRequired` →

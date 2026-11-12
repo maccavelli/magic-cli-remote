@@ -17,8 +17,8 @@ func TestUpstreamAuthPayloadAnnotatesAvailability(t *testing.T) {
 			{ID: "vendor:0", Type: provider.AuthMethodAPIKey, Label: "key"},
 			{ID: "vendor:1", Type: provider.AuthMethodOAuthBrowser, Label: "browser"},
 			{ID: "vendor:2", Type: provider.AuthMethodOAuthDevice, Label: "device"},
-			{ID: "vendor:3", Type: provider.AuthMethodAPIKey, Label: "keyring",
-				Unavailable: true, Reason: "keyring_managed"},
+			{ID: "vendor:3", Type: provider.AuthMethodOAuthDevice, Label: "host sign-in",
+				Unavailable: true, Reason: provider.AuthReasonHostOAuth},
 		},
 	}
 
@@ -30,7 +30,7 @@ func TestUpstreamAuthPayloadAnnotatesAvailability(t *testing.T) {
 		{nil, ""},
 		{new(false), protocol.AuthReasonBrowserOnly},
 		{new(false), protocol.AuthReasonDeviceUnsupported},
-		{new(false), protocol.AuthReasonKeyringManaged},
+		{new(false), protocol.AuthReasonHostOAuth},
 	}
 	for i, w := range want {
 		m := got.Methods[i]

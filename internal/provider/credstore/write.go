@@ -312,13 +312,3 @@ func escapeTOML(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\t", `\t`, "\r", `\r`)
 	return r.Replace(s)
 }
-
-// ZeroString overwrites the backing array of a secret held in a []byte. Go
-// strings are immutable, so callers that want this must hold the secret as a
-// byte slice; this exists so the intent is expressed in one place rather than
-// reinvented per call site.
-func ZeroString(b []byte) {
-	for i := range b {
-		b[i] = 0
-	}
-}

@@ -59,7 +59,6 @@ func TestAuthErrCodeTable(t *testing.T) {
 	}{
 		{"busy", provider.ErrAuthBusy, protocol.ErrProviderBusy},
 		{"unsupported provider", provider.ErrAuthUnsupported, "unsupported"},
-		{"confirm required", provider.ErrAuthConfirmRequired, protocol.ErrConfirmRequired},
 		{"method unsupported", provider.ErrAuthMethodUnsupported, protocol.ErrMethodUnsupported},
 		{"empty secret", credstore.ErrEmptySecret, protocol.ErrInvalidKey},
 		{"oversized secret", credstore.ErrSecretTooLarge, protocol.ErrInvalidKey},

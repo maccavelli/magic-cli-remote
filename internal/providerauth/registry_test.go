@@ -149,25 +149,6 @@ func TestExpirySweep(t *testing.T) {
 	}
 }
 
-// A disconnecting device must not leave a flow polling on behalf of nobody.
-func TestCancelDevice(t *testing.T) {
-	r := NewRegistry()
-	for range MaxFlowsPerDevice {
-		if _, _, err := r.Add(context.Background(), newFlow("dev-1")); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, _, err := r.Add(context.Background(), newFlow("dev-2")); err != nil {
-		t.Fatal(err)
-	}
-	if n := r.CancelDevice("dev-1"); n != MaxFlowsPerDevice {
-		t.Fatalf("cancelled %d, want %d", n, MaxFlowsPerDevice)
-	}
-	if r.Len() != 1 {
-		t.Fatalf("other device's flow was collateral: %d left", r.Len())
-	}
-}
-
 func TestAddRequiresOwningDevice(t *testing.T) {
 	r := NewRegistry()
 	if _, _, err := r.Add(context.Background(), &Flow{ProviderID: "kilo"}); err == nil {

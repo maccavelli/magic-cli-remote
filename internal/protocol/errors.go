@@ -181,18 +181,15 @@ const (
 	// ErrProviderBusy means a credential change needs an engine restart but a
 	// turn is in flight (D9). Transient by construction: retry after the turn.
 	ErrProviderBusy = "provider_busy"
-	// ErrConfirmRequired means the requested flow destroys an existing
-	// credential before it can succeed and the client did not confirm (D8).
-	// Today only codex device auth, which deletes ~/.codex/auth.json at start.
+	// ErrConfirmRequired means the operation is destructive and the client
+	// did not confirm it: the codex surface's permanent, section and project
+	// deletions. It once also meant codex device auth, which deleted
+	// ~/.codex/auth.json at start; that flow is gone (MADR 0074 D35).
 	ErrConfirmRequired = "confirm_required"
 	// ErrCredentialFailed is a failed credential write or clear. Distinct from
 	// ErrAuthFailed, which is about the phone's own device auth — conflating
 	// them would make a bad upstream key look like a pairing problem.
 	ErrCredentialFailed = "credential_failed"
-	// ErrKeyringManaged means the agent keeps its secrets in the host's OS
-	// keyring, which the daemon deliberately does not write (MADR 0074 D18,
-	// 0083 D5). Actionable on the host, never by retrying from the phone.
-	ErrKeyringManaged = "keyring_managed"
 	// ErrMethodUnsupported means the chosen auth method cannot be driven from
 	// the phone for this agent (MADR 0083 D2/D5) — pick another method.
 	ErrMethodUnsupported = "method_unsupported"
@@ -357,7 +354,6 @@ func ErrorCodes() []string {
 		ErrProviderBusy,
 		ErrConfirmRequired,
 		ErrCredentialFailed,
-		ErrKeyringManaged,
 		ErrMethodUnsupported,
 		ErrInvalidKey,
 		ErrEngineUnavailable,

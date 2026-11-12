@@ -1121,22 +1121,22 @@ ignores it will present a partial list as complete.
 
 Auth methods carry optional `available`/`reason` fields (MADR 0083 D4):
 absent means the daemon can drive the method; `available: false` names why
-not (`keyring_managed`, `browser_only`, `device_unsupported`, `host_oauth`) so the client
+not (`browser_only`, `device_unsupported`, `host_oauth`) so the client
 can disable the affordance before secret entry. Additive — old daemons send
 neither field, old clients ignore both.
 
 **Remote provider auth** (MADR 0074, behind the `provider_auth` capability):
 `provider_busy` — a credential change needs an engine restart but a turn is
-running; **transient**, retry when the turn ends. `confirm_required` — the
-requested flow destroys the existing credential before it can succeed and the
-client did not set `confirm_destructive` (today only codex device auth, which
-deletes `~/.codex/auth.json` the moment it starts). `credential_failed` — the
-write or clear failed; deliberately distinct from `auth_failed`, which is about
-the phone's own device auth. `keyring_managed` — registered for an agent that
-keeps its secrets in the host's OS keyring, which the daemon does not write
-(MADR 0074 D18). No path sends it as an error code today: such a method arrives
-with `available: false` and `reason: keyring_managed` instead. Resolve on the
-host, not by retrying. `method_unsupported` — the chosen auth
+running; **transient**, retry when the turn ends. `confirm_required` — a
+destructive operation on the codex surface (permanent, section or project
+deletion) was sent without the client's confirmation; provider auth never sends
+it, since no device flow destroys the existing credential (MADR 0074 D35).
+`credential_failed` — the write or clear failed; deliberately distinct from
+`auth_failed`, which is about the phone's own device auth. A method whose
+secret the daemon cannot write arrives with `available: false` and a `reason`
+(`host_oauth` for a host-only sign-in), never as an error code; the
+`keyring_managed` code that once stood for it had no producer and was removed
+(MADR 0074 D35). `method_unsupported` — the chosen auth
 method cannot be driven from the phone for this agent; pick another method.
 `invalid_key` — the submitted credential failed validation before any write
 (empty or oversized). `engine_unavailable` — the agent's engine did not

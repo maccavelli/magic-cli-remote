@@ -163,24 +163,6 @@ func (r *Registry) Finish(id string) {
 	}
 }
 
-// CancelDevice ends every flow owned by a device — used when it disconnects,
-// so an abandoned flow does not keep polling on behalf of nobody.
-func (r *Registry) CancelDevice(deviceID string) int {
-	r.mu.Lock()
-	victims := make([]*Flow, 0, 2)
-	for id, f := range r.flows {
-		if f.DeviceID == deviceID {
-			victims = append(victims, f)
-			delete(r.flows, id)
-		}
-	}
-	r.mu.Unlock()
-	for _, f := range victims {
-		f.finish()
-	}
-	return len(victims)
-}
-
 // Len reports the number of live flows (test and diagnostics aid).
 func (r *Registry) Len() int {
 	r.mu.Lock()

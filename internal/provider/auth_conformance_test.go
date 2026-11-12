@@ -33,6 +33,10 @@ func TestProviderAuthInterfaceConformance(t *testing.T) {
 		wantCatalog     bool
 		wantSwitcher    bool
 		wantDeviceOAuth bool
+		// wantOwnedDeviceAuth is the isolated, transactional flow (MADR 0074
+		// D20, D35). codex has only this one now, so its row's wantDeviceOAuth
+		// is false; grok keeps its CLI flow beside it.
+		wantOwnedDeviceAuth bool
 		// wantSwitchWired is the runtime answer, UpstreamSwitchWired: the
 		// type side above is true for every acpagent and httpagent agent
 		// (MADR 0244 D5).
@@ -51,12 +55,14 @@ func TestProviderAuthInterfaceConformance(t *testing.T) {
 		{
 			name: "codex", p: codex.New(codex.Config{}),
 			wantStatus: true, wantWriter: true, wantCatalog: false,
-			wantDeviceOAuth: true,
+			wantDeviceOAuth: false, wantOwnedDeviceAuth: true,
 		},
 		{
-			name: "grok", p: grok.New(grok.Config{}),
+			// The owned flow is on grok's coordinated wrapper, which embeds the
+			// plain provider, so every other column reads the same.
+			name: "grok", p: grok.NewCoordinated(grok.New(grok.Config{}), "grok", nil, nil, nil),
 			wantStatus: true, wantWriter: true, wantCatalog: true,
-			wantSwitcher: true, wantDeviceOAuth: true,
+			wantSwitcher: true, wantDeviceOAuth: true, wantOwnedDeviceAuth: true,
 		},
 		{
 			// gobble is an acpagent, so the type side is true for every
@@ -83,6 +89,9 @@ func TestProviderAuthInterfaceConformance(t *testing.T) {
 			}
 			if _, ok := tc.p.(provider.DeviceAuth); ok != tc.wantDeviceOAuth {
 				t.Errorf("DeviceAuth: got %v, want %v", ok, tc.wantDeviceOAuth)
+			}
+			if _, ok := tc.p.(provider.OwnedDeviceAuth); ok != tc.wantOwnedDeviceAuth {
+				t.Errorf("OwnedDeviceAuth: got %v, want %v (MADR 0074 D35)", ok, tc.wantOwnedDeviceAuth)
 			}
 			if got := provider.UpstreamSwitchWired(tc.p); got != tc.wantSwitchWired {
 				t.Errorf("UpstreamSwitchWired: got %v, want %v (MADR 0244 D5)", got, tc.wantSwitchWired)

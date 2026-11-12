@@ -7,11 +7,6 @@ void main() {
   McException ex(String code, [String msg = 'raw daemon text']) =>
       McException(msg, code: code);
 
-  test('keyring_managed points at the host', () {
-    expect(friendlyOpError(ex('keyring_managed')), contains('keyring'));
-    expect(friendlyOpError(ex('keyring_managed')), contains('host'));
-  });
-
   // MADR 0160 D13: a session whose agent the host no longer registers answers
   // unknown_provider; the phone must say so rather than show the raw code.
   test('unknown_provider says the agent is gone from the host', () {

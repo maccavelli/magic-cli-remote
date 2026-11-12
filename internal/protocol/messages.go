@@ -699,7 +699,6 @@ const (
 	AuthStatusConfigured = "configured"
 	AuthStatusMissing    = "missing"
 	AuthStatusError      = "error"
-	AuthStatusQuota      = "quota"
 )
 
 // Auth method types (MADR 0074 D5). oauth_browser is advertised but not
@@ -780,10 +779,11 @@ type AuthMethodPayload struct {
 
 // Method-unavailability reasons (MADR 0083 D4).
 const (
-	AuthReasonKeyringManaged    = "keyring_managed"
 	AuthReasonBrowserOnly       = "browser_only"
 	AuthReasonDeviceUnsupported = "device_unsupported"
-	AuthReasonHostOAuth         = "host_oauth"
+	// AuthReasonHostOAuth is provider.AuthReasonHostOAuth, which the three
+	// packages that cannot import protocol use (MADR 0074 D35).
+	AuthReasonHostOAuth = provider.AuthReasonHostOAuth
 )
 
 // UpstreamAuthPayload is one model vendor reachable through an agent.

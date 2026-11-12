@@ -67,10 +67,8 @@ var acpOAuthPoll = 2 * time.Second
 // restarts.
 const credentialChangedNotice = "A provider credential changed; the agent restarts to apply it."
 
-// hostOnlyReason is protocol.AuthReasonHostOAuth: the phone says "host only".
-// Not imported, as in httpagent: protocol imports session, whose tests import
-// the providers.
-const hostOnlyReason = "host_oauth"
+// hostOnlyReason is provider.AuthReasonHostOAuth: the phone says "host only".
+const hostOnlyReason = provider.AuthReasonHostOAuth
 
 // acpAuth implements the Spec's auth hooks on a control plane.
 type acpAuth struct {

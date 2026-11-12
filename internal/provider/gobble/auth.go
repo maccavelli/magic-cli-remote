@@ -166,7 +166,7 @@ func methods(p acpext.AuthProvider, row *statusRow) []provider.AuthMethod {
 		// gobble's browser sign-in opens a browser on the host (D3, W3).
 		out = append(out, provider.AuthMethod{
 			ID: p.ID + methodBrowser, Type: provider.AuthMethodOAuthBrowser, Label: "Sign in to " + p.Name,
-			Unavailable: true, Reason: "host_oauth",
+			Unavailable: true, Reason: provider.AuthReasonHostOAuth,
 		})
 	}
 	if row == nil {

@@ -20,10 +20,10 @@ void main() {
       'type': 'api_key',
       'label': 'API key',
       'available': false,
-      'reason': 'keyring_managed',
+      'reason': 'host_oauth',
     });
     expect(m.available, isFalse);
-    expect(m.reason, 'keyring_managed');
+    expect(m.reason, 'host_oauth');
     expect(m.isUsable, isFalse);
   });
 
@@ -49,7 +49,7 @@ void main() {
           type: 'api_key',
           label: 'API key',
           available: false,
-          reason: 'keyring_managed',
+          reason: 'host_oauth',
         ),
       ],
     );

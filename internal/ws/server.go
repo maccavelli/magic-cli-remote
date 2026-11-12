@@ -2803,8 +2803,6 @@ func authErrCode(err error) (code, msg string) {
 			"a turn is running on this provider; try again when it finishes"
 	case errors.Is(err, provider.ErrAuthUnsupported):
 		return "unsupported", "unsupported for this provider"
-	case errors.Is(err, provider.ErrAuthConfirmRequired):
-		return protocol.ErrConfirmRequired, "this flow needs explicit confirmation"
 	case errors.Is(err, provider.ErrAuthMethodUnsupported):
 		return protocol.ErrMethodUnsupported,
 			"this sign-in method can't be driven from the phone for this agent"

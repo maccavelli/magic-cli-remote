@@ -141,10 +141,9 @@ func New(cfg Config) *Provider {
 // NewCoordinated creates a Provider whose device login runs inside a
 // credential transaction (MADR 0074 D21/D22).
 //
-// Production daemon construction still uses New/NewWithLogger. Wiring this
-// variant in is P20's job, because an owned flow is only safe once the server
-// also owns its lifecycle; activating one without the other would reintroduce
-// the orphaned-callback defect this repair exists to remove.
+// Production daemon construction builds this variant (codex/section.go), so a
+// codex host's device sign-in is always the owned, isolated flow; a Provider
+// built without a coordinator cannot start one (MADR 0074 D32, D35).
 func NewCoordinated(cfg Config, log *slog.Logger, coord *providerauth.Coordinator, busy func() int) *Provider {
 	p := NewWithLogger(cfg, log)
 	p.coord = coord

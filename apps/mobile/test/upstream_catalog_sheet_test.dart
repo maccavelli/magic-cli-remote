@@ -203,14 +203,14 @@ void main() {
             type: 'api_key',
             label: 'API key',
             available: false,
-            reason: 'keyring_managed',
+            reason: 'host_oauth',
           ),
         ],
       ),
     ]);
     await _pump(tester, fake);
 
-    expect(find.text('Host only · keyring'), findsOneWidget);
+    expect(find.text('Host only · host sign-in'), findsOneWidget);
     final tile = tester.widget<ListTile>(
       find.byKey(const Key('upstream-catalog-row-together')),
     );

@@ -399,39 +399,6 @@ class _DeviceFlowSheetState extends State<DeviceFlowSheet> {
   }
 }
 
-/// The MADR 0074 D8 confirmation. Codex's device flow deletes the host's
-/// existing credential the moment it starts — before the user has entered
-/// anything — so the consequence is named in full rather than softened.
-Future<bool> confirmDestructiveSignIn(
-  BuildContext context,
-  String providerId,
-) async {
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      key: const Key('destructive-signin-dialog'),
-      title: Text('Sign out of $providerId first?'),
-      content: const Text(
-        'This signs the host out immediately, before you finish signing in. '
-        'If you do not complete the sign-in, the host is left signed out.',
-      ),
-      actions: [
-        TextButton(
-          key: const Key('destructive-signin-cancel'),
-          onPressed: () => Navigator.of(ctx).pop(false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          key: const Key('destructive-signin-confirm'),
-          onPressed: () => Navigator.of(ctx).pop(true),
-          child: const Text('Continue'),
-        ),
-      ],
-    ),
-  );
-  return ok ?? false;
-}
-
 /// Non-terminal device-flow state: the credential is validated and waiting for
 /// the provider to go idle before it is published (MADR 0074 D28).
 const deviceFlowReadyToActivate = 'ready_to_activate';

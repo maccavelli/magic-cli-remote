@@ -280,9 +280,7 @@ func defaultMethodsFor(id string) []provider.AuthMethod {
 			Type:        provider.AuthMethodOAuthDevice,
 			Label:       "Sign in on the host",
 			Unavailable: true,
-			// protocol.AuthReasonHostOAuth — not imported here: protocol
-			// imports session, and session tests import this package.
-			Reason: "host_oauth",
+			Reason:      provider.AuthReasonHostOAuth,
 		}}
 	}
 	return []provider.AuthMethod{DefaultAPIKeyMethod(id)}

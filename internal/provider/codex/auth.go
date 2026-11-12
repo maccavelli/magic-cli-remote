@@ -33,7 +33,7 @@ func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secr
 		return fmt.Errorf("codex has no upstream %q", upstreamID)
 	}
 	// The key write serves exactly one method (MADR 0083 D2); ChatGPT device
-	// sign-in has its own path (StartDeviceAuth, D8-guarded).
+	// sign-in has its own path (StartOwnedDeviceAuth).
 	if m := strings.TrimSpace(methodID); m != "" && m != openaiUpstreamID+":api" {
 		return fmt.Errorf("codex method %q: %w", m, provider.ErrAuthMethodUnsupported)
 	}

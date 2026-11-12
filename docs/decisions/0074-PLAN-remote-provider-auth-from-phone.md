@@ -1703,7 +1703,8 @@ phase with a dated entry here.
    *Note 2026-11-11: 0179 P4 lands before this step (owner's order), so `auth_conformance_test.go` will already hold
    gobble's case; its row gets `wantOwnedDeviceAuth: false`, since gobble is not an `OwnedDeviceAuth`.* Assertions by
    search: `git grep -n "keyring_managed\|AuthQuota\|AuthStatusQuota\|ZeroString\|CancelDevice\|ErrAuthConfirmRequired\|confirm_required\|confirmDestructiveSignIn\|\"host_oauth\""`
-   finds nothing outside `docs/`; `rg -n "providerId == 'codex'" apps/mobile/lib` finds the removal copy alone.
+   *(2026-11-11, deviation 3: run without `confirm_required`, which is live on the codex surface, and with the one
+   definition of `provider.AuthReasonHostOAuth` expected)* finds nothing outside `docs/`; `rg -n "providerId == 'codex'" apps/mobile/lib` finds the removal copy alone.
    **Stage.**
 6. **D37, grok's aggregate status** (`internal/provider/grok/auth.go`, its test): configured from `configuredMethods`
    or `XAI_API_KEY`. Test `TestGrokStubAuthJSONIsNotConfigured` (a `{}` file is `missing`; planted: `FileExists`
@@ -1938,3 +1939,49 @@ python3 ~/.global-git-hooks/github-disclosure.py redact
   `make vet-tags` clean; `dart format --set-exit-if-changed` "231 files (0 changed)"; `flutter analyze` "No issues
   found"; `flutter test` "+1536 ~3: All tests passed". The Linux and Windows hosts are not run for this step (the
   conventions name steps 3, 7 and 8). Staged: the step's ten files and this record. Commit: the owner's.
+* **Step 5, 2026-11-11 — D32 and D35, dead code and the phone's codex dialog.** Run on the owner's answer to deviation 3
+  and after step 4 landed as `ea18ceff`. Go: `provider.ErrAuthConfirmRequired`, `provider.AuthQuota`,
+  `protocol.AuthStatusQuota`, `protocol.ErrKeyringManaged` (constant and registry entry),
+  `protocol.AuthReasonKeyringManaged`, `credstore.ZeroString`, `Registry.CancelDevice` and `TestCancelDevice`, codex's
+  legacy `StartDeviceAuth` and all of `codex/device_auth_test.go`, and `authErrCode`'s `ErrAuthConfirmRequired` case are
+  gone; the two stale comments (`codex/provider.go`, `kilo/auth.go`) say what is true, a third (`codex/auth.go`) and one
+  test comment point at the owned flow, and `provider.DeviceAuth`'s doc no longer promises `ErrAuthConfirmRequired`.
+  `provider.AuthReasonHostOAuth` is defined once; `protocol.AuthReasonHostOAuth` is set from it, and `httpagent`,
+  `opencode` and `gobble` use it in place of their own literals (the gobble test too). `protocol.ErrConfirmRequired`
+  stays, comment corrected. Dart: the destructive dialog and `confirmDestructive: destructive` are gone from
+  `_runDeviceSignIn`, `confirmDestructiveSignIn` is removed from `device_flow_sheet.dart`, `friendlyOpError` and
+  `upstream_catalog_sheet.dart` lose their `keyring_managed` branches, and `models.dart`'s reason list is corrected.
+  `docs/guides/protocol-v1.md` loses its `keyring_managed` entries and says what `confirm_required` is. Changed tests,
+  each with why: `TestProviderAuthInterfaceConformance`'s codex row is `wantDeviceOAuth: false`, since removing the
+  legacy flow ends codex's `provider.DeviceAuth`, and the table gains `wantOwnedDeviceAuth`, true for codex and grok
+  (grok's row is built on its coordinated wrapper, which embeds the plain provider so every other column reads the
+  same) and false for the rest, gobble included (0179 P4's case); `TestProductionCodexExposesNoTransaction` read "the
+  legacy contract must still be there for the pre-P20 path" and now holds that codex has none; `method_availability_test.go`
+  and three Dart tests used `keyring_managed` as a stand-in reason and use `host_oauth`, the real one, and
+  `provider_detail_screen_test.dart`'s end-to-end error test uses `recovery_required` (named above, since the
+  `auth-recovery` sentence is the visible one); the destructive-confirmation widget group and the `keyring_managed` copy
+  test are deleted with what they tested. Each changed or new assertion was seen failing on its planted break in a
+  scratch clone of `ea18ceff` (`step5_plants.log`):
+  * the codex row as before: `DeviceAuth: got false, want true`;
+  * grok's row on the plain provider: `OwnedDeviceAuth: got false, want true (MADR 0074 D35)`;
+  * gobble's row claiming an owned flow: the same message, in the gobble subtest;
+  * codex with a legacy `StartDeviceAuth` again: `codex has a legacy DeviceAuth again; it signs the host out at the start`;
+  * the search, with `CancelDevice` reintroduced and with a second `"host_oauth"` literal: one hit each, at the planted line.
+  Assertions by search, on the final tree: the narrowed pattern finds nothing outside `docs/`, except the one definition
+  of `provider.AuthReasonHostOAuth`; `rg -n "providerId == 'codex'" apps/mobile/lib` finds the removal copy alone
+  (`provider_detail_screen.dart:702`). Gates, on a scratch clone of `ea18ceff` with the step's 31 files in place:
+  `make pre-add-check FILES=…` "19 file(s) clean"; `make test` and `go test -race -count=1 ./...` 50 packages ok each,
+  no failure; `make lint`, `make staticcheck`, `make vet-tags` (nine tags) clean; `dart format --set-exit-if-changed`
+  "231 files (0 changed)"; `flutter analyze` "No issues found"; `flutter test` "+1532 ~3: All tests passed". The Linux
+  and Windows hosts are not run for this step (the conventions name steps 3, 7 and 8). While editing, a cut in
+  `device_flow_sheet_test.dart` ended at the first closing brace and left half a group behind; `flutter analyze`
+  caught it, and it was repaired by hand, not restored. Staged: the step's files and the two 0074 records. Commit: the
+  owner's.
+* **Deviation 3, 2026-11-11 — `confirm_required` is live, so D35 cannot remove it.** Evidence: MADR D35 and this step
+  remove `confirm_required` and the step's search expects none outside `docs/`; `protocol.ErrConfirmRequired` is sent
+  by the codex surface for permanent, section and project deletion (`internal/ws/codex_handlers.go:366`, `:385`, `:404`)
+  and by `internal/ws/codex_execution.go:224`, `:228`. Only provider auth's use is dead. Pre-existing: the MADR asserted
+  it. Resolutions put to the owner: remove only the provider-auth half and keep the wire code (recommended); remove the
+  code and move the codex deletions to another, which changes live behaviour D35 did not consider. Decision: the owner
+  chose the first ("option 1", 2026-11-11, in this session). Scope as built above; the MADR's D35 carries the
+  narrowing and the search of this step and of 16.5 item 6 leaves `confirm_required` out.
