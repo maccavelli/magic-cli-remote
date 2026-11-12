@@ -1985,3 +1985,16 @@ python3 ~/.global-git-hooks/github-disclosure.py redact
   code and move the codex deletions to another, which changes live behaviour D35 did not consider. Decision: the owner
   chose the first ("option 1", 2026-11-11, in this session). Scope as built above; the MADR's D35 carries the
   narrowing and the search of this step and of 16.5 item 6 leaves `confirm_required` out.
+* **Step 6, 2026-11-11 — D37, grok's aggregate status.** After step 5 (`6c8f2623`) and the A9 records (`03d2fdd5`).
+  `internal/provider/grok/auth.go`: `authStatus` is configured when `XAI_API_KEY` is set or `configuredMethods`
+  reports a method, so a stub `auth.json` is not configured; it used to count the file configured if it merely existed
+  (`credstore.FileExists`), while the per-method reader validates it. The two status readers now agree. Tests, in
+  `grok/auth_test.go`: `TestGrokStubAuthJSONIsNotConfigured` (a `{}` file: the aggregate, the upstream and every method
+  say missing or not configured); `TestAuthStatusSeesAuthJSON` changed, since it wrote `{}` and wanted `configured`,
+  the very rule D37 reverses, and now writes the credential `liveGrokCred` (the per-method reader accepts it). Seen
+  failing on its planted break in a scratch clone of `03d2fdd5` (`step6_plant.log`), `credstore.FileExists` put back:
+  `aggregate status = "configured" for a stub auth.json, want missing`. Passes clean. Gates, on that clone with the
+  step's two files: `make pre-add-check FILES=…` "2 file(s) clean"; `make test` and `go test -race -count=1 ./...` 50
+  packages ok each, no failure; `make lint`, `make staticcheck`, `make vet-tags` clean. No Dart file changed, and the
+  hosts are not run (the conventions name steps 3, 7 and 8). Staged: `grok/auth.go`, `grok/auth_test.go` and this
+  record. Commit: the owner's.

@@ -123,7 +123,10 @@ func TestAuthStatusSeesAuthJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(auth, []byte(`{}`), 0o600); err != nil {
+	// A credential the per-method reader accepts. This test wrote `{}` and
+	// wanted configured until MADR 0074 D37 made the aggregate agree with that
+	// reader; the stub's own test is below.
+	if err := os.WriteFile(auth, []byte(liveGrokCred), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	st, err := authStatus(context.Background())
@@ -132,6 +135,44 @@ func TestAuthStatusSeesAuthJSON(t *testing.T) {
 	}
 	if st.Status != provider.AuthConfigured {
 		t.Fatalf("status = %q, want configured", st.Status)
+	}
+}
+
+// TestGrokStubAuthJSONIsNotConfigured (MADR 0074 D37): a stub auth.json is no
+// credential. The aggregate said configured for the file's existence while the
+// per-method reader said the device method was not.
+func TestGrokStubAuthJSONIsNotConfigured(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GROK_HOME", "")
+	t.Setenv("XAI_API_KEY", "")
+	_ = os.Unsetenv("XAI_API_KEY")
+	if err := os.MkdirAll(filepath.Join(home, ".grok"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := credstore.GrokAuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(auth, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := authStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Status != provider.AuthMissing {
+		t.Fatalf("aggregate status = %q for a stub auth.json, want missing", st.Status)
+	}
+	for _, up := range st.Upstreams {
+		if up.Status != provider.AuthMissing {
+			t.Errorf("upstream %s status = %q, want missing", up.ID, up.Status)
+		}
+		for _, m := range up.Methods {
+			if m.Configured {
+				t.Errorf("method %s is configured on a stub", m.ID)
+			}
+		}
 	}
 }
 

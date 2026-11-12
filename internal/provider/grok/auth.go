@@ -128,26 +128,19 @@ func authStatus(ctx context.Context) (provider.AuthState, error) {
 	if err := ctx.Err(); err != nil {
 		return provider.AuthState{}, err
 	}
-	configured := strings.TrimSpace(os.Getenv("XAI_API_KEY")) != ""
-	if !configured {
-		if path, err := credstore.GrokAuthPath(); err == nil {
-			configured = credstore.FileExists(path)
-		}
-	}
-	if !configured {
-		if path, err := credstore.GrokConfigPath(); err == nil {
-			configured = credstore.HasGrokConfigAPIKey(path)
-		}
-	}
+	// The aggregate is the per-method reader's answer, or XAI_API_KEY. It used
+	// to count auth.json configured if the file merely existed, so a stub `{}`
+	// read as signed in here while the per-method reader, which validates it,
+	// said otherwise (MADR 0074 D37). Grok's two credentials live in separate
+	// files this daemon reads directly, so per-method state is always
+	// determined, and grok can hold both a config.toml key and an auth.json
+	// session (P18 step 12).
+	apiConfigured, deviceConfigured := configuredMethods()
+	configured := strings.TrimSpace(os.Getenv("XAI_API_KEY")) != "" || apiConfigured || deviceConfigured
 	status := provider.AuthMissing
 	if configured {
 		status = provider.AuthConfigured
 	}
-	// Per-method presence, which the aggregate above cannot express: grok can
-	// hold both a config.toml key and an auth.json session (P18 step 12).
-	// Grok's two credentials live in separate files this daemon reads directly,
-	// so per-method state is always determined.
-	apiConfigured, deviceConfigured := configuredMethods()
 	return provider.AuthState{
 		Status:         status,
 		ActiveUpstream: xaiUpstreamID,
