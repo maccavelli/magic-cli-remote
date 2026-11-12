@@ -2940,6 +2940,11 @@ before any filter. Go was `go1.27.4` on this Mac and on both test hosts.
 * **gobble-cli's `main` pinning v1.36.0** (an acceptance item): at `88655c5` it still pins v1.35.0.
   Its record 0054 P2 has the v1.36.0 pin in its working tree and has not committed. The two sides are
   apart until it does.
+  *(2026-11-11, later: met. The owner committed P3j as `83aac453`, and `make check-libs` on that commit
+  gave "0 failing checks", acp-go-sdk2 "pinned v1.36.0, checking v1.36.0". gobble-cli's `main` pins
+  acp-go-sdk2 v1.36.0 from `f441c73`, its record 0054 P2, pushed with `b6adb5a`, whose CI run
+  `43119674374` passed. The two sides share the tag from then on. 0179's gate 3 still waits for a gobble
+  release, `v0.6.0`, per 0179-MADR A10.)*
 * Sending a system prompt or any other v1.36.0 API, `acpext` v0.4.0, the `authcontract` module, the
   non-sibling modules above, and gobble's `v0.6.0`. No live agent ran and no quota was spent (C9).
 

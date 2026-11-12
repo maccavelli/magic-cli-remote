@@ -11,7 +11,7 @@ informed: gobble-cli, acp-go-sdk2
 
 > **Title, 2026-11-11:** the versions in the title are those of the first acceptance and are not rewritten. The
 > repository pins `acpext v0.3.0` (`go.mod:15`) and names gobble `0.4.0` as `KnownGoodVersion`
-> (`internal/provider/gobble/gobble.go:18`); A9 (proposed 2026-11-10) moves the pin to `acpext v0.4.0`.
+> (`internal/provider/gobble/gobble.go:18`); A9 (accepted 2026-11-11) moves the pin to `acpext v0.4.0`.
 
 ## Context and Problem Statement
 
@@ -935,9 +935,14 @@ opencode's and grok's phone shows.
 * Neutral, because registration (P4) lands after 0244's two phases.
 * Bad, because P4's work waits in the working tree, unstaged, until then.
 
-### A9. Amendment, proposed 2026-11-10: acpext `v0.4.0` now, a device method only where gobble offers one, a bounded code read, gobble's `reason`, and P6 moved
+### A9. Amendment, proposed 2026-11-10, accepted 2026-11-11: acpext `v0.4.0` now, a device method only where gobble offers one, a bounded code read, gobble's `reason`, and P6 moved
 
-**Status: proposed**, awaiting the owner's review. The owner answered A9.2's options on 2026-11-10 (below), and the
+**Status: accepted** by the owner on 2026-11-11 ("accept and approve 0179 a9", in the session executing
+`0074-PLAN-remote-provider-auth-from-phone.md` P23). Proposed 2026-11-10. Nothing in it changed on acceptance.
+*Order, 2026-11-11: P4 landed first (`83b68cbe`), so the sentences below that let P4 be committed before or after
+this amendment's commits are settled; P7 starts after P23 steps 6 to 9 (the PLAN's P4 entry of that day), and
+its step 0 annotates D3, D5, D12 item 8, D13 and the History then, not at acceptance.* The owner answered A9.2's
+options on 2026-11-10 (below), and the
 same day the timing (DF): the standalone defect fixes, this amendment's P7 among them, land "now, ahead of the
 redesign", each on its own once its record is accepted. The text above is not edited by it; on acceptance the PLAN's
 P7 step 0 annotates D3, D5, D12 item 8, D13 and the History in place.
@@ -1049,7 +1054,8 @@ a label heuristic of the kind Q18 removed.
 **Status: accepted** by the owner on 2026-11-11. The ruling reached this record through the coordinator of the
 four-repository auth-contract work (go-llmprovider-sdk, gobble-cli, this repository and acp-go-sdk2). None of the
 owner's wording was relayed, so none is quoted. A9, above, is not part of this amendment: it stays a proposed draft,
-and nothing here accepts or changes it.
+and nothing here accepts or changes it. *Later the same day the owner accepted A9 on its own; this amendment still
+neither accepts nor changes it.*
 
 **What D14 says, and what is so** [observed 2026-11-11; Baselines, A10's re-read]. Gate 3 ends "*A2 (2026-11-09):
 **met again**: gobble `v0.4.0` and this repository both pin `v1.34.2`.*" That held for one day.

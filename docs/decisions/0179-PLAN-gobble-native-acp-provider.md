@@ -1085,9 +1085,12 @@ a scratch clone of `37aebdcb` with only `meta.json` changed, removed afterwards;
 **Not done here:** the grok, codex and kilo fixtures record no `capture_host` either. They pass on every host today,
 but a later public model id could collide in the same way. Each is its own provider's record.
 
-## P7 — proposed 2026-11-10: MADR A9, acpext `v0.4.0`, the device table, the bounded code read, gobble's `reason`
+## P7 — proposed 2026-11-10, approved 2026-11-11: MADR A9, acpext `v0.4.0`, the device table, the bounded code read, gobble's `reason`
 
-**Status: proposed.** Nothing here starts before the owner accepts MADR A9 and approves this phase. The owner answered
+**Status: approved 2026-11-11, not started.** The owner accepted MADR A9 and approved this phase on 2026-11-11
+("accept and approve 0179 a9"). It starts at its place in the order (the entry "P4 — 2026-11-11" below): after
+`0074-PLAN-remote-provider-auth-from-phone.md` P23 steps 6 to 9, on the owner's word for each of 7a, 7b and 7c.
+~~Nothing here starts before the owner accepts MADR A9 and approves this phase.~~ The owner answered
 A9.2 on 2026-11-10 with (a), the two id tables and their partition test; step 2 builds it. The same day the owner
 answered the timing (DF): this phase lands now, ahead of
 `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`.
