@@ -238,6 +238,68 @@ func TestStatusMapsGobblesRows(t *testing.T) {
 	}
 }
 
+// A9.4: a row gobble gives a reason is not ready, whatever usable says. gobble
+// v0.5.0 sets "oauth_unused" on an oauth entry of a provider with no login and
+// leaves usable true; after gobble-cli's 0052-MADR D8 a reason means "not
+// usable". Such a row is missing, none of its methods is Configured, and its
+// id is not in the handshake's preference. kilo's row has no reason and is the
+// control.
+func TestReasonMeansNotConfigured(t *testing.T) {
+	const withReason = `{"providers":[` +
+		`{"provider":"claude","source":"auth.json","authType":"oauth","usable":true,"reason":"oauth_unused"},` +
+		`{"provider":"openai","source":"auth.json","authType":"api_key","usable":true,"reason":"empty_key"},` +
+		`{"provider":"grok","source":"auth.json","authType":"oauth","usable":true,"reason":"oauth_unused"},` +
+		`{"provider":"kilo","source":"auth.json","authType":"oauth","usable":true}]}`
+	st := newStub(t, withReason)
+	a := newAuth(st.bin, nil)
+	state, err := a.status(context.Background())
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if state.Status != provider.AuthConfigured {
+		t.Errorf("state = %q, want configured: kilo's row has no reason", state.Status)
+	}
+	for _, u := range state.Upstreams {
+		want := provider.AuthMissing
+		if u.ID == "kilo" {
+			want = provider.AuthConfigured
+		}
+		if u.Status != want {
+			t.Errorf("%s = %q, want %q", u.ID, u.Status, want)
+		}
+		for _, m := range u.Methods {
+			if !m.ConfiguredKnown {
+				continue
+			}
+			wantCfg := u.ID == "kilo" && m.Type == provider.AuthMethodOAuthDevice
+			if m.Configured != wantCfg {
+				t.Errorf("%s: method %s Configured = %v, want %v", u.ID, m.ID, m.Configured, wantCfg)
+			}
+		}
+	}
+	if got := a.readyUpstreams(context.Background()); !slices.Equal(got, []string{"kilo"}) {
+		t.Errorf("readyUpstreams = %v, want [kilo]: a row with a reason is not ready", got)
+	}
+
+	// With kilo's reason-free row gone, nothing is ready.
+	st.setStatus(t, strings.Replace(withReason, `"authType":"oauth","usable":true}`,
+		`"authType":"oauth","usable":true,"reason":"oauth_unused"}`, 1), 0)
+	a.drop()
+	state, err = a.status(context.Background())
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if state.Status != provider.AuthMissing {
+		t.Errorf("state = %q, want missing: every row has a reason", state.Status)
+	}
+	if got := a.readyUpstreams(context.Background()); len(got) != 0 {
+		t.Errorf("readyUpstreams = %v, want none", got)
+	}
+	if a.hasCredential() {
+		t.Error("hasCredential = true, want false: every row has a reason")
+	}
+}
+
 // D3: one status call serves the cache's time, and a write drops it.
 func TestStatusIsCachedUntilAWrite(t *testing.T) {
 	st := newStub(t, stubStatus(sourceAuthJSON))

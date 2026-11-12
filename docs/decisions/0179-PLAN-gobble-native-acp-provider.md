@@ -1087,8 +1087,9 @@ but a later public model id could collide in the same way. Each is its own provi
 
 ## P7 — proposed 2026-11-10, approved 2026-11-11: MADR A9, acpext `v0.4.0`, the device table, the bounded code read, gobble's `reason`
 
-**Status: approved 2026-11-11; 7a committed as `af8c42fb` and 7b staged 2026-11-12 (the entries "P7a — 2026-11-12"
-and "P7b — 2026-11-12" at the end of this plan), 7c not started.** The owner accepted MADR A9 and approved this phase on 2026-11-11
+**Status: approved 2026-11-11; 7a committed as `af8c42fb`, 7b as `bac7db11`, and 7c staged 2026-11-12 (the entries
+"P7a — 2026-11-12", "P7b — 2026-11-12" and "P7c — 2026-11-12" at the end of this plan). P7 is complete when the
+coordinator commits 7c; this plan stays `in-progress` for P5 and for P6's items at 0246's P7.** The owner accepted MADR A9 and approved this phase on 2026-11-11
 ("accept and approve 0179 a9"). It starts at its place in the order (the entry "P4 — 2026-11-11" below): after
 `0074-PLAN-remote-provider-auth-from-phone.md` P23 steps 6 to 9, on the owner's word for each of 7a, 7b and 7c.
 ~~Nothing here starts before the owner accepts MADR A9 and approves this phase.~~ The owner answered
@@ -1493,6 +1494,104 @@ edit. The MADR's History line for A9 now says 7b applied A9.3; the PLAN's P7 sta
 
 **Not done here:** 7c; the commit, which is the coordinator's after the gates; any push. D14's gate 3 stays unmet by
 MADR A10; the pin and `KnownGoodVersion` are as 7a left them.
+
+**Staged for the commit:** `internal/provider/gobble/auth.go`, `internal/provider/gobble/auth_test.go`, this plan and
+`0179-MADR-gobble-native-acp-provider.md`.
+
+## P7c — 2026-11-12: gobble's `reason` is read (MADR A9.4)
+
+The coordinator committed 7b as `bac7db11`, on the owner's authorization.
+
+Run on the owner's word of 2026-11-11 ("accept and approve 0179 a9"), who approved 7a, 7b and 7c to run back to back.
+This entry records 7c only: step 4 of P7, MADR A9.4, with step 5's `TestReasonMeansNotConfigured`. With 7c committed,
+P7 is complete. Nothing here spent quota or ran a live suite. Every command wrote a log in the session scratchpad with
+its exit status taken before any filter. Go was `go1.27.4` on this Mac and on both test hosts.
+
+**Start state, verified.** Branch `master`, HEAD `bac7db11`, five commits ahead of `origin/master`, working tree
+clean, index empty. Per C2 the lines the MADR cites were read again: `statusRow` had no `Reason`, and `status`,
+`readyUpstreams` and `methods` read `usable` alone (`methods` did not read it at all), as A9 says.
+
+**What gobble sends, read-only** in gobble-cli. `authStatusRow` carries `Reason string` (`json:"reason,omitempty"`).
+`statusRow` sets `oauth_unused` on an `oauth` entry of a provider without a login, with `usable` as the credential
+resolver left it (so true), and `empty_key` and `unknown_type` for the other entries it cannot use. Its
+`0052-MADR-finish-the-chatgpt-plan-sign-in-on-the-sdk-engine.md` D8 keeps the member, "An `oauth` entry the resolver
+does not accept is `usable: false` with `reason: "oauth_unused"`", so a `reason` means "not usable" there. The one rule,
+usable and no reason, holds before and after D8.
+
+**The change,** in `internal/provider/gobble/auth.go`, in a scratch clone of `bac7db11` first and then copied in:
+
+* `statusRow.Reason` (`json:"reason"`), and one helper, `statusRow.ready()`: `Usable && Reason == ""`.
+* `status` marks an upstream configured, and `readyUpstreams` lists an id, only when its row is `ready()`.
+* `methods` marks a method `Configured` only when the row is in `auth.json` and `ready()`. Before, `methods` read the
+  row's source and type alone and never `usable`, so a row gobble would not use could still show a removable method.
+  A9.4 says "a method `Configured`", and step 4 names `methods` among the readers.
+* The comments of `statusRow`, `methods` and `readyUpstreams` say so. `hasCredential` reads `readyUpstreams`, so the
+  handshake's `HasHeadlessCredential` follows.
+* A row of an old gobble without the member decodes with an empty reason and behaves as before.
+
+**Test,** in `internal/provider/gobble/auth_test.go`:
+
+* `TestReasonMeansNotConfigured` (new): a stub reports `claude` and `grok` as `oauth` entries in `auth.json` with
+  `usable: true` and `reason: "oauth_unused"`, `openai` as an `api_key` entry with `usable: true` and `reason:
+  "empty_key"`, and `kilo` as an `oauth` entry with `usable: true` and no reason (the control). Each row with a reason
+  is `missing`, none of its methods is `Configured` (the key method of `openai`, the device method of `grok`), and
+  `readyUpstreams` is `[kilo]` alone; the state is `configured` for `kilo`'s sake. The stub then gives `kilo` a reason
+  too: the state is `missing`, `readyUpstreams` is empty and `hasCredential` is false.
+* `TestStatusMapsGobblesRows` and the other tests of the package, the fixture tests among them, pass unchanged; no
+  fixture or golden changed.
+
+**Planted breaks, each seen failing on a scratch copy of the scratch clone** (`plants.py`; the clean copy then passed,
+`ALL PLANTS CAUGHT`):
+
+```text
+reason ignored in readyUpstreams   auth_test.go:281: readyUpstreams = [openai claude grok kilo], want [kilo]: a row with a reason is not ready
+                                   auth_test.go:296: readyUpstreams = [openai claude grok kilo], want none
+                                   auth_test.go:299: hasCredential = true, want false: every row has a reason
+reason ignored in status           auth_test.go:268: openai = "configured", want "missing"
+                                   auth_test.go:293: state = "configured", want missing: every row has a reason
+reason ignored in methods          auth_test.go:276: openai: method openai:api Configured = true, want false
+                                   auth_test.go:276: grok: method grok:device Configured = true, want false
+reason not decoded                 auth_test.go:268: openai = "configured", want "missing"  (and eight more lines)
+ready() reads usable alone         auth_test.go:268: openai = "configured", want "missing"  (and eight more lines)
+```
+
+The first is the plan's plant; the others break each reader alone, the field, and the helper.
+
+**Gates, on the scratch clone** with the two Go-side files:
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check FILES="internal/provider/gobble/auth.go internal/provider/gobble/auth_test.go"` | exit 0, "2 file(s) clean (gofmt, golint, govulncheck)"; the same in the tree after the copy |
+| `make test` | exit 0; 50 `ok` lines, no FAIL |
+| `go test -race -count=1 ./...` | exit 0; 50 `ok` lines, no FAIL, panic or data race |
+| `make lint` | exit 0 |
+| `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" on each GOOS |
+| ignored findings against `HEAD` | per GOOS, `staticcheck -show-ignored -f json ./...` in a clone of `HEAD` and in this clone: 56 each; the sets of (check, file, message) equal after the clone root is removed from the path, with line numbers equal; 16 distinct names on both sides. No name is new |
+| `make vet-tags` | exit 0; nine tags, each ok |
+| `make vulncheck` | exit 0; "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+| `make check-libs`, on a scratch commit of the clone, with `GO_SHARED` pointing at the go-shared clone | exit 0; "toolchain: go1.27.4"; acp-go-sdk2 "pinned v1.36.0, checking v1.36.0", go-selfupdate-lib "pinned v1.26.2, checking v1.26.2", go-llmprovider-sdk "pinned v1.29.0, checking v1.30.0", "0 failing checks; scratch removed" |
+
+**Host runs,** on `bac7db11` plus the two files, carried as a pack of the refreshed scratch clone:
+
+* the Linux test host: `go1.27.4`, `go test -race -count=1 ./...` exit 0, 50 `ok` lines, no FAIL, panic or race line;
+* the Windows test host: `go1.27.4`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED", 50 `ok`
+  lines, no FAIL or panic line. Its log is not verbose, so it does not show whether the new test ran there or skipped
+  for want of a POSIX shell.
+
+Each host's remote copy was removed by the runner.
+
+**Records.** `make check-records` and `python3 -B scripts/check_records.py --check-all` exit 0; `make
+markdownlint-docs` exit 0; the redact preview (`github-disclosure.py redact`, without `--apply`) exit 0 with nothing to
+edit. The MADR's History line for A9 now says 7c applied A9.4; the PLAN's P7 status line says 7a is committed as
+`af8c42fb`, 7b as `bac7db11` and 7c staged.
+
+**P7's status.** All three commits of P7 exist once the coordinator commits 7c, so P7 is complete. This plan stays
+`in-progress`: P5 waits on gobble-cli's icon release, and P6's items are carried out at
+`0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7 (MADR A9.5), which A9.5 makes the
+condition of this plan's completion.
+
+**Not done here:** the commit, which is the coordinator's after the gates; any push. D14's gate 3 stays unmet by MADR
+A10; the pin and `KnownGoodVersion` are as 7a left them.
 
 **Staged for the commit:** `internal/provider/gobble/auth.go`, `internal/provider/gobble/auth_test.go`, this plan and
 `0179-MADR-gobble-native-acp-provider.md`.

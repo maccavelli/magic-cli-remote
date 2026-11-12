@@ -70,7 +70,7 @@ var noPhoneSignIn = []string{"openai"}
 const workspaceInput = "workspace"
 
 // The values of gobble's status rows this package reads (gobble-cli
-// internal/cli/auth.go, authStatusRow, at v0.4.0).
+// internal/cli/auth.go, authStatusRow; Reason from v0.5.0).
 const (
 	sourceAuthJSON = "auth.json"
 	authTypeAPIKey = "api_key"
@@ -83,7 +83,15 @@ type statusRow struct {
 	Source   string `json:"source"`
 	AuthType string `json:"authType"`
 	Usable   bool   `json:"usable"`
+	Reason   string `json:"reason"`
 }
+
+// ready is whether gobble would use the row's credential: usable, with no
+// reason (MADR 0179 A9.4). gobble v0.5.0 sets reason "oauth_unused" on an
+// oauth entry of a provider with no login whatever usable says; the rule holds
+// before and after gobble-cli's 0052-MADR D8, which makes a reason mean "not
+// usable". status, methods and readyUpstreams read this, never Usable alone.
+func (r statusRow) ready() bool { return r.Usable && r.Reason == "" }
 
 // statusReport is `gobble auth status --json`'s output: the rows, or, when
 // gobble cannot read its files, an error, with exit 2.
@@ -172,8 +180,9 @@ func (r *statusReport) rows() map[string]statusRow {
 
 // methods are an upstream's methods, with Configured from row when known.
 // A method is configured only for a credential gobble keeps in auth.json of
-// that method's kind: one from an environment variable or models.json makes
-// the upstream ready, but is not this daemon's to remove (MADR 0179 A4).
+// that method's kind, and would use (row.ready): one from an environment
+// variable or models.json makes the upstream ready, but is not this daemon's
+// to remove (MADR 0179 A4, A9.4).
 func methods(p acpext.AuthProvider, row *statusRow) []provider.AuthMethod {
 	api := provider.AuthMethod{ID: p.ID + methodAPI, Type: provider.AuthMethodAPIKey, Label: p.Name + " API key"}
 	if p.ID == "claude" {
@@ -198,7 +207,7 @@ func methods(p acpext.AuthProvider, row *statusRow) []provider.AuthMethod {
 	if row == nil {
 		return out
 	}
-	inFile := row.Source == sourceAuthJSON
+	inFile := row.Source == sourceAuthJSON && row.ready()
 	for i := range out {
 		switch out[i].Type {
 		case provider.AuthMethodAPIKey:
@@ -235,7 +244,7 @@ func (a *auth) status(ctx context.Context) (provider.AuthState, error) {
 	for _, p := range acpext.AuthProviders() {
 		up := provider.UpstreamAuth{ID: p.ID, Label: p.Name, Status: provider.AuthMissing}
 		row, ok := rows[p.ID]
-		if ok && row.Usable {
+		if ok && row.ready() {
 			up.Status, state.Status = provider.AuthConfigured, provider.AuthConfigured
 		}
 		if ok {
@@ -249,7 +258,7 @@ func (a *auth) status(ctx context.Context) (provider.AuthState, error) {
 }
 
 // readyUpstreams is the handshake's preference: the upstreams with a usable
-// credential, in acpext's order, or none (D4).
+// credential and no reason, in acpext's order, or none (D4, A9.4).
 func (a *auth) readyUpstreams(ctx context.Context) []string {
 	r, err := a.report(ctx)
 	if err != nil || r.Error != nil {
@@ -258,7 +267,7 @@ func (a *auth) readyUpstreams(ctx context.Context) []string {
 	rows := r.rows()
 	var ids []string
 	for _, p := range acpext.AuthProviders() {
-		if rows[p.ID].Usable {
+		if rows[p.ID].ready() {
 			ids = append(ids, p.ID)
 		}
 	}
