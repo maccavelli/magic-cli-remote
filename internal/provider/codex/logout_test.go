@@ -76,14 +76,21 @@ func TestChatGPTLogoutTombstonesBeforeRevoking(t *testing.T) {
 		t.Error("a revoked credential must never be offered for recovery")
 	}
 
-	// The revoking invocation ran against the real home, not a clone: a clone
-	// would have carried the same refresh token and revoked it anyway.
+	// The revoking invocation ran from an owner-only copy of the token, taken
+	// before RecordLogout removed LIVE: run in the daemon's home afterwards it
+	// would find no token and revoke nothing (MADR 0074 D38). This test read
+	// "ran against the real home, not a clone" before P23 step 7, which was
+	// that defect. It must still not be a rehearsal on a verify-clone: that
+	// would revoke the grant before any fingerprint comparison could decide.
 	b, err := os.ReadFile(journal)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), os.Getenv("CODEX_HOME")) {
-		t.Fatalf("logout journal = %q, want the effective codex home", b)
+	if !strings.Contains(string(b), "mcremote-codex-revoke-") {
+		t.Fatalf("logout journal = %q, want the revoking copy", b)
+	}
+	if strings.Contains(string(b), os.Getenv("CODEX_HOME")) {
+		t.Fatalf("logout journal = %q: the revoke ran in the daemon's home, where RecordLogout had removed the token", b)
 	}
 	if strings.Contains(string(b), "mcremote-codex-logout-") {
 		t.Fatal("a ChatGPT credential was rehearsed on a clone, which revokes it")

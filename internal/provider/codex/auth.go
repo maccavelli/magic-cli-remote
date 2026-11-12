@@ -3,6 +3,7 @@ package codex
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -37,6 +38,24 @@ func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secr
 	if m := strings.TrimSpace(methodID); m != "" && m != openaiUpstreamID+":api" {
 		return fmt.Errorf("codex method %q: %w", m, provider.ErrAuthMethodUnsupported)
 	}
+	// With a coordinator the write is staged, validated and committed as a new
+	// CURRENT, never left as an unordered LIVE that the next start cannot adopt
+	// (MADR 0074 D38). A host whose credential the coordinator cannot protect is
+	// refused before anything changes, and only that early refusal falls back to
+	// the direct write: nothing is retained there to protect (Q-D).
+	if p.coord != nil {
+		err := p.SetCredentialCoordinated(ctx, upstreamID, methodID, secret)
+		if err == nil || !errors.Is(err, errEarlyUnsupportedBackend) {
+			return err
+		}
+	}
+	return p.setCredentialDirect(ctx, secret)
+}
+
+// setCredentialDirect is `codex login --with-api-key` against the live home. It
+// serves a provider built without a coordinator, and a host the coordinator
+// cannot protect.
+func (p *Provider) setCredentialDirect(ctx context.Context, secret string) error {
 	ctx, cancel := context.WithTimeout(ctx, codexLoginTimeout)
 	defer cancel()
 
@@ -58,10 +77,28 @@ func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secr
 }
 
 // ClearCredential implements [provider.AuthWriter] via `codex logout`.
+//
+// With a coordinator it is CoordinatedLogout, so a ChatGPT logout is tombstoned
+// before it revokes and no revoked generation is left to be offered (MADR 0074
+// D38, D24). Only the coordinator's early refusal of an unprotectable
+// credential falls back to the direct logout (Q-D).
 func (p *Provider) ClearCredential(ctx context.Context, upstreamID string) error {
 	if upstreamID != "" && upstreamID != openaiUpstreamID {
 		return fmt.Errorf("codex has no upstream %q", upstreamID)
 	}
+	if p.coord != nil {
+		err := p.CoordinatedLogout(ctx)
+		if err == nil || !errors.Is(err, errEarlyUnsupportedBackend) {
+			return err
+		}
+	}
+	return p.runLogout(ctx)
+}
+
+// runLogout is `codex logout` against the live home: the direct path of a
+// provider built without a coordinator, and the fallback for a credential the
+// coordinator cannot protect. CoordinatedLogout does not call it (D38).
+func (p *Provider) runLogout(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, codexLoginTimeout)
 	defer cancel()
 	cmd := procutil.Command(ctx, p.cfg.Bin, "logout")

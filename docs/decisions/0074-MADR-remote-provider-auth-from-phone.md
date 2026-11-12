@@ -1373,7 +1373,12 @@ is as it was at `995d442b`, where this section was first drafted); none of these
     `MarkRevoked`'s `StateExternal` refusal (`transaction.go:541-546`), the call falls back to the direct path, the
     unexported `runLogout` or `SetCredential`'s direct body. Nothing is retained on such a host, so there is nothing to
     mark revoked. Any other error, and any `ErrUnsupportedBackend` after a mutation (`RecordLogout`'s, `:558-560`, once
-    `MarkRevoked` has run), is returned as it is.
+    `MarkRevoked` has run), is returned as it is. *Refined 2026-11-11 (P23 step 7, deviations 4 and 5): (4) the key
+    write's early refusal is `CheckBackend` alone. A manifest in `StateExternal` does not refuse a key write, since
+    §15.13 holds an external credential is not a reason to block the sign-in that moves it under protection; only
+    the logout refuses on that state (`MarkRevoked`). (5) `CoordinatedLogout` also runs `CheckBackend` first and
+    refuses early, so a credential held in a keyring, which has no `auth.json` to copy or remove, is cleared by the
+    direct `codex logout` and not tombstoned as a logout that did nothing.*
 
   A provider built without a coordinator keeps the direct paths, as `TestCoordinatedLogoutNeedsACoordinator`
   (`codex/logout_test.go:195`) holds today. D21's "API-key set, explicit clear/logout, device auth, and backup

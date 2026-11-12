@@ -3,6 +3,7 @@ package codex
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -26,6 +27,23 @@ func storedAuthMode(path string) string {
 		return ""
 	}
 	return meta.Mode
+}
+
+// errEarlyUnsupportedBackend marks a coordinator refusal that came before it
+// changed anything: CheckBackend, or MarkRevoked or RecordLogout on a manifest
+// in StateExternal. ClearCredential and SetCredential fall back to the direct
+// path on this and on nothing else, so an ErrUnsupportedBackend after a
+// mutation is returned as it is (MADR 0074 D38, Q-D). It wraps beside the
+// original error, so errors.Is still finds providerauth.ErrUnsupportedBackend.
+var errEarlyUnsupportedBackend = errors.New("codex: coordinator refused before changing anything")
+
+// early marks err as a refusal made before any change, when it is an
+// unsupported-backend one.
+func early(err error) error {
+	if errors.Is(err, providerauth.ErrUnsupportedBackend) {
+		return fmt.Errorf("%w: %w", errEarlyUnsupportedBackend, err)
+	}
+	return err
 }
 
 // ClearCredentialMethod implements [provider.AuthMethodClearer].
@@ -67,6 +85,14 @@ func (p *Provider) CoordinatedLogout(ctx context.Context) error {
 	if p.coord == nil {
 		return fmt.Errorf("codex: provider was not built with a credential coordinator")
 	}
+	// A credential held where the coordinator cannot see it, a keyring, has no
+	// auth.json to copy or remove, so the tombstone would record a logout that
+	// revoked and cleared nothing. Refuse before anything changes; the caller
+	// falls back to the direct `codex logout`, which does clear it (MADR 0074
+	// D38, Q-D; deviation 5).
+	if err := NewCredentialAdapter(p.coord.ProviderID(), p.cfg.Bin).CheckBackend(); err != nil {
+		return early(err)
+	}
 	live, err := p.coord.LivePath()
 	if err != nil {
 		return err
@@ -76,17 +102,31 @@ func (p *Provider) CoordinatedLogout(ctx context.Context) error {
 	revoking := mode != authModeAPIKey // unknown modes take the safe path
 
 	if revoking {
+		// RecordLogout deletes LIVE, so `codex logout` run afterwards in the
+		// daemon's home finds no token to send and revokes nothing. Revocation
+		// is server-side, and a copy of the token revokes the same grant, so the
+		// revoke runs from an owner-only copy taken before anything is removed
+		// (MADR 0074 D38, 16.2 "the revoke runs with no token").
+		tmp, err := copyLiveForRevoke(live)
+		if err != nil {
+			return err
+		}
+		if tmp != "" {
+			defer func() { _ = os.RemoveAll(tmp) }()
+		}
 		// Tombstone first, then invoke. RecordLogout syncs the manifest before
 		// removing anything, so a crash between the two is completed by
 		// recovery instead of leaving a revoked credential looking valid.
 		if err := p.coord.MarkRevoked(ctx); err != nil {
-			return err
+			return early(err) // StateExternal refuses here, before any change
 		}
 		if err := p.coord.RecordLogout(ctx); err != nil {
-			return err
+			return err // MarkRevoked has run: not an early refusal
 		}
-		// The live file is already gone; this revokes the server-side grant.
-		if err := p.ClearCredential(ctx, ""); err != nil {
+		if tmp == "" {
+			return nil // no LIVE credential, so no grant to revoke
+		}
+		if err := p.runLogoutIn(ctx, tmp); err != nil {
 			// The credential is removed locally and recorded as revoked either
 			// way; a failed revoke is reported, not silently swallowed.
 			return fmt.Errorf("codex: credential removed but revoke did not confirm: %w", err)
@@ -98,7 +138,38 @@ func (p *Provider) CoordinatedLogout(ctx context.Context) error {
 	if err := p.verifyLogoutOnClone(ctx, live); err != nil {
 		return err
 	}
-	return p.coord.RecordLogout(ctx)
+	// Nothing has changed yet, so a refusal here is an early one.
+	return early(p.coord.RecordLogout(ctx))
+}
+
+// copyLiveForRevoke writes LIVE to <tmp>/auth.json in a new owner-only
+// directory and returns the directory, or "" when there is no LIVE file. The
+// caller removes it on every path. A crash between the copy and its removal
+// leaves an owner-only copy in the temporary directory, the exposure
+// verifyLogoutOnClone already accepts.
+func copyLiveForRevoke(live string) (string, error) {
+	data, err := os.ReadFile(live) //nolint:gosec // effective codex home path
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	home, err := os.MkdirTemp("", "mcremote-codex-revoke-")
+	if err != nil {
+		return "", err
+	}
+	fail := func(err error) (string, error) {
+		_ = os.RemoveAll(home)
+		return "", err
+	}
+	if err := os.Chmod(home, 0o700); err != nil {
+		return fail(err)
+	}
+	if err := os.WriteFile(home+string(os.PathSeparator)+"auth.json", data, 0o600); err != nil {
+		return fail(err)
+	}
+	return home, nil
 }
 
 // verifyLogoutOnClone runs `codex logout` against an isolated copy and requires
@@ -173,7 +244,7 @@ func (p *Provider) SetCredentialCoordinated(ctx context.Context, upstreamID, met
 		return fmt.Errorf("codex: %w", provider.ErrCredentialNotAccepted)
 	}
 	if err := NewCredentialAdapter(p.coord.ProviderID(), p.cfg.Bin).CheckBackend(); err != nil {
-		return err
+		return early(err) // refused before anything is staged
 	}
 
 	txn, err := p.coord.Begin(ctx, providerauth.SourceAPIKey)

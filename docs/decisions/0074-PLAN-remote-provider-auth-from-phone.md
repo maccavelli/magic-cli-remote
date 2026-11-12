@@ -1998,3 +1998,63 @@ python3 ~/.global-git-hooks/github-disclosure.py redact
   packages ok each, no failure; `make lint`, `make staticcheck`, `make vet-tags` clean. No Dart file changed, and the
   hosts are not run (the conventions name steps 3, 7 and 8). Staged: `grok/auth.go`, `grok/auth_test.go` and this
   record. Commit: the owner's.
+* **Step 7, 2026-11-11 — D38, the wiring (Q17 re-asked; Q-D).** Run after step 6 (`589753ad`), on the owner's word to
+  proceed. `codex/auth.go`: `SetCredential` keeps its validation and then runs `SetCredentialCoordinated` when
+  `p.coord != nil`, else the unexported `setCredentialDirect` (its former body); `ClearCredential` runs
+  `CoordinatedLogout` when `p.coord != nil`, else the unexported `runLogout` (its former body). Both fall back to the
+  direct body on `errEarlyUnsupportedBackend` and on nothing else. `codex/logout.go`: `errEarlyUnsupportedBackend`
+  and `early()`, which wraps beside the original error so `errors.Is` still finds
+  `providerauth.ErrUnsupportedBackend`; `SetCredentialCoordinated`'s `CheckBackend` refusal, `CoordinatedLogout`'s
+  `MarkRevoked` refusal and, on the non-revoking path, `RecordLogout`'s are marked early; the revoking path's
+  `RecordLogout`, which runs after `MarkRevoked`, is not. The revoking path copies LIVE to
+  `<tmp>/auth.json` before `MarkRevoked` (`copyLiveForRevoke`: new `os.MkdirTemp` home `0700`, file `0600`, removed by
+  a deferred `RemoveAll`; LIVE absent copies nothing and runs no revoke), then `MarkRevoked`, `RecordLogout`, and
+  `runLogoutIn(ctx, tmp)`; it no longer calls `ClearCredential`, so the routing cannot recurse. Tests, in
+  `codex/phone_paths_test.go`: step 1's `TestPhoneCodexLogoutMarksRevoked` and `TestPhoneCodexKeyWriteCommitsCurrent`
+  (failing at `bcde74ab` as step 1 recorded, passing now); `TestCoordinatedLogoutRevokesWithTheToken` (a stub whose
+  `logout` fails unless its home holds the refresh token, and journals the home and whether LIVE was already gone);
+  `TestCoordinatedLogoutRemovesTheCopy` (the revoke fails; `RecordLogout` fails after the copy, through a lock-path
+  fault); `TestClearCredentialDoesNotRecurse`; `TestUnprotectableCodexCredential` (three subtests, below);
+  `TestLateUnsupportedBackendIsReturned` (an adapter whose lock path fails with `ErrUnsupportedBackend` once armed, so
+  `RecordLogout` refuses after `MarkRevoked` ran). Changed: `TestChatGPTLogoutTombstonesBeforeRevoking` asserted the
+  revoke ran "against the real home", which was the defect, and now asserts it ran in a `mcremote-codex-revoke-` copy,
+  not the daemon's home and not a verify-clone. Each new test was seen failing on its planted break in a scratch clone
+  of `589753ad` (`step7_plants.log`):
+  * the routing removed: `state=recovery_required … recovery_available=true generations=1` after a logout, and
+    `state=recovery_required, CURRENT holds the new key=false` after a key write;
+  * today's order (`runLogout` after `RecordLogout`): `credential removed but revoke did not confirm: codex logout: exit
+    status 1`, the stub finding no token;
+  * the `RemoveAll` not deferred: `a failed revoke left [… mcremote-codex-revoke-…] behind`, and the same after a failed
+    `RecordLogout`;
+  * `CoordinatedLogout` calling `ClearCredential` again: `codex logout ran 0 times, want once`;
+  * the fallback removed: `the phone's clear on an external host: codex: coordinator refused before changing anything`,
+    and the same for the `CheckBackend` key write (a first plant that dropped the last use of `errors` failed the build
+    and was redone so it compiled);
+  * the fallback taken on any unsupported backend: `ClearCredential = <nil>, want the unsupported-backend error returned`;
+  * the backend check removed from the logout (deviation 5): `codex logout runs = [], want one in the daemon's home`.
+  All pass clean. Gates, on a scratch clone with the step's four files: `make pre-add-check FILES=…` clean; `make test`
+  and `go test -race -count=1 ./...` 50 packages ok each; `make lint`, `make staticcheck`, `make vet-tags` clean. The
+  Linux test host, `go test -race -count=1 ./...`: ok, no failure or race. The Windows test host, `make ci-windows`:
+  "ALL SELECTED CHECKS PASSED". The first host runs, before deviation 5's change, also passed and are not counted.
+  Not done here, by the plan: the live check that OpenAI refuses a refresh with the revoked token, which needs a
+  sign-in and is `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1 (MADR
+  16.5 item 14). Staged: the step's four files and the two 0074 records. Commit: the owner's.
+* **Deviation 4, 2026-11-11 — the plan's `TestUnprotectableCodexCredential` merged two cases that the code and the MADR
+  keep apart.** Evidence: the test text expects the phone's key write on a `StateExternal` manifest to run `codex login
+  --with-api-key` directly and leave the manifest byte-identical. Built that way it failed: the write went through the
+  coordinator, in a pending home, and succeeded (`phone_paths_test.go`, first run). `SetCredentialCoordinated` refuses
+  only through `CheckBackend`; `StateExternal` refuses `MarkRevoked` and `RecordLogout`, the logout (D38). MADR §15.13
+  holds that an external credential is deliberately not a refusal for a sign-in, so the write can move it under
+  protection. Pre-existing: the plan's text. Resolutions put to the owner: assert what the MADR decides, a logout test
+  for the external manifest and a separate key-write test (recommended); change the code so an external manifest also
+  sends the key write direct, reversing §15.13. Decision: the owner chose the first ("1 and 1", 2026-11-11, in this
+  session). Scope: the test is three subtests, an external manifest (the clear), a key write on an external manifest
+  committing through the coordinator, and `CheckBackend` refusing a key write; the MADR's D38 carries the refinement.
+* **Deviation 5, 2026-11-11 — a phone logout on a keyring host could be tombstoned and do nothing.** Evidence: the
+  plan runs no revoke when LIVE is absent. A credential held in a keyring has no `auth.json`, so with the manifest not
+  yet external `CoordinatedLogout` would record a logout, remove nothing and revoke nothing, where the direct `codex
+  logout` it replaces cleared the keyring credential. Pre-existing in the plan's design. Resolutions put to the owner:
+  `CoordinatedLogout` runs `CheckBackend` first and refuses early, so the caller falls back to the direct logout
+  (recommended); leave it and record the gap. Decision: the owner chose the first ("1 and 1", 2026-11-11). Added to the
+  step's scope: the check in `CoordinatedLogout` and the subtest "a logout where CheckBackend refuses and LIVE is
+  absent". A probe of `codex doctor --json` is now part of a phone logout, as it already is of a key write.
