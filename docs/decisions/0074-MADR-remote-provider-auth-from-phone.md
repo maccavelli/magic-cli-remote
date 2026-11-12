@@ -6,7 +6,7 @@
 
 | field | value |
 | --- | --- |
-| status | **accepted** 2026-08-10, **implemented** 2026-08-12. D1–D15 locked 2026-08-10; **D16–D19 added 2026-08-12** after re-probing all five CLIs. **Accepted amendment 2026-08-21:** §15 records the credential-loss defect and locks D20–D29; implementation is pending under approved P17–P22. W3 (loopback tunnel) remains deferred to a successor MADR. **Accepted amendment 2026-11-11:** §16 locks D30–D42 (the label heuristics, the owned lifecycle, the coordinated codex paths, recovery state on status, and the record's corrections); implementation is under the PLAN's P23. Supersedes the *research-report* form of this document (2026-08-05/06), which proposed strategies but locked nothing. |
+| status | **accepted** 2026-08-10, **implemented** 2026-08-12. D1–D15 locked 2026-08-10; **D16–D19 added 2026-08-12** after re-probing all five CLIs. **Accepted amendment 2026-08-21:** §15 records the credential-loss defect and locks D20–D29; implementation is pending under approved P17–P22. W3 (loopback tunnel) remains deferred to a successor MADR. **Accepted amendment 2026-11-11:** §16 locks D30–D42 (the label heuristics, the owned lifecycle, the coordinated codex paths, recovery state on status, and the record's corrections); implementation is under the PLAN's P23. *Implemented 2026-11-12 (PLAN P23 step 9): §16.5 items 1 to 13 met; item 14, owner-run, is open under `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.* Supersedes the *research-report* form of this document (2026-08-05/06), which proposed strategies but locked nothing. |
 | date | 2026-08-10, revised 2026-08-12; amendment accepted 2026-08-21; second amendment accepted 2026-11-11 |
 | deciders | @<user> |
 | related | MADR 0015 (relay), **0019** (single-engine, engine-owned config), 0021 (OpenCode API), 0025 (Goose), 0028 (Codex), 0029 (platform), 0043 (models), **0044** (permission funnel), **0067** (iOS port), **0068** (protocol v2 capabilities), **0073** (goose quota hang), **0075** (Kilo provider — **now implemented and default-enabled**, auth landed here), **0079** (provider/model drill-down picker — same "browse a large catalog" problem, solved the same way) |
@@ -1175,6 +1175,10 @@ P23 step 0 annotates each quoted statement in place, struck through or marked, n
 2026-11-11 (P23 step 0): D3, D21, D24, D25, the status and date cells, §15.12's D20 row and "Still
 outstanding" carry their notes; 16.7's other records carry theirs.*
 
+*Implemented 2026-11-12: the PLAN's P23 steps 0 to 8 landed (`bcde74ab` to `4bb23579`) and step 9 closed it out;
+16.5's items 1 to 13 are met, each with its evidence in the PLAN's P23 step 9 entry, and item 14 stays open,
+owned by `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.*
+
 ### 16.1 Context
 
 [0245-REPORT-non-api-key-auth-across-magic-gobble-and-the-sdk.md](../reports/0245-REPORT-non-api-key-auth-across-magic-gobble-and-the-sdk.md)
@@ -1451,6 +1455,12 @@ is as it was at `995d442b`, where this section was first drafted); none of these
     direct path and change nothing in the coordinator; an `ErrUnsupportedBackend` after a mutation is returned (Q-D).
 14. Owner-run, after the cut-over: a refresh with the token a phone logout revoked is refused by OpenAI
     (`0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1).
+
+*Checked 2026-11-12 (PLAN P23 step 9), against the tree at `4bb23579`: items 1 to 13 met, each with its commit and
+evidence in the PLAN's step 9 entry. Item 6 is read with D35's narrowing (deviation 3: `confirm_required` left out),
+and item 13 with D38's refinement (deviation 4: a key write on a `StateExternal` manifest commits through the
+coordinator, by §15.13; only `CheckBackend` sends it direct). Item 14 is open, owned by
+`0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.*
 
 ### 16.6 Questions answered by the owner (2026-11-10)
 

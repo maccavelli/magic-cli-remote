@@ -2,7 +2,7 @@
 
 # Implement MADR 0074 — Remote provider auth from phone (W1 + W2 + W4 + W5)
 
-> **Status, corrected 2026-10-18:** in progress. The status bullet says both that P17–P22 "have not begun" and that they are "implemented as of 2026-08-21". The implementation log (§17.6) confirms the second. Only P22 steps 5–6, the live acceptance run that spends tokens, remain. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+> **Status, corrected 2026-10-18:** in progress. The status bullet says both that P17–P22 "have not begun" and that they are "implemented as of 2026-08-21". The implementation log (§17.6) confirms the second. Only P22 steps 5–6, the live acceptance run that spends tokens, remain. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md). *Annotated 2026-11-12 (P23 step 9): P22 steps 5–6 moved to `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7, runs L1 and L2 (MADR D40), and P23 is complete; this note changes no other phase's status.*
 
 Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote-provider-auth-from-phone.md)
 
@@ -13,7 +13,9 @@ Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote
   implement accepted D20–D29 and have not begun. Verified
   against the tree, not against commit messages — see §0.2 and §17.
   **Approved amendment 2026-11-11:** P23 (§25) implements the MADR's §16
-  (D30–D42), accepted the same day; in progress.
+  (D30–D42), accepted the same day; ~~in progress~~ complete 2026-11-12
+  (step 9), with the MADR's 16.5 item 14 open under
+  `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.
 - **Date**: 2026-08-10, revised 2026-08-12; repair approved 2026-08-21; P23 approved 2026-11-11
 - **Scope**: Workstreams **W1** (auth status, credential injection, active-upstream
   switch), **W2** (device OAuth, Strategy A), **W4** (polish), and **W5** (full
@@ -823,7 +825,7 @@ unchanged, and no work outside D20-D29 was added.
 | P19 | **Complete** | `make test`, `make race`, `make vet`, `make pre-add-check` green; Flutter format/analyze/test green (1041 tests) | Watcher, reconciliation, operator CLI, and `RecoverAll`; `fsnotify` promoted to a direct dependency (it is the inotify wrapper on Linux, and a watcher that cannot start degrades to reconciliation). | |
 | P20 | **Complete** | `make test`, `make race`, `make vet`, `make pre-add-check` green; Flutter format/analyze/test green (1041 tests) | Reservation-based registry, owned server flow, disconnect/resume, shutdown drain, additive wire contract, daemon activation, CLI registration. **This is the phase that made the fix live.** | |
 | P21 | **Complete** | `make test`, `make race`, `make vet`, `make pre-add-check` green; Flutter format/analyze/test green (1041 tests) | Idempotent cancellation behind every dismissal path, transactional copy, `ready_to_activate` rendering, per-method removal. | |
-| P22 | **Complete except the acceptance run** | `make test`, `make race`, `make vet`, `make pre-add-check` green; Flutter format/analyze/test green (1041 tests) | Live-tagged isolation tests for both providers, convergence-under-kills test, operator recovery guide, full matrix. | `make live-codex` and `make live-grok` both green 2026-08-21; a `live-grok` target was added, since the phase referenced one that never existed. Real credentials verified byte-identical before and after. Three pre-existing `live_grok` turn-behaviour failures reproduce at `9276ada` and are unrelated. The completed-login, rotation, busy-activation, and logout run is left for the owner: it spends tokens and revokes a real grant. |
+| P22 | **Complete except the acceptance run** | `make test`, `make race`, `make vet`, `make pre-add-check` green; Flutter format/analyze/test green (1041 tests) | Live-tagged isolation tests for both providers, convergence-under-kills test, operator recovery guide, full matrix. | `make live-codex` and `make live-grok` both green 2026-08-21; a `live-grok` target was added, since the phase referenced one that never existed. Real credentials verified byte-identical before and after. Three pre-existing `live_grok` turn-behaviour failures reproduce at `9276ada` and are unrelated. The completed-login, rotation, busy-activation, and logout run is left for the owner: it spends tokens and revokes a real grant. *Annotated 2026-11-12 (MADR §16 D40, P23 step 9): that run, P22 steps 5 and 6, moved to `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7, runs L1 and L2, and is not run under this phase.* |
 
 #### P18 progress note (as of `10093d3`)
 
@@ -1612,7 +1614,9 @@ appears in output or on disk.
 
 ## 25. Phase P23 — proposed 2026-11-10, approved 2026-11-11: the MADR's §16 amendment (D30 to D42)
 
-**Status: in progress since 2026-11-11.** The owner accepted the MADR's §16 and approved this phase on
+**Status: ~~in progress since 2026-11-11~~ complete 2026-11-12** (step 9: the MADR's 16.5 items 1 to 13 met;
+item 14 open, owned by `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's
+L1). The owner accepted the MADR's §16 and approved this phase on
 2026-11-11 ("Magic 0074"). ~~Nothing here starts before the owner accepts the MADR's §16 and approves this phase.~~ The owner
 answered Q-A (D41) and Q-C (D42) on 2026-11-10, resolved Q-B by re-asking Q17 and answering "wire them after all"
 (D38), and answered Q-D (D38's fallback, which opens step 7) and the timing (DF: "now, ahead of the redesign"); the
@@ -2129,3 +2133,60 @@ python3 ~/.global-git-hooks/github-disclosure.py redact
   session. Added to step 8's scope: `docs/guides/protocol-v1.md`, whose auth-block sentence now lists
   `backup_state?` and `recovery_available?`, followed by a paragraph saying what they are and that an uncoordinated
   provider and an older daemon omit both.
+* **Step 9, 2026-11-12 — close-out.** The coordinator committed step 8 as `4bb23579`, on the owner's authorization,
+  with deviation 6 decided by the owner (option 1). Start state: `master` at `4bb23579`, two commits ahead of
+  `origin/master` (`589753ad`, step 6, whose CI run 43134895855 concluded `success`), the tree clean and the index
+  empty. Each of the MADR's 16.5 items 1 to 13 was checked against the tree at `4bb23579`: the code and tests it names
+  were read, and the tests it names were run on the tree, `go test -count=1 -v -run '<the tests below>'` over
+  `httpagent`, `providerauth`, `grok`, `codex`, `ws`, `protocol` and `provider`: 7 packages ok, 65 tests passed, none
+  failed or skipped (`items_go.log`). "Seen failing" is each step's own plant above, not run again here.
+
+  | Item | State | Commit | Evidence |
+  | :--- | :--- | :--- | :--- |
+  | 1 no label decides a flow | met | `14200b6e` (step 2) | `TestNoLabelDecidesTheFlow`: "Login with a browser" is a startable `oauth_device` with id `vendor:login-with-a-browser`, and its loopback authorize URL is refused at start with `ErrAuthUnsupported`, "signs in through a browser on the host"; seen failing with the marker list restored (step 2). `git grep` finds no `browserOAuthMarkers`, `oauthType` or `EngineMethodIndex` outside `docs/`; `ClassifyCatalogMethod(typ)` reads the type alone |
+  | 2 a reordered kilo catalog | met | `14200b6e` (step 2) | `TestKiloMethodIDsSurviveAReorder`: the method listed second is started at index 0 after the reorder; seen failing with index ids (`listed id = "xai:1"`, step 2). `TestAmbiguousSlugIsRefused` and `TestIndexMethodIDsAreRefused` hold the refusals |
+  | 3 grok's code lifetime and the deadline | met | `f6e99522` (step 3) | `TestOwnedGrokFlowReportsItsCodesLifetime` (`expires_in` = `grokDeviceExpirySeconds`, 600, `grok/device_auth.go:22`); `TestOwnedFlowExpiresAtItsDeadline` (ends `expired`, retryable, reaped); `TestReadyToActivateOutlivesTheCode`; `TestDeadlineSurvivesDetachAndResume` (detach, resume, then `expired`); each seen failing (step 3). The ActivationGrace end is held by the owned flow's own timer, started at `ready_to_activate` and defaulting to `ActivationGrace` (`providerauth/ownedflow.go:16`, `:109-110`, `:232-244`), which the pre-existing `TestOwnedFlowActivationDeadlineAborts` (P20) holds with an injected 150 ms; the reservation's re-armed deadline (`reservation.go:204-212`, `armGrace`) is a backstop that was read, not run: no test drives the five-minute constant, and no plant of P23 broke it |
+  | 4 `deviceAuthWired` | met | `f6e99522` (step 3) | `TestDeviceAuthWiredForOwnedFlows`: an owned flow with no legacy hook, and one whose legacy hook says no, are wired; seen failing on the old rule (step 3). `server.go:2363-2372` asks `provider.OwnedDeviceAuth` first |
+  | 5 D36's codes | met | `ea18ceff` (step 4) | `TestCoordinatorSentinelsHaveTheirOwnCodes`: the five sentinels, bare and wrapped, map to `provider_auth_busy`, `credential_conflict`, `unsupported_backend`, `recovery_required` and `too_many_sign_ins`, never `credential_failed` (`server.go:2822-2838`); seen failing with the cases removed (step 4); the phone's copy for each is held by `friendly_op_error_test.dart` (step 4) |
+  | 6 D35's names gone | met, as narrowed by deviation 3 | `6c8f2623` (step 5) | `git grep -n 'keyring_managed\|AuthQuota\|AuthStatusQuota\|ZeroString\|CancelDevice\|ErrAuthConfirmRequired\|confirmDestructiveSignIn\|"host_oauth"' -- ':!docs'` finds one line, the one definition `internal/provider/auth.go:33`, `const AuthReasonHostOAuth = "host_oauth"`, which D35 asks for (`item6_grep.log`). `confirm_required` is left out by deviation 3; codex's legacy `StartDeviceAuth` is gone (`codex/device_auth.go:8` is a comment saying so) |
+  | 7 the phone's codex dialog and the result sheet | met | `6c8f2623` (step 5), `ea18ceff` (step 4) | No `confirmDestructiveSignIn`, no destructive sign-in dialog and no "signs the host out of ChatGPT" under `apps/mobile/lib`; `providerId == 'codex'` is the removal copy alone (`provider_detail_screen.dart:724`, `:702` at step 5, moved by step 8's row). `device_flow_sheet_test.dart` renders each terminal state: its group "renders each result state" covers `cancelled`, `expired`, `conflict`, `recovery_required` and `unsupported_backend`, with "completed shows no retry hint", "reports failure with the reason" (`failed`) and the older-daemon fallback beside it; seen failing with `ok` read alone (step 4); run in the full `flutter test` of item 8 |
+  | 8 the gates | met | `4bb23579` | `make preflight` on a scratch clone of `4bb23579`, after `flutter pub get`: exit 0, "preflight passed": check-records clean; markdownlint 60 files, 0 issues; gofmt and `go mod tidy` clean; `go vet` and `vet-tags`; staticcheck for linux, darwin and windows (56 ignored findings each, the known acp-go-sdk2 names); `go test -race ./...` 50 packages ok; the install tests ok; systemd units skipped (no `systemd-analyze` on this host); the release build; the Flutter pin; pub advisories none; `dart format` "231 files (0 changed)"; `flutter analyze` "No issues found"; `flutter test` "+1542 ~3: All tests passed" (`preflight.log`). `make race` on the clone: exit 0, 50 packages ok, no race (`race.log`). The Linux test host's `go test -race -count=1 ./...` (50 packages ok, no failure or race) and the Windows test host's `make ci-windows` ("ALL SELECTED CHECKS PASSED") ran at step 8 on its eight code files, which are `4bb23579`'s; the guide paragraph of deviation 6 came after them and changes no code, and the tests that read the guide pass in this step's runs. Neither host was run again here. CI has run on `589753ad` only (43134895855, `success`); steps 7 and 8 are not pushed, so no CI run holds them yet |
+  | 9 the phone's logout and key write leave the coordinator right | met | `6bf1e9a4` (step 7) | `TestPhoneCodexLogoutMarksRevoked` (after `ClearCredentialMethod` and `Recover`: `logged_out`, `BackupState` `logged_out`, `RecoveryAvailable` false, no generation) and `TestPhoneCodexKeyWriteCommitsCurrent` (CURRENT holds the key, the start sets no `recovery_required`); both failing at `bcde74ab` on the direct paths (step 1) and with the routing removed (step 7) |
+  | 10 no coordinator, no recursion | met | `6bf1e9a4` (step 7) | `TestCoordinatedLogoutNeedsACoordinator` and the codex `TestSetCredential*` tests, which build no coordinator, pass; step 7 changed no test of the package but `TestChatGPTLogoutTombstonesBeforeRevoking`, which builds one (`git diff 589753ad 6bf1e9a4 -- internal/provider/codex`: `auth.go`, `logout.go`, `logout_test.go` and the new `phone_paths_test.go`). `TestClearCredentialDoesNotRecurse`: one `codex logout`, inside the test's 30 s bound; seen failing with `CoordinatedLogout` calling `ClearCredential` again (step 7). Step 5 deleted `codex/device_auth_test.go` with the legacy flow it tested (D35), before D38 |
+  | 11 recovery state on the status payload | met | `4bb23579` (step 8) | `TestStatusCarriesRecoveryState`: coordinated codex and grok carry `backup_state` `"current"` and `recovery_available` `true`; uncoordinated kilo, codex and grok carry neither, and kilo's block is byte-identical to `6bf1e9a4`'s; `TestGrokStatusProjectsBackup`; `provider_detail_screen_test.dart`'s group "credential backup (MADR 0074 D42)"; each seen failing with the copy removed and the other plants of step 8 |
+  | 12 the revoke runs with the token | met | `6bf1e9a4` (step 7) | `TestCoordinatedLogoutRevokesWithTheToken`: the stub's `logout` exits 1 unless its home holds the refresh token; one run, `live_gone` (after the tombstone), in a `mcremote-codex-revoke-` copy and not the daemon's home, the copy gone afterwards, `logged_out` and no recovery; seen failing with today's order planted (`revoke did not confirm`, step 7). `TestCoordinatedLogoutRemovesTheCopy` holds the removal on a failed revoke and a failed `RecordLogout` |
+  | 13 an unprotectable credential | met, as refined by deviation 4 | `6bf1e9a4` (step 7) | `TestUnprotectableCodexCredential`: on a `StateExternal` manifest the clear is one direct `codex logout` in the daemon's home and the manifest is byte-identical; where `CheckBackend` refuses, the key write is one direct `login --with-api-key` and the logout (LIVE absent, deviation 5) one direct `codex logout`, each manifest byte-identical. A key write on a `StateExternal` manifest commits through the coordinator, as deviation 4 decided by §15.13, so item 13's "and key write" on that manifest is not the built behaviour, by the owner's decision. `TestLateUnsupportedBackendIsReturned`: a refusal after `MarkRevoked` is returned, unmarked as early, with no fallback logout. Each seen failing (step 7) |
+
+  Item 14 is open: the owner-run check that OpenAI refuses a refresh with the token a phone logout revoked needs a
+  sign-in and belongs to `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1,
+  as step 7 says. It is not run here.
+
+  **The protocol guide's `confirm_required` sentence (flagged after step 5).** `docs/guides/protocol-v1.md:1139-1142`
+  reads "`confirm_required` — a destructive operation on the codex surface (permanent, section or project deletion)
+  was sent without the client's confirmation; provider auth never sends it". The deletion half and "provider auth
+  never sends it" are correct at `4bb23579`: `internal/ws/codex_handlers.go:366`, `:385` and `:404` send it for
+  permanent, section and project deletion, and no provider-auth path sends it (item 6's search, deviation 3). The
+  sentence is incomplete: `internal/ws/codex_execution.go:224` and `:228` send the same code for codex execution
+  writes, an unsandboxed `shell` or `spawn` without its fresh confirmation phrase and a `select_environment` without
+  its confirmation, which are not deletions. The same gap is in `ErrConfirmRequired`'s comment
+  (`internal/protocol/errors.go:184-188`) and in the MADR's D35 note of deviation 3, which cites
+  `codex_execution.go` as a deletion. No test reads the sentence (`TestErrorCodesAreDocumented` asks only that the code
+  appear). Nothing is changed here: the guide and the comment are not this step's files, and the fix waits for the
+  owner.
+
+  **Found while checking, outside items 1 to 13, not changed.** The phone's `startProviderDeviceAuth` keeps a
+  `confirmDestructive` parameter (`apps/mobile/lib/data/ws/mcremote_client.dart:3720-3737`) that no caller sets since
+  step 5, documented as "required for … codex's, which signs the host out the moment it starts (D8). Without it the
+  daemon refuses"; `protocol.StartAuthPayload.ConfirmDestructive` (`internal/protocol/messages.go:914-923`) says the
+  same, and no daemon code reads the field. D32 and D35 do not name either, so neither is a miss of this phase; both
+  comments are stale since the legacy codex flow went.
+
+  Statuses: this phase `complete`, with item 14 open under
+  `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7; this PLAN's status bullet
+  and top note say so, and §17.6's P22 row is annotated as moved (D40), as §23 steps 5 and 6 were at step 0. The
+  MADR's status cell, §16's status and 16.5 carry dated notes, 16.5's naming deviations 3 and 4 for items 6 and 13.
+  The whole PLAN's status is not changed: step 9 sets this phase's. The index lists no status, so it is unchanged.
+  Checks: `python3 -B scripts/check_records.py --check-all` exit 0, no output; `make markdownlint-docs` "60 files,
+  0 issues"; the redact preview, `python3 ~/.global-git-hooks/github-disclosure.py redact`, "would edit 0
+  file(s)"; the item tests and gates above (`items_go.log`, `item6_grep.log`, `preflight.log`, `race.log`).
+  Staged: the two 0074 records. Commit: the coordinator's.
