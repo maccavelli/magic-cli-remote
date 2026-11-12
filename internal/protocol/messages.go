@@ -804,6 +804,13 @@ type ProviderAuthPayload struct {
 	// omitted when false: an agent that can switch, and an older daemon,
 	// send nothing, which reads as today's "may switch".
 	UpstreamSwitchUnsupported bool `json:"upstream_switch_unsupported,omitempty"`
+	// BackupState and RecoveryAvailable are provider.AuthState's non-secret
+	// recovery projection, so the phone sees them before the next sign-in
+	// and not only on a flow's result (MADR 0074 D42). Both are omitted for a
+	// provider with no credential coordinator, so an uncoordinated provider
+	// and an older daemon send nothing new.
+	BackupState       string `json:"backup_state,omitempty"`
+	RecoveryAvailable bool   `json:"recovery_available,omitempty"`
 }
 
 // AuthCatalogRequestPayload asks for one agent's full upstream catalog

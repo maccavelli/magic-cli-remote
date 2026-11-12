@@ -253,6 +253,28 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
           SettingsSection(
             title: 'Credentials',
             children: [
+              // The host's backup of this agent's credential, before the next
+              // sign-in and not only on a flow's result (MADR 0074 D42). It
+              // names the state and the host command, never a path, hash or
+              // secret (D24). An agent without a coordinator sends neither.
+              if (auth.backupState != null || auth.recoveryAvailable)
+                ListTile(
+                  key: Key('provider-backup-${p.id}'),
+                  leading: const Icon(Icons.settings_backup_restore),
+                  title: const Text('Credential backup'),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (auth.backupState != null)
+                        Text(backupStateText(auth.backupState!)),
+                      if (auth.recoveryAvailable)
+                        Text(
+                          recoveryAvailableText,
+                          key: Key('provider-backup-restore-${p.id}'),
+                        ),
+                    ],
+                  ),
+                ),
               // Switching is only meaningful with somewhere to switch to, so
               // the control appears only when at least two upstreams are
               // configured (MADR 0074 D14). This is the no-credentials escape
@@ -750,3 +772,25 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
     }
   }
 }
+
+/// The provider screen's sentence for a [BackupState] (MADR 0074 D42). A
+/// state this phone does not know, from a newer daemon, is named as sent.
+String backupStateText(String state) => switch (state) {
+  BackupState.unmanaged =>
+    'Not backed up: no credential is under the host\'s protection yet.',
+  BackupState.current =>
+    'Backed up: the host holds a copy of the current credential.',
+  BackupState.pending => 'A credential change is in progress on the host.',
+  BackupState.loggedOut => 'Signed out: the host keeps no credential.',
+  BackupState.recoveryRequired =>
+    'Needs recovery on the host before the next change.',
+  BackupState.reauthRequired =>
+    'Sign in again: no saved credential can be restored.',
+  BackupState.unsupported =>
+    'Not backed up: this host keeps the credential where it cannot be protected.',
+  _ => 'Backup state: $state',
+};
+
+/// Shown when the auth block's `recovery_available` is true (MADR 0074 D42).
+const recoveryAvailableText =
+    'A backup can be restored on the host with mcremote auth-recovery.';

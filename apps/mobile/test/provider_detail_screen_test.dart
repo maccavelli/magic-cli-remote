@@ -360,4 +360,98 @@ void main() {
     );
     expect(tile.value, isTrue);
   });
+
+  // ---------------------------------------------------------------------
+  // MADR 0074 D42 — the host's credential backup state and whether a backup
+  // can be restored, read from the auth block as the daemon sends it.
+  // ---------------------------------------------------------------------
+
+  group('credential backup (MADR 0074 D42)', () {
+    // Parsed from the wire shape, so a field the model does not read fails
+    // these tests rather than being bypassed by a constructor.
+    ProviderInfo grokWith(Map<String, Object?> recovery) =>
+        ProviderInfo.fromJson({
+          'id': 'grok',
+          'ready': true,
+          'auth': {
+            'status': 'configured',
+            'active_upstream': 'xai',
+            'upstreams': [
+              {'id': 'xai', 'label': 'xAI', 'status': 'configured'},
+            ],
+            ...recovery,
+          },
+        });
+
+    const shown = {
+      'unmanaged':
+          'Not backed up: no credential is under the host\'s protection yet.',
+      'current': 'Backed up: the host holds a copy of the current credential.',
+      'pending': 'A credential change is in progress on the host.',
+      'logged_out': 'Signed out: the host keeps no credential.',
+      'recovery_required': 'Needs recovery on the host before the next change.',
+      'reauth_required': 'Sign in again: no saved credential can be restored.',
+      'unsupported':
+          'Not backed up: this host keeps the credential where it cannot be protected.',
+    };
+    const restore =
+        'A backup can be restored on the host with mcremote auth-recovery.';
+
+    for (final MapEntry(key: state, value: text) in shown.entries) {
+      testWidgets('backup_state $state is shown in its own words', (
+        tester,
+      ) async {
+        await pump(
+          tester,
+          providers: [
+            grokWith({'backup_state': state}),
+          ],
+          providerId: 'grok',
+        );
+        expect(find.byKey(const Key('provider-backup-grok')), findsOneWidget);
+        expect(find.text(text), findsOneWidget);
+        expect(find.text(restore), findsNothing);
+      });
+    }
+
+    testWidgets('a state this phone does not know is named as sent', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        providers: [
+          grokWith({'backup_state': 'quarantined'}),
+        ],
+        providerId: 'grok',
+      );
+      expect(find.text('Backup state: quarantined'), findsOneWidget);
+    });
+
+    testWidgets('recovery_available names the host command', (tester) async {
+      await pump(
+        tester,
+        providers: [
+          grokWith({
+            'backup_state': 'recovery_required',
+            'recovery_available': true,
+          }),
+        ],
+        providerId: 'grok',
+      );
+      expect(find.text(shown['recovery_required']!), findsOneWidget);
+      expect(
+        find.byKey(const Key('provider-backup-restore-grok')),
+        findsOneWidget,
+      );
+      expect(find.text(restore), findsOneWidget);
+    });
+
+    testWidgets('an agent without a coordinator shows no backup row', (
+      tester,
+    ) async {
+      await pump(tester, providers: [grokWith(const {})], providerId: 'grok');
+      expect(find.byKey(const Key('provider-backup-grok')), findsNothing);
+      expect(find.text(restore), findsNothing);
+    });
+  });
 }

@@ -1594,6 +1594,8 @@ class ProviderAuthInfo {
     this.activeUpstream,
     this.upstreams = const [],
     this.upstreamSwitchUnsupported = false,
+    this.backupState,
+    this.recoveryAvailable = false,
   });
 
   final String status;
@@ -1605,9 +1607,19 @@ class ProviderAuthInfo {
   /// reads as false: today's "may switch".
   final bool upstreamSwitchUnsupported;
 
+  /// The host's credential backup state, one of [BackupState] (MADR 0074
+  /// D42). Null for an agent with no credential coordinator and from an older
+  /// daemon, which send nothing.
+  final String? backupState;
+
+  /// True when the host holds a backup that `mcremote auth-recovery` can
+  /// restore (MADR 0074 D42). Absent reads as false.
+  final bool recoveryAvailable;
+
   static ProviderAuthInfo? tryParse(Object? raw) {
     if (raw is! Map) return null;
     final m = Map<String, dynamic>.from(raw);
+    final backup = m['backup_state'];
     return ProviderAuthInfo(
       status: m['status'] as String? ?? AuthStatus.missing,
       activeUpstream: m['active_upstream'] as String?,
@@ -1616,8 +1628,22 @@ class ProviderAuthInfo {
           .map((u) => UpstreamAuth.fromJson(Map<String, dynamic>.from(u)))
           .toList(),
       upstreamSwitchUnsupported: m['upstream_switch_unsupported'] == true,
+      backupState: backup is String && backup.isNotEmpty ? backup : null,
+      recoveryAvailable: m['recovery_available'] == true,
     );
   }
+}
+
+/// Credential backup states the daemon reports on an agent's auth block
+/// (MADR 0074 D24, D42). The set is the daemon's `provider.Backup*`.
+class BackupState {
+  static const unmanaged = 'unmanaged';
+  static const current = 'current';
+  static const pending = 'pending';
+  static const loggedOut = 'logged_out';
+  static const recoveryRequired = 'recovery_required';
+  static const reauthRequired = 'reauth_required';
+  static const unsupported = 'unsupported';
 }
 
 /// One page of an agent's full upstream catalog (MADR 0074 D16).

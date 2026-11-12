@@ -1099,12 +1099,21 @@ is refused with `unsupported` and is never sent an auth frame.
 | `oauth.cancel` | phone → daemon | `{flow_id}` |
 
 An `auth` block (in `providers.list_result` and `provider.auth_status`) is
-`{status, active_upstream?, upstreams[]?, upstream_switch_unsupported?}`.
+`{status, active_upstream?, upstreams[]?, upstream_switch_unsupported?, backup_state?, recovery_available?}`.
 `upstream_switch_unsupported` is `true` when the agent cannot switch its active
 upstream, and absent otherwise ([MADR 0244](../decisions/0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md)
 D3). A phone offers `provider.set_active_upstream` only when it is absent; an
 older daemon never sends it, which reads as today's "may switch". A switch the
 agent cannot make is refused with `unsupported`.
+
+`backup_state` and `recovery_available` are the host's credential backup state for
+an agent with a credential coordinator, the same projection
+`oauth.device_flow_result` carries ([MADR 0074](../decisions/0074-MADR-remote-provider-auth-from-phone.md)
+D42): `backup_state` is one of `unmanaged`, `current`, `pending`, `logged_out`,
+`recovery_required`, `reauth_required` or `unsupported`, and `recovery_available`
+is `true` when `mcremote auth-recovery` on the host can restore a backup. An
+uncoordinated provider and an older daemon omit both, so the block is unchanged
+for them; `recovery_available` is also absent when false.
 
 The fields after `error_kind` on `oauth.device_flow_result` come from providers on
 the owned, transactional path (MADR 0074 D27). `state` is one of `completed`,

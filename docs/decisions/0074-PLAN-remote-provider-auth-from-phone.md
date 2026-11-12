@@ -2058,3 +2058,74 @@ python3 ~/.global-git-hooks/github-disclosure.py redact
   (recommended); leave it and record the gap. Decision: the owner chose the first ("1 and 1", 2026-11-11). Added to the
   step's scope: the check in `CoordinatedLogout` and the subtest "a logout where CheckBackend refuses and LIVE is
   absent". A probe of `codex doctor --json` is now part of a phone logout, as it already is of a key write.
+* **Step 8, 2026-11-11 — D42, recovery state on the status payload; held at deviation 6.** The coordinator committed
+  step 7 as `6bf1e9a4`, on the owner's authorization, after the repository was handed to the coordinator. Run on a
+  scratch clone of `6bf1e9a4`. `internal/protocol/messages.go`: `ProviderAuthPayload` gains `BackupState`
+  (`json:"backup_state,omitempty"`) and `RecoveryAvailable` (`json:"recovery_available,omitempty"`).
+  `internal/ws/server.go`: `authStatePayload` copies both from `AuthState`, so `providers.list_result` and
+  `provider.auth_status` carry them. grok: a new `internal/provider/grok/status.go` (the step's option over
+  `owned_device_auth.go`) gives `CoordinatedProvider` its own `AuthStatus`, the plain provider's picture plus
+  `backupProjection` from `c.coord`, by codex's rule (`backupProjection`, now `codex/logout.go:301`, cited as `:230`
+  before step 7 moved it): no coordinator, or a `Status` error, reports nothing. codex's other branch, an
+  unprotectable store reported `unsupported`, has no grok counterpart, since grok's credential is always its
+  `auth.json`. The phone: `models.dart`'s `ProviderAuthInfo` reads `backup_state` (null when absent or empty) and
+  `recovery_available` (absent is false), and a `BackupState` class names the seven states;
+  `provider_detail_screen.dart` shows a "Credential backup" row at the top of Credentials when either is sent, with a
+  sentence per state, `Backup state: <state>` for one this phone does not know, and, when `recovery_available` is
+  true, "A backup can be restored on the host with mcremote auth-recovery." It shows no path, hash or secret (D24).
+  Tests: `TestStatusCarriesRecoveryState` (`internal/ws/status_recovery_test.go`): a coordinated codex and a
+  coordinated grok, each seeded so its coordinator reports `current` with a restorable CURRENT, carry both members
+  over `providers.list` on v2; an uncoordinated kilo stand-in, codex and grok carry neither, and the kilo block is
+  byte-identical to the block `6bf1e9a4` sends, captured from that commit in the clone before any step 8 code was
+  copied in. `TestGrokStatusProjectsBackup` (`grok/status_test.go`): the wrapper reports its coordinator's state and
+  keeps the plain provider's picture; with no coordinator it reports neither. In `provider_detail_screen_test.dart`,
+  a group of ten widget tests built from the wire shape through `ProviderInfo.fromJson`: one per backup state, one
+  for an unknown state, one for `recovery_available`, and one for an agent with no coordinator. No existing test or
+  fixture changed. Each new assertion was seen failing on its planted break in the clone (`step8_plants.log`):
+  * the copy removed from `authStatePayload`: `codex's auth block lacks the recovery members (backup_state false,
+    recovery_available false)`;
+  * `omitempty` dropped from the two tags: `uncoordinated kilo's auth block carries a recovery member`;
+  * an uncoordinated block changed with no recovery member (`upstream_switch_unsupported` inverted): `an
+    uncoordinated provider's auth block changed`;
+  * grok's projection returning empty: `coordinated grok status: backup_state="" recovery_available=false, want
+    "current" and true (the coordinator's projection)`;
+  * grok with no coordinator projecting `unmanaged`: `grok with no coordinator: backup_state="unmanaged"
+    recovery_available=false, want neither`;
+  * the wrapper dropping the plain provider's picture: `coordinated grok status lost the plain provider's picture`;
+  * `backup_state` not read by the model: `Found 0 widgets with key [<'provider-backup-grok'>]` for each of the
+    seven states, and `Found 0 widgets with text "Backup state: quarantined"`;
+  * `recovery_available` not read: `Found 0 widgets with key [<'provider-backup-restore-grok'>]`;
+  * the row shown with neither member: `Expected: no matching candidates  Actual: … Found 1 widget with key
+    [<'provider-backup-grok'>]`.
+  All pass clean. Gates, on the clone with the step's eight files: `make pre-add-check FILES=…` "5 file(s) clean
+  (gofmt, golint, govulncheck)"; `make test` and `go test -race -count=1 ./...` 50 packages ok each, no failure or
+  race; `make lint` clean; `make staticcheck` clean (56 ignored findings, the known acp-go-sdk2 names); `make
+  vet-tags` nine tags ok; `flutter analyze` "No issues found"; `dart format --set-exit-if-changed` "231 files (0
+  changed)"; `flutter test` "+1542 ~3: All tests passed". The Linux test host, `go test -race -count=1 ./...`: 50
+  packages ok, no failure or race. The Windows test host, `make ci-windows`: "ALL SELECTED CHECKS PASSED". Neither
+  host kept its scratch copy. ~~**Not staged:** deviation 6 is open, and the step waits on the owner's answer.~~
+  *2026-11-12, on the owner's answer to deviation 6 (option 1):* `docs/guides/protocol-v1.md`'s auth-block sentence
+  lists `backup_state?` and `recovery_available?`, and a new paragraph after it gives their meaning, the seven
+  states, and that an uncoordinated provider and an older daemon omit both. The tests that read the guide pass on the
+  tree with it: `go test -count=1 ./internal/protocol ./internal/event ./internal/ws ./internal/provider/httpagent`,
+  4 packages ok (`TestEventTypesAreDocumented`, `TestErrorCodesAreDocumented` and
+  `TestSessionModeDangerousIsDocumented` among them); none holds the auth block's members, as deviation 6 says, so no
+  new assertion is added and none needed a plant. Records: `python3 -B scripts/check_records.py --check-all` exit 0,
+  no output; `make markdownlint-docs` "60 files, 0 issues"; the redact preview "would edit 0 file(s)". Staged: the
+  step's eight files, the guide and this record. Commit: the coordinator's.
+* **Deviation 6, 2026-11-11 — the protocol guide describes the auth block, and step 8 does not list it.** Evidence:
+  `docs/guides/protocol-v1.md:1101-1102` reads "An `auth` block (in `providers.list_result` and
+  `provider.auth_status`) is `{status, active_upstream?, upstreams[]?, upstream_switch_unsupported?}`". Step 8 adds
+  `backup_state` and `recovery_available` to that block, and the step's file list does not name the guide. No test
+  holds the block's members against the guide (`internal/protocol/doc_coverage_test.go` checks event types and error
+  codes only), so every gate passes with the guide unchanged, unlike step 4's error codes. The gap does not exist at
+  `6bf1e9a4`; step 8 makes it. Resolutions put to the owner: (1) add both members to that sentence, with one sentence
+  saying what they are and that an uncoordinated provider and an older daemon omit them (MADR D42), in step 8's
+  commit, with `docs/guides/protocol-v1.md` added to the step's scope (recommended; one paragraph); (2) leave the
+  guide to step 9's close-out, so step 8's commit ships members the wire contract does not yet describe; (3) leave
+  it, so the guide stays wrong until the cut-over of
+  `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` rewrites the block. Doing
+  nothing is (3). ~~Decision: pending.~~ Decision, 2026-11-12: the owner chose option 1, relayed by the coordinator
+  session. Added to step 8's scope: `docs/guides/protocol-v1.md`, whose auth-block sentence now lists
+  `backup_state?` and `recovery_available?`, followed by a paragraph saying what they are and that an uncoordinated
+  provider and an older daemon omit both.

@@ -2329,6 +2329,8 @@ func (s *Server) clientWantsProviderAuth(c *client) bool {
 // authStatePayload converts the domain auth state to its wire form. Returns
 // nil for a provider that reported nothing, so the entry stays byte-identical
 // to v1 (D4). switchOK false sets upstream_switch_unsupported (MADR 0244 D3).
+// The recovery projection is copied as the provider reported it; a provider
+// with no coordinator reports none, and its block is unchanged (MADR 0074 D42).
 func authStatePayload(st *provider.AuthState, deviceOK, switchOK bool) *protocol.ProviderAuthPayload {
 	if st == nil {
 		return nil
@@ -2337,6 +2339,8 @@ func authStatePayload(st *provider.AuthState, deviceOK, switchOK bool) *protocol
 		Status:                    st.Status,
 		ActiveUpstream:            st.ActiveUpstream,
 		UpstreamSwitchUnsupported: !switchOK,
+		BackupState:               st.BackupState,
+		RecoveryAvailable:         st.RecoveryAvailable,
 	}
 	if out.Status == "" {
 		out.Status = protocol.AuthStatusMissing
