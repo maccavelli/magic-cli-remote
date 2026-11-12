@@ -3716,16 +3716,11 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
   /// later and arrives as an `oauth.device_flow` frame followed by an
   /// `oauth.device_flow_result`. Callers listen on [deviceFlows] and
   /// [deviceFlowResults] rather than awaiting this.
-  ///
-  /// [confirmDestructive] is required for a flow that destroys the host's
-  /// existing credential before it can succeed — codex's, which signs the host
-  /// out the moment it starts (D8). Without it the daemon refuses.
   Future<void> startProviderDeviceAuth({
     required String providerId,
     required String upstreamId,
     required String methodId,
     Map<String, String> inputs = const {},
-    bool confirmDestructive = false,
   }) async {
     final res = await request(
       'provider.start_auth',
@@ -3734,7 +3729,6 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
         'upstream_id': upstreamId,
         'method_id': methodId,
         if (inputs.isNotEmpty) 'inputs': inputs,
-        if (confirmDestructive) 'confirm_destructive': true,
       },
       expectedType: 'ok',
     );

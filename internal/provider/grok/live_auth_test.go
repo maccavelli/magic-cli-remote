@@ -304,7 +304,7 @@ func TestLiveGrokLoginDeviceAuthParses(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	flow, wait, err := da.StartDeviceAuth(ctx, "xai", "xai:device", nil, false)
+	flow, wait, err := da.StartDeviceAuth(ctx, "xai", "xai:device", nil)
 	if err != nil {
 		t.Fatalf("StartDeviceAuth: %v", err)
 	}

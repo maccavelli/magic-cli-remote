@@ -64,25 +64,24 @@ func TestClearCredentialPassesResolvedModel(t *testing.T) {
 func TestStartDeviceAuthPassesTheMethodAndInputs(t *testing.T) {
 	var gotBin, gotUpstream, gotMethod string
 	var gotInputs map[string]string
-	var gotConfirm bool
 	p := New(Spec{
 		ID:          provider.ID("vendor"),
 		DefaultBin:  "vendor-bin",
 		DefaultArgs: func(Config) []string { return nil },
-		StartDeviceAuth: func(_ context.Context, bin, upstreamID, methodID string, inputs map[string]string, confirm bool) (provider.DeviceFlow, func(context.Context) error, error) {
-			gotBin, gotUpstream, gotMethod, gotInputs, gotConfirm = bin, upstreamID, methodID, inputs, confirm
+		StartDeviceAuth: func(_ context.Context, bin, upstreamID, methodID string, inputs map[string]string) (provider.DeviceFlow, func(context.Context) error, error) {
+			gotBin, gotUpstream, gotMethod, gotInputs = bin, upstreamID, methodID, inputs
 			inputs["added"] = "by the spec"
 			return provider.DeviceFlow{UserCode: "CODE"}, nil, nil
 		},
 	}, Config{})
 	in := map[string]string{"deploymentType": "enterprise"}
-	if _, _, err := p.StartDeviceAuth(context.Background(), "up", "up:oauth:device", in, true); err != nil {
+	if _, _, err := p.StartDeviceAuth(context.Background(), "up", "up:oauth:device", in); err != nil {
 		t.Fatal(err)
 	}
-	if gotBin != "vendor-bin" || gotUpstream != "up" || gotMethod != "up:oauth:device" || !gotConfirm ||
+	if gotBin != "vendor-bin" || gotUpstream != "up" || gotMethod != "up:oauth:device" ||
 		gotInputs["deploymentType"] != "enterprise" {
-		t.Errorf("the Spec got bin %q, upstream %q, method %q, inputs %v, confirm %v",
-			gotBin, gotUpstream, gotMethod, gotInputs, gotConfirm)
+		t.Errorf("the Spec got bin %q, upstream %q, method %q, inputs %v",
+			gotBin, gotUpstream, gotMethod, gotInputs)
 	}
 	if _, ok := in["added"]; ok {
 		t.Error("the Spec's change reached the caller's inputs")

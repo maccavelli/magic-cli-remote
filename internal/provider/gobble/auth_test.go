@@ -124,7 +124,7 @@ func TestSetCredentialReportsGobblesError(t *testing.T) {
 // Item 8: a device sign-in for a provider without one is unsupported.
 func TestDeviceAuthNeedsADeviceSignIn(t *testing.T) {
 	st := newStub(t, stubStatus(sourceAuthJSON))
-	_, _, err := newAuth(st.bin, nil).startDeviceAuth(context.Background(), "", "claude", "claude"+methodDevice, nil, false)
+	_, _, err := newAuth(st.bin, nil).startDeviceAuth(context.Background(), "", "claude", "claude"+methodDevice, nil)
 	if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
 		t.Fatalf("err = %v, want ErrAuthMethodUnsupported", err)
 	}
@@ -137,7 +137,7 @@ func TestDeviceAuthNeedsADeviceSignIn(t *testing.T) {
 // device for it, so no child is run and the method is unsupported.
 func TestDeviceAuthRefusesOpenAI(t *testing.T) {
 	st := newStub(t, stubStatus(sourceAuthJSON))
-	_, _, err := newAuth(st.bin, nil).startDeviceAuth(context.Background(), "", "openai", "openai"+methodDevice, nil, false)
+	_, _, err := newAuth(st.bin, nil).startDeviceAuth(context.Background(), "", "openai", "openai"+methodDevice, nil)
 	if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
 		t.Fatalf("err = %v, want ErrAuthMethodUnsupported", err)
 	}
@@ -150,7 +150,7 @@ func TestDeviceAuthRefusesOpenAI(t *testing.T) {
 // follows it to saved.
 func TestDeviceAuthGivesTheCode(t *testing.T) {
 	st := newStub(t, stubStatus(sourceAuthJSON))
-	flow, wait, err := newAuth(st.bin, nil).startDeviceAuth(context.Background(), "", "grok", "grok"+methodDevice, nil, false)
+	flow, wait, err := newAuth(st.bin, nil).startDeviceAuth(context.Background(), "", "grok", "grok"+methodDevice, nil)
 	if err != nil {
 		t.Fatalf("startDeviceAuth: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestDeviceCodeReadIsBounded(t *testing.T) {
 	t.Cleanup(func() { deviceCodeScanTimeout = old })
 
 	start := time.Now()
-	_, wait, err := newAuth(bin, nil).startDeviceAuth(context.Background(), "", "grok", "grok"+methodDevice, nil, false)
+	_, wait, err := newAuth(bin, nil).startDeviceAuth(context.Background(), "", "grok", "grok"+methodDevice, nil)
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatalf("a silent gobble gave a flow (wait %v)", wait != nil)

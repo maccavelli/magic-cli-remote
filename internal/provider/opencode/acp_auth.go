@@ -618,7 +618,7 @@ func (in integration) oauthMethod(methodID string) (integrationMethod, error) {
 // code pasted back, is cancelled and refused (MADR 0074 D7). The wait follows
 // the attempt's own status, and on completion adopts the credential as an add
 // does.
-func (a *acpAuth) startDeviceAuth(ctx context.Context, _, upstreamID, methodID string, inputs map[string]string, _ bool) (provider.DeviceFlow, func(context.Context) error, error) {
+func (a *acpAuth) startDeviceAuth(ctx context.Context, _, upstreamID, methodID string, inputs map[string]string) (provider.DeviceFlow, func(context.Context) error, error) {
 	upstreamID = strings.TrimSpace(upstreamID)
 	if upstreamID == "" {
 		return provider.DeviceFlow{}, nil, errors.New("opencode sign-in: upstream id required")

@@ -158,7 +158,7 @@ func TestLiveKiloGatewayDeviceDoesNotFalseComplete(t *testing.T) {
 	// An empty id is the first method; kilo's gateway entry is its only one,
 	// and its label (the slug the id would carry, MADR 0074 D31) may differ
 	// between engine versions.
-	_, wait, err := starter.StartDeviceAuth(ctx, "kilo", "", nil, false)
+	_, wait, err := starter.StartDeviceAuth(ctx, "kilo", "", nil)
 	if err != nil {
 		// Isolated cold host may refuse if authorize needs a session.
 		t.Skipf("could not start gateway device: %v", err)

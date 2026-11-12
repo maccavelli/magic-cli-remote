@@ -6,7 +6,7 @@
 
 | field | value |
 | --- | --- |
-| status | **accepted** 2026-08-10, **implemented** 2026-08-12. D1–D15 locked 2026-08-10; **D16–D19 added 2026-08-12** after re-probing all five CLIs. **Accepted amendment 2026-08-21:** §15 records the credential-loss defect and locks D20–D29; implementation is pending under approved P17–P22. W3 (loopback tunnel) remains deferred to a successor MADR. **Accepted amendment 2026-11-11:** §16 locks D30–D42 (the label heuristics, the owned lifecycle, the coordinated codex paths, recovery state on status, and the record's corrections); implementation is under the PLAN's P23. *Implemented 2026-11-12 (PLAN P23 step 9): §16.5 items 1 to 13 met; item 14, owner-run, is open under `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.* Supersedes the *research-report* form of this document (2026-08-05/06), which proposed strategies but locked nothing. |
+| status | **accepted** 2026-08-10, **implemented** 2026-08-12. D1–D15 locked 2026-08-10; **D16–D19 added 2026-08-12** after re-probing all five CLIs. **Accepted amendment 2026-08-21:** §15 records the credential-loss defect and locks D20–D29; implementation is pending under approved P17–P22. W3 (loopback tunnel) remains deferred to a successor MADR. **Accepted amendment 2026-11-11:** §16 locks D30–D42 (the label heuristics, the owned lifecycle, the coordinated codex paths, recovery state on status, and the record's corrections); implementation is under the PLAN's P23. *Implemented 2026-11-12 (PLAN P23 step 9): §16.5 items 1 to 13 met; item 14, owner-run, is open under `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.* *PLAN complete 2026-11-12 (P24, which corrected D35's `confirm_required` note and removed the dead `confirmDestructive` names): W3 (the loopback tunnel) is deferred to a record of its own, and 16.5 item 14 is owned by `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.* Supersedes the *research-report* form of this document (2026-08-05/06), which proposed strategies but locked nothing. |
 | date | 2026-08-10, revised 2026-08-12; amendment accepted 2026-08-21; second amendment accepted 2026-11-11 |
 | deciders | @<user> |
 | related | MADR 0015 (relay), **0019** (single-engine, engine-owned config), 0021 (OpenCode API), 0025 (Goose), 0028 (Codex), 0029 (platform), 0043 (models), **0044** (permission funnel), **0067** (iOS port), **0068** (protocol v2 capabilities), **0073** (goose quota hang), **0075** (Kilo provider — **now implemented and default-enabled**, auth landed here), **0079** (provider/model drill-down picker — same "browse a large catalog" problem, solved the same way) |
@@ -1341,11 +1341,19 @@ is as it was at `995d442b`, where this section was first drafted); none of these
 * **D35. Dead code and vocabulary go (M16):** `keyring_managed` (constant, error code, test row, phone copy), the
   status `quota`, `ZeroString`, `CancelDevice` and its test, codex's legacy `StartDeviceAuth` with its tests,
   `ErrAuthConfirmRequired` and ~~`confirm_required`~~, and the two stale comments. *Narrowed 2026-11-11 (P23 step 5,
-  deviation 3): `confirm_required` is not dead. `protocol.ErrConfirmRequired` is the codex surface's live code for a
-  deletion sent without confirmation (`internal/ws/codex_handlers.go`, permanent, section and project deletion;
+  deviation 3): `confirm_required` is not dead. `protocol.ErrConfirmRequired` is the codex surface's live code for ~~a
+  deletion sent without confirmation~~ (`internal/ws/codex_handlers.go`, permanent, section and project deletion;
   `codex_execution.go`). Only the provider-auth half goes: `provider.ErrAuthConfirmRequired`, its `authErrCode` case
   and test row, and codex's legacy `StartDeviceAuth`. The wire code stays, with a corrected comment and guide
-  entry, and 16.5 item 6's search leaves `confirm_required` out.* `host_oauth` becomes one constant in
+  entry, and 16.5 item 6's search leaves `confirm_required` out.* *Corrected 2026-11-12 (PLAN P24): the struck phrase
+  was incomplete. `confirm_required` is the codex surface's code for an action sent without the explicit
+  confirmation it needs: `codex.threads.write`'s permanent, section and project deletions
+  (`internal/ws/codex_handlers.go:366`, `:385`, `:404`), and `codex.execution.write`'s unsandboxed `shell` or
+  `spawn` without "run unsandboxed" and `select_environment` without "change execution environment"
+  (`internal/ws/codex_execution.go:224`, `:228`), which are not deletions. Provider auth never sends it. P24 also
+  removed `StartAuthPayload.ConfirmDestructive`, the `confirmDestructive` parameter of `provider.DeviceAuth` and
+  its chain, and the phone's `confirmDestructive`, which the legacy codex flow left with nothing to confirm.*
+  `host_oauth` becomes one constant in
   `internal/provider`, which `protocol` re-exports, so the three packages that cannot import `protocol` use it.
 * **D36. Own error codes, and the phone reads them (M13).** `ErrTransactionBusy` → `provider_auth_busy`; `ErrConflict`
   → `credential_conflict`; `ErrUnsupportedBackend` → `unsupported_backend`; `ErrRecoveryRequired` →

@@ -71,7 +71,7 @@ func TestStartDeviceAuthReturnsCode(t *testing.T) {
 	api, _ := deviceAPI(gatewayAuthorize, 1)
 	d := newDialect()
 
-	flow, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil, false)
+	flow, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil)
 	if err != nil {
 		t.Fatalf("StartDeviceAuth: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestStartDeviceAuthRefusesBrowserFlow(t *testing.T) {
 	api, _ := deviceAPI(browserAuthorize, 1)
 	d := newDialect()
 
-	_, _, err := d.StartDeviceAuth(context.Background(), api, "openai", openaiBrowserMethod, nil, false)
+	_, _, err := d.StartDeviceAuth(context.Background(), api, "openai", openaiBrowserMethod, nil)
 	if err == nil {
 		t.Fatal("a browser loopback flow was accepted as a device flow")
 	}
@@ -114,7 +114,7 @@ func TestAwaitCredentialCompletesOnceConfigured(t *testing.T) {
 	shrinkDevicePoll(t)
 	api, polls := deviceAPI(gatewayAuthorize, 2)
 	d := newDialect()
-	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil, false)
+	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestAwaitCredentialStopsOnCancel(t *testing.T) {
 	// connectAfter is unreachable, so only cancellation can end this.
 	api, _ := deviceAPI(gatewayAuthorize, 1<<30)
 	d := newDialect()
-	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil, false)
+	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestAwaitCredentialToleratesEngineRestart(t *testing.T) {
 		return fmt.Errorf("unexpected %s %s", method, path)
 	}
 	d := newDialect()
-	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil, false)
+	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestAwaitCredentialDoesNotFalseComplete(t *testing.T) {
 	// succeed on the first tick (MADR 0086 D5).
 	api, _ := deviceAPI(gatewayAuthorize, 1)
 	d := newDialect()
-	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil, false)
+	_, wait, err := d.StartDeviceAuth(context.Background(), api, "kilo", kiloGatewayMethod, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestAwaitCredentialDoesNotFalseComplete(t *testing.T) {
 
 func TestStartDeviceAuthRequiresUpstream(t *testing.T) {
 	api, _ := deviceAPI(gatewayAuthorize, 1)
-	if _, _, err := newDialect().StartDeviceAuth(context.Background(), api, "  ", "", nil, false); err == nil {
+	if _, _, err := newDialect().StartDeviceAuth(context.Background(), api, "  ", "", nil); err == nil {
 		t.Fatal("accepted a blank upstream")
 	}
 }

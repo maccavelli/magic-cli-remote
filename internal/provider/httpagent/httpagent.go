@@ -293,7 +293,7 @@ func (p *Provider) hasFileWriter() bool {
 // DeviceAuthDialect is optionally implemented by a [Dialect] whose engine can
 // run an RFC 8628 device flow (MADR 0074 Strategy A).
 type DeviceAuthDialect interface {
-	StartDeviceAuth(ctx context.Context, api API, upstreamID, methodID string, inputs map[string]string, confirmDestructive bool) (provider.DeviceFlow, func(context.Context) error, error)
+	StartDeviceAuth(ctx context.Context, api API, upstreamID, methodID string, inputs map[string]string) (provider.DeviceFlow, func(context.Context) error, error)
 }
 
 // SupportsDeviceAuth implements [provider.DeviceAuthCapable]: true only when
@@ -304,7 +304,7 @@ func (p *Provider) SupportsDeviceAuth() bool {
 }
 
 // StartDeviceAuth implements [provider.DeviceAuth].
-func (p *Provider) StartDeviceAuth(ctx context.Context, upstreamID, methodID string, inputs map[string]string, confirmDestructive bool) (provider.DeviceFlow, func(context.Context) error, error) {
+func (p *Provider) StartDeviceAuth(ctx context.Context, upstreamID, methodID string, inputs map[string]string) (provider.DeviceFlow, func(context.Context) error, error) {
 	d, ok := p.dialect.(DeviceAuthDialect)
 	if !ok {
 		return provider.DeviceFlow{}, nil, provider.ErrAuthUnsupported
@@ -312,7 +312,7 @@ func (p *Provider) StartDeviceAuth(ctx context.Context, upstreamID, methodID str
 	if _, err := p.ensureServer(ctx); err != nil {
 		return provider.DeviceFlow{}, nil, err
 	}
-	return d.StartDeviceAuth(ctx, p.api, upstreamID, methodID, inputs, confirmDestructive)
+	return d.StartDeviceAuth(ctx, p.api, upstreamID, methodID, inputs)
 }
 
 // UpstreamSwitchDialect is optionally implemented by a [Dialect] that can be

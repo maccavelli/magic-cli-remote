@@ -150,12 +150,12 @@ func TestCoordinatedCodexNeverSignsTheHostOut(t *testing.T) {
 
 // TestCoordinatedCodexNeedsNoDestructiveConfirmation proves D20: with an
 // isolated empty home the flow is not destructive, so there is nothing to
-// confirm: the owned contract has no confirmDestructive parameter at all.
+// confirm: the owned contract takes no confirmation at all.
 func TestCoordinatedCodexNeedsNoDestructiveConfirmation(t *testing.T) {
 	bin := fakeCodexLogin(t, `printf '{"tokens":{"access_token":"N","refresh_token":"N"}}' > "$CODEX_HOME/auth.json"; chmod 600 "$CODEX_HOME/auth.json"`)
 	p, _ := coordinatedCodex(t, bin)
 
-	// No confirmDestructive parameter exists on the owned contract at all.
+	// The owned contract takes no confirmation at all.
 	h, err := p.StartOwnedDeviceAuth(context.Background(), "", "", nil)
 	if err != nil {
 		t.Fatalf("owned start required a confirmation it should not need: %v", err)

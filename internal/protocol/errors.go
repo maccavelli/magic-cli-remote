@@ -181,10 +181,14 @@ const (
 	// ErrProviderBusy means a credential change needs an engine restart but a
 	// turn is in flight (D9). Transient by construction: retry after the turn.
 	ErrProviderBusy = "provider_busy"
-	// ErrConfirmRequired means the operation is destructive and the client
-	// did not confirm it: the codex surface's permanent, section and project
-	// deletions. It once also meant codex device auth, which deleted
-	// ~/.codex/auth.json at start; that flow is gone (MADR 0074 D35).
+	// ErrConfirmRequired is the codex surface's code for an action sent
+	// without the explicit confirmation it needs: a codex.threads.write
+	// permanent, section or project deletion without its confirm phrase, an
+	// unsandboxed codex.execution.write shell or spawn without "run
+	// unsandboxed", or a select_environment without "change execution
+	// environment". Provider auth never sends it. It once also meant codex
+	// device auth, which deleted ~/.codex/auth.json at start; that flow is
+	// gone (MADR 0074 D35).
 	ErrConfirmRequired = "confirm_required"
 	// ErrCredentialFailed is a failed credential write or clear. Distinct from
 	// ErrAuthFailed, which is about the phone's own device auth — conflating

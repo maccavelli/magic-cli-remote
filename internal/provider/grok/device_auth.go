@@ -56,7 +56,6 @@ func startDeviceAuth(
 	ctx context.Context,
 	bin, upstreamID, _ string,
 	_ map[string]string,
-	_ bool,
 ) (provider.DeviceFlow, func(context.Context) error, error) {
 	if upstreamID != "" && upstreamID != xaiUpstreamID {
 		return provider.DeviceFlow{}, nil, fmt.Errorf("grok has no upstream %q", upstreamID)

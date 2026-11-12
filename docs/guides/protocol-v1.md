@@ -1092,7 +1092,7 @@ is refused with `unsupported` and is never sent an auth frame.
 | `provider.set_credential` | phone → daemon | `{provider_id, upstream_id, method_id, secret, inputs{}}` — write-only, never echoed |
 | `provider.clear_credential` | phone → daemon | `{provider_id, upstream_id}` |
 | `provider.set_active_upstream` | phone → daemon | `{provider_id, upstream_id}` |
-| `provider.start_auth` | phone → daemon | `{provider_id, upstream_id, method_id, inputs{}, confirm_destructive?}` |
+| `provider.start_auth` | phone → daemon | `{provider_id, upstream_id, method_id, inputs{}}` |
 | `oauth.device_flow` | daemon → phone | `{flow_id, provider_id, upstream_id?, verification_uri, user_code, expires_in?, interval?}` |
 | `oauth.device_flow_update` | daemon → phone | `{flow_id, state}` — a non-terminal change, today only `ready_to_activate`: the credential validated, and publication waits for the provider to go idle (MADR 0074 D28). Best effort; never a completion or a failure |
 | `oauth.device_flow_result` | daemon → phone | `{flow_id, ok, error?, error_kind?, state?, retryable?, backup_state?, recovery_available?}` |
@@ -1136,10 +1136,13 @@ neither field, old clients ignore both.
 
 **Remote provider auth** (MADR 0074, behind the `provider_auth` capability):
 `provider_busy` — a credential change needs an engine restart but a turn is
-running; **transient**, retry when the turn ends. `confirm_required` — a
-destructive operation on the codex surface (permanent, section or project
-deletion) was sent without the client's confirmation; provider auth never sends
-it, since no device flow destroys the existing credential (MADR 0074 D35).
+running; **transient**, retry when the turn ends. `confirm_required` — the
+codex surface's code for an action sent without the explicit confirmation it
+needs: a `codex.threads.write` permanent, section or project deletion without
+its `confirm` phrase, an unsandboxed `codex.execution.write` `shell` or `spawn`
+without `confirm: "run unsandboxed"`, or a `select_environment` without
+`confirm: "change execution environment"`; provider auth never sends it, since
+no device flow destroys the existing credential (MADR 0074 D35).
 `credential_failed` — the write or clear failed; deliberately distinct from
 `auth_failed`, which is about the phone's own device auth. A method whose
 secret the daemon cannot write arrives with `available: false` and a `reason`

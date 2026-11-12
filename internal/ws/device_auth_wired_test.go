@@ -26,7 +26,7 @@ func (ownedAndLegacyOff) SupportsDeviceAuth() bool { return false }
 type legacyOff struct{}
 
 func (legacyOff) SupportsDeviceAuth() bool { return false }
-func (legacyOff) StartDeviceAuth(context.Context, string, string, map[string]string, bool) (provider.DeviceFlow, func(context.Context) error, error) {
+func (legacyOff) StartDeviceAuth(context.Context, string, string, map[string]string) (provider.DeviceFlow, func(context.Context) error, error) {
 	return provider.DeviceFlow{}, nil, nil
 }
 

@@ -356,7 +356,7 @@ func (a *auth) clearCredential(ctx context.Context, upstreamID, _ string) error 
 // startDeviceAuth runs `gobble auth login <id> --method device --json`: its
 // device_code event is the phone's DeviceFlow, and wait follows the sign-in
 // to its saved or error event (D3).
-func (a *auth) startDeviceAuth(ctx context.Context, bin, upstreamID, methodID string, _ map[string]string, _ bool) (provider.DeviceFlow, func(context.Context) error, error) {
+func (a *auth) startDeviceAuth(ctx context.Context, bin, upstreamID, methodID string, _ map[string]string) (provider.DeviceFlow, func(context.Context) error, error) {
 	if _, ok := lookup(upstreamID); !ok {
 		return provider.DeviceFlow{}, nil, fmt.Errorf("gobble has no upstream %q", upstreamID)
 	}

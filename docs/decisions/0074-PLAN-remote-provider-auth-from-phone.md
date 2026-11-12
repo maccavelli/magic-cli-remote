@@ -2,7 +2,7 @@
 
 # Implement MADR 0074 — Remote provider auth from phone (W1 + W2 + W4 + W5)
 
-> **Status, corrected 2026-10-18:** in progress. The status bullet says both that P17–P22 "have not begun" and that they are "implemented as of 2026-08-21". The implementation log (§17.6) confirms the second. Only P22 steps 5–6, the live acceptance run that spends tokens, remain. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md). *Annotated 2026-11-12 (P23 step 9): P22 steps 5–6 moved to `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7, runs L1 and L2 (MADR D40), and P23 is complete; this note changes no other phase's status.*
+> **Status, corrected 2026-10-18:** ~~in progress~~ complete 2026-11-12 (P24). The status bullet says both that P17–P22 "have not begun" and that they are "implemented as of 2026-08-21". The implementation log (§17.6) confirms the second. Only P22 steps 5–6, the live acceptance run that spends tokens, remain. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md). *Annotated 2026-11-12 (P23 step 9): P22 steps 5–6 moved to `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7, runs L1 and L2 (MADR D40), and P23 is complete; this note changes no other phase's status.* *Annotated 2026-11-12 (P24): P24 landed and this PLAN is complete. W3 (the loopback tunnel) is deferred to a record of its own; the MADR's 16.5 item 14 is owned by `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.*
 
 Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote-provider-auth-from-phone.md)
 
@@ -17,7 +17,10 @@ Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote
   (step 9), with the MADR's 16.5 item 14 open under
   `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.
   **Cleanup step decided 2026-11-12:** P24 (§26), a cleanup after P23, ~~held on its
-  Q24-A~~ approved 2026-11-12 with Q24-A answered (a), not yet executed; when it lands this PLAN is `complete`.
+  Q24-A~~ approved 2026-11-12 with Q24-A answered (a), ~~not yet executed; when it lands this PLAN is `complete`~~
+  executed 2026-11-12: this PLAN is **complete**, with W3 (the loopback tunnel) deferred to a record of its own
+  and the MADR's 16.5 item 14 owned by
+  `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` P7's L1.
 - **Date**: 2026-08-10, revised 2026-08-12; repair approved 2026-08-21; P23 approved 2026-11-11; P24 decided 2026-11-12
 - **Scope**: Workstreams **W1** (auth status, credential injection, active-upstream
   switch), **W2** (device OAuth, Strategy A), **W4** (polish), and **W5** (full
@@ -2195,7 +2198,8 @@ python3 ~/.global-git-hooks/github-disclosure.py redact
 
 ## 26. Phase P24 — decided 2026-11-12: a cleanup after P23 (`confirm_required`'s text and the dead `confirmDestructive` names)
 
-**Status: ~~proposed 2026-11-12, held on Q24-A~~ approved 2026-11-12, not yet executed.** The owner decided this
+**Status: ~~proposed 2026-11-12, held on Q24-A~~ ~~approved 2026-11-12, not yet executed~~ complete 2026-11-12
+(the execution record below).** The owner decided this
 step on 2026-11-12, in the coordinator session. Drafting found that one fact the decision rests on differs from the
 code (below, "Where the code differs from the decision"), and ~~the step does not run until the owner answers
 Q24-A~~ the owner answered Q24-A (a) and approved the step on 2026-11-12, in the coordinator session. It runs after
@@ -2245,8 +2249,8 @@ deferred to a record of its own and the MADR's 16.5 item 14 as owned by
   decision does not name this row. It is in the same file as (1) and becomes false with (2).
 * **Wire compatibility.** The guide says "future protocol fields are optional and must be ignored when unknown"
   (`docs/guides/protocol-v1.md:1942`). `handleStartAuth` decodes with `json.Unmarshal` (`internal/ws/server.go:2639`),
-  which ignores unknown members. A phone built before P23 step 5 sends `confirm_destructive: true` for codex. The
-  daemon must go on accepting that frame, so P24 adds a test that holds it (step 4).
+  which ignores unknown members. A phone built before P23 step 5 sends `confirm_destructive: true` for codex. ~~The
+  daemon must go on accepting that frame, so P24 adds a test that holds it (step 4).~~ *Dropped 2026-11-12 (deviation 2).*
 
 ### Where the code differs from the decision
 
@@ -2297,8 +2301,8 @@ expects the field.
   `internal/provider/grok/live_auth_test.go` (`live_grok`), `internal/provider/kilo/device_auth_test.go`,
   `internal/provider/kilo/live_auth_write_test.go` (`live_kilo`), `internal/provider/opencode/acp_auth_test.go`,
   `internal/ws/device_auth_wired_test.go`, `internal/provider/codex/owned_device_auth_test.go` (two comments).
-* Go, tests added: `internal/protocol/provider_auth_test.go` (one test), `internal/ws/provider_start_auth_test.go`
-  (new).
+* Go, tests added: `internal/protocol/provider_auth_test.go` (one test)~~, `internal/ws/provider_start_auth_test.go`
+  (new)~~. *Dropped 2026-11-12 (deviation 2).*
 * Dart: `apps/mobile/lib/data/ws/mcremote_client.dart`; `apps/mobile/test/provider_start_auth_client_test.dart` (new).
 
 No fixture or golden changes. If a gate shows one changing, the step stops with a dated entry.
@@ -2339,12 +2343,12 @@ No fixture or golden changes. If a gate shows one changing, the step stops with 
    * `TestStartAuthPayloadHasNoConfirmDestructive` (`internal/protocol/provider_auth_test.go`): the JSON member names
      of `StartAuthPayload`'s exported fields, read from their tags, are exactly `provider_id`, `upstream_id`,
      `method_id` and `inputs`. **Planted:** the field restored in `messages.go`.
-   * `TestStartAuthIgnoresAnOlderPhonesConfirmDestructive` (`internal/ws/provider_start_auth_test.go`, `ws_test`, on
+   * ~~`TestStartAuthIgnoresAnOlderPhonesConfirmDestructive` (`internal/ws/provider_start_auth_test.go`, `ws_test`, on
      `startAuthServer` of `provider_auth_test.go`). A provider with a legacy `provider.DeviceAuth` records its start.
      Over protocol 2, `provider.start_auth` is sent with `confirm_destructive: true` beside the method id. The reply is
      `ok`, an `oauth.device_flow` carries the provider's code, and the provider saw the method id. This is the
      tolerance the guide's line 1942 requires of a removed member. **Planted:** `handleStartAuth` decoding with a
-     `json.Decoder` that has `DisallowUnknownFields`, so the reply is `bad_payload`.
+     `json.Decoder` that has `DisallowUnknownFields`, so the reply is `bad_payload`.~~ *Dropped 2026-11-12 (deviation 2).*
    * The chain's removal is compile-checked. **Planted:** one call in `kilo/device_auth_test.go` restored with its
      fifth `false` argument; `go vet ./internal/provider/kilo/` fails with "too many arguments".
    * `apps/mobile/test/provider_start_auth_client_test.dart`, on a stub daemon in the form of
@@ -2357,9 +2361,11 @@ No fixture or golden changes. If a gate shows one changing, the step stops with 
      `undefined_named_parameter`.
    * All pass clean in the tree's copy of the step.
 5. **Assertions by search, on the final tree.**
-   `git grep -n 'confirm_destructive\|confirmDestructive\|ConfirmDestructive' -- ':!docs'` finds only step 4's two Go
-   tests: the frame literal of the tolerance test and the protocol test's member name. `git grep -n confirm_required
-   -- ':!docs'` finds the constant, its registry entry and the five senders, as at `4614263c`.
+   `git grep -n 'confirm_destructive\|confirmDestructive\|ConfirmDestructive' -- ':!docs'` finds only step 4's ~~two Go
+   tests: the frame literal of the tolerance test and~~ Go test (deviation 2): the protocol test's member name. ~~`git grep -n confirm_required
+   -- ':!docs'` finds the constant, its registry entry and the five senders, as at `4614263c`.~~ *Read 2026-11-12 by
+   the owner's decision on deviation 1:* `git grep -n 'ErrConfirmRequired\|confirm_required' -- ':!docs'` finds the
+   constant, its registry entry and the five senders, as at `4614263c`.
 6. **Gates** run on a scratch clone of the commit that holds this section, with the step's files copied in, as P23's
    steps ran them:
    * `make pre-add-check FILES="<the step's Go files>"`, `make test`, `go test -race -count=1 ./...`, `make lint`,
@@ -2401,6 +2407,141 @@ python3 ~/.global-git-hooks/github-disclosure.py redact
 ### Rollout and rollback
 
 * The wire changes only by a phone→daemon member that is no longer sent. An older phone that still sends it is
-  accepted (step 4's tolerance test), and an older daemon never acted on it, so a newer phone against an older daemon
-  loses nothing.
+  accepted ~~(step 4's tolerance test)~~ (`json.Unmarshal` ignores the member; untested, deviation 2), and an older
+  daemon never acted on it, so a newer phone against an older daemon loses nothing.
 * Rollback: revert the commit. No state is written.
+
+### Execution record
+
+* **P24, 2026-11-12 — executed under Q24-A (a).** The coordinator committed P24's plan as `aff9c7b4`, on the owner's
+  authorization. Start state: `master` at `aff9c7b4`, seven commits ahead of `origin/master`, clean tree, empty index.
+  * **Step 1, the three texts.**
+    * `docs/guides/protocol-v1.md`: the `confirm_required` sentence now names `codex.threads.write`'s deletions, the
+      unsandboxed `codex.execution.write` `shell` and `spawn` without "run unsandboxed", and `select_environment`
+      without "change execution environment", and still says that provider auth never sends it.
+    * `internal/protocol/errors.go`: `ErrConfirmRequired`'s comment says the same, and keeps its sentence about the
+      legacy codex flow.
+    * The MADR's D35 note: "a deletion sent without confirmation" is struck through, followed by a dated italic
+      correction (2026-11-12, PLAN P24) that names both surfaces and their lines.
+  * **Step 2, the wire field and its chain (Q24-A (a)).**
+    * `StartAuthPayload.ConfirmDestructive` and its comment paragraph are gone. `server.go:2665` passes four
+      arguments.
+    * The parameter is removed from `provider.DeviceAuth`, `acpagent.Spec.StartDeviceAuth`,
+      `acpagent.Provider.StartDeviceAuth`, `httpagent.DeviceAuthDialect` and `httpagent.Provider.StartDeviceAuth`,
+      and from grok's, gobble's, opencode's and kilo's implementations. `auth.go`'s `DeviceAuth` comment loses its
+      paragraph on the parameter, and `OwnedDeviceAuth`'s loses its contrast with it.
+    * The guide's `provider.start_auth` row loses `confirm_destructive?`.
+    * Test call sites drop the trailing argument (gobble 4, kilo 8 with its live test, opencode 6, grok's live
+      test 1, acpagent 1), and `legacyOff` drops its `bool`.
+    * Changed test, named with why: `TestStartDeviceAuthPassesTheMethodAndInputs` loses `gotConfirm` and its
+      `!gotConfirm` clause, because the value it checked is no longer passed. It still holds the bin, upstream,
+      method and inputs.
+    * `codex/owned_device_auth_test.go`'s two comments say "takes no confirmation".
+  * **Step 3, the phone.** `startProviderDeviceAuth` loses `confirmDestructive`, its doc paragraph and its payload
+    line. The caller is unchanged.
+  * **Step 4, tests.** The new tests are:
+    * `TestStartAuthPayloadHasNoConfirmDestructive` (`internal/protocol/provider_auth_test.go`);
+    * ~~`TestStartAuthIgnoresAnOlderPhonesConfirmDestructive` (`internal/ws/provider_start_auth_test.go`);~~ written,
+      seen failing on its plant (below), then removed from the tree by deviation 2;
+    * `apps/mobile/test/provider_start_auth_client_test.dart`, which holds two tests: one with no inputs (the keys
+      are exactly the three method members) and one with inputs (the four).
+
+    Each was seen failing on its planted break in a scratch clone of `aff9c7b4` with the step's 24 files copied in,
+    and each plant was restored byte for byte afterwards (`s2_plants.log`):
+    * the field restored in `messages.go`: `provider_auth_test.go:169: StartAuthPayload's json members =
+      [provider_id upstream_id method_id inputs confirm_destructive], want [provider_id upstream_id method_id
+      inputs]`;
+    * ~~`handleStartAuth` decoding with `DisallowUnknownFields`: `provider_start_auth_test.go:56: an older phone's
+      start_auth was refused: error {"message":"bad payload","code":"bad_payload"}`;~~ (deviation 2: the test is
+      dropped);
+    * a fifth `false` argument restored in `kilo/device_auth_test.go`: `vet: internal/provider/kilo/device_auth_test.go:96:96:
+      too many arguments in call to d.StartDeviceAuth`;
+    * `'confirm_destructive': true` added back to the client's payload: `Expected: Set:['provider_id', 'upstream_id',
+      'method_id']  Actual: Set:['provider_id', 'upstream_id', 'method_id', 'confirm_destructive']  Which: larger
+      than expected`, and the same with `inputs` in the second test;
+    * the caller passing `confirmDestructive: true`: `error • The named parameter 'confirmDestructive' isn't defined.
+      … • lib/features/settings/provider_detail_screen.dart:614:9 • undefined_named_parameter`.
+
+    All pass clean: ~~the two Go tests~~ the Go test in the tree, and the Dart file "+2: All tests passed!".
+  * **Step 5, searches, on the final tree.**
+    * `git grep -n 'confirm_destructive\|confirmDestructive\|ConfirmDestructive' -- ':!docs'` (the new files
+      included) finds only ~~step 4's two Go tests:~~ `internal/protocol/provider_auth_test.go` (its name, doc comment and
+      the member it names)~~ and `internal/ws/provider_start_auth_test.go` (its name, doc comment and the frame literal
+      `"confirm_destructive": true`)~~, after deviation 2. Nothing in the Dart sources or tests matches.
+    * `git grep -n confirm_required -- ':!docs'` finds one line, the constant (`internal/protocol/errors.go:192`), as
+      it does at `4614263c` (`:188`). The step's text expected the constant, the registry entry and the five senders.
+      See deviation 1, decided (1): the wider search below is the one step 5 means.
+    * `git grep -n 'ErrConfirmRequired\|confirm_required' -- ':!docs'` finds the comment, the constant, the registry
+      entry and the five senders in the tree, the same set as at `4614263c` (`codex_execution.go:224`, `:228`;
+      `codex_handlers.go:366`, `:385`, `:404`); only `errors.go`'s line numbers moved, by the longer comment.
+  * **Step 6, gates**, on the scratch clone with the step's 24 files:
+    * `make pre-add-check FILES=…` (the 20 Go files): "20 file(s) clean (gofmt, golint, govulncheck)".
+    * `make test`: 50 packages ok. `go test -race -count=1 ./...`: 50 packages ok, no FAIL, no race.
+    * `make lint`: clean. `make vet-tags`: live_gobble, live_grok, live_kilo and live_opencode ok, among the rest.
+    * `make vulncheck`: "clear; allowlisted required-module findings: GO-2026-5932".
+    * `make staticcheck`: no finding. Its output names no ignored finding, only counts ("56 ignored finding(s), each
+      an acp-go-sdk2 unstable-schema name" for each of linux, darwin and windows), and it is identical line for line
+      to the same run on a clean clone of `aff9c7b4`.
+    * After `flutter pub get`: `dart format --output=none --set-exit-if-changed .` "232 files (0 changed)";
+      `flutter analyze` "No issues found!"; `flutter test` "+1544 ~3: All tests passed!".
+    * The Linux test host, `go test -race -count=1 ./...`: 50 packages ok, no FAIL, no race. The Windows test host,
+      `make ci-windows`: "ci-windows-local: ALL SELECTED CHECKS PASSED". Both ran through the scratchpad's host runner
+      on a clone refreshed to `aff9c7b4` with the step's files, with a fresh tag, and neither host kept its copy.
+    * No fixture or golden changed.
+    * Records, on the tree: `python3 -B scripts/check_records.py --check-all` exit 0, no output; `make
+      markdownlint-docs` "60 files, 0 issues"; the redact preview "would edit 0 file(s)".
+  * **Step 7, close-out.**
+    * This section's status is complete.
+    * This PLAN's status bullet and top note say the PLAN is `complete`. W3 is deferred to a record of its own, and
+      the MADR's 16.5 item 14 is owned by `0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`
+      P7's L1.
+    * The MADR's status cell carries the dated note.
+    * Q24-A's answer, (a), is recorded above with its date.
+    * ~~Staged: the step's files.~~ ~~**Not staged:** deviation 1 is open, and the step waits on the owner's answer.~~
+      Staged after the owner decided deviations 1 and 2 (2026-11-12): see the re-run entry below. Commit: the
+      coordinator's.
+* **Deviation 1, 2026-11-12: step 5's `confirm_required` search cannot find what the step says it finds.**
+  * Evidence: step 5 expects `git grep -n confirm_required -- ':!docs'` to find "the constant, its registry entry and
+    the five senders, as at `4614263c`". The literal string occurs once outside `docs/`, in the constant's line. The
+    registry entry and the five senders use the identifier `ErrConfirmRequired`. At `4614263c` the same search finds
+    only `internal/protocol/errors.go:188`, so the expectation was wrong when it was written.
+  * Pre-existing: the plan's text. Nothing P24 changed causes it, and no code or test is affected.
+  * Resolutions:
+    * (1) Recommended: read the search as it was meant, with `'ErrConfirmRequired\|confirm_required'`, which finds the
+      constant, the registry entry and the five senders, the same set as at `4614263c` (shown above). Strike step 5's
+      expectation, annotate it with this pattern, and stage. Cost: one annotated line.
+    * (2) Keep the literal search and change its expected result to the one constant line. Cost: the same, but the
+      search then no longer shows that the senders are unchanged.
+  * Doing nothing leaves step 5's text false against the tree. The statuses in step 7's entry assume (1); another
+    choice amends them.
+  * ~~Decision: pending.~~ Decision, 2026-11-12: the owner chose (1), relayed by the coordinator. Step 5's
+    expectation is struck and annotated with the wider pattern; the statuses of step 7's entry stand.
+* **Deviation 2, 2026-11-12: the owner drops the tolerance test.**
+  * Owner instruction, 2026-11-12, in the coordinator session, relayed by the coordinator: "There is no need for
+    backwards compatibility engineering, I am the only user currently."
+  * Decision: `TestStartAuthIgnoresAnOlderPhonesConfirmDestructive` and its planted break leave P24. Its row in step 4,
+    its file in Files, its part of step 5's search and the wire-compatibility and rollout sentences that rested on it
+    are struck, not deleted. The test had been written and seen failing on its plant (step 4's entry). It is removed
+    from the tree, and `TestStartAuthPayloadHasNoConfirmDestructive`'s comment no longer points at it.
+  * Not changed: `handleStartAuth` still decodes with `json.Unmarshal`, which ignores an unknown member, so an older
+    phone's frame is still accepted; that is now untested, by this decision. The guide's line 1942 is unchanged.
+  * Re-run after the removal, on the scratch clone with the step's files (the test file removed, the comment changed):
+    see the entry below. The hosts are not run again: the removal deletes a test file and changes a comment, and no
+    file the host runs compiled into the daemon changed since them.
+* **Re-run, 2026-11-12, after deviations 1 and 2 were decided.**
+  * `internal/ws/provider_start_auth_test.go` is removed from the tree. `TestStartAuthPayloadHasNoConfirmDestructive`'s
+    comment no longer points at it. The scratch clone mirrors the tree: the step's 23 files and this PLAN, with nothing
+    else changed.
+  * Gates the removal touches, on that clone: `make pre-add-check FILES=…` (the 19 remaining Go files) "19 file(s)
+    clean (gofmt, golint, govulncheck)"; `go test -count=1 ./internal/ws/...` ok; `go test -count=1
+    ./internal/protocol/...` ok; `go vet` of both clean; `make lint` clean.
+  * The other gates of step 6 stand from the first run, and so do the host runs. The Linux and Windows test hosts are
+    not run again for removing one test file, which changes no code the daemon compiles.
+  * Step 5's searches, on the final tree:
+    * `git grep -n 'confirm_destructive\|confirmDestructive\|ConfirmDestructive' -- ':!docs'` finds three lines, all in
+      `internal/protocol/provider_auth_test.go`: the test's name and its doc comment, which names the member.
+    * `git grep -n 'ErrConfirmRequired\|confirm_required' -- ':!docs'` (deviation 1) finds the comment, the constant,
+      the registry entry and the five senders, the same set as at `4614263c`.
+  * Records: `python3 -B scripts/check_records.py --check-all` exit 0, no output; `make markdownlint-docs` "60 files,
+    0 issues"; the redact preview "would edit 0 file(s)".
+  * Staged: the step's 23 files and this PLAN, by path. Commit: the coordinator's.

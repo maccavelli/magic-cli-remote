@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -147,5 +149,21 @@ func TestAuthMethodInputsRoundTrip(t *testing.T) {
 	}
 	if len(got.Inputs[0].Options) != 2 {
 		t.Fatalf("select options lost: %+v", got.Inputs[0])
+	}
+}
+
+// TestStartAuthPayloadHasNoConfirmDestructive (MADR 0074 D35, PLAN P24): the
+// legacy codex device flow's confirm_destructive member is gone. No device flow
+// destroys the existing credential, so the phone has nothing to confirm.
+func TestStartAuthPayloadHasNoConfirmDestructive(t *testing.T) {
+	typ := reflect.TypeOf(protocol.StartAuthPayload{})
+	var members []string
+	for i := range typ.NumField() {
+		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		members = append(members, name)
+	}
+	want := []string{"provider_id", "upstream_id", "method_id", "inputs"}
+	if !slices.Equal(members, want) {
+		t.Fatalf("StartAuthPayload's json members = %v, want %v", members, want)
 	}
 }

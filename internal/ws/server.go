@@ -2662,7 +2662,7 @@ func (s *Server) handleStartAuth(ctx context.Context, c *client, env protocol.En
 	// design, and cancelling it when the request returns would kill every
 	// flow the instant it started.
 	flowCtx := context.WithoutCancel(ctx)
-	df, wait, err := starter.StartDeviceAuth(flowCtx, p.UpstreamID, p.MethodID, p.Inputs, p.ConfirmDestructive)
+	df, wait, err := starter.StartDeviceAuth(flowCtx, p.UpstreamID, p.MethodID, p.Inputs)
 	if err != nil {
 		return s.writeAuthErr(ctx, c, env, err)
 	}

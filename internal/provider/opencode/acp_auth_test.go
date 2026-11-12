@@ -192,7 +192,7 @@ func TestACPAuthListsFirst(t *testing.T) {
 		},
 		"clear": func(a *acpAuth) error { return a.clearCredential(context.Background(), "vendor", "") },
 		"device": func(a *acpAuth) error {
-			_, _, err := a.startDeviceAuth(context.Background(), "", "vendor", "vendor:oauth:device", nil, false)
+			_, _, err := a.startDeviceAuth(context.Background(), "", "vendor", "vendor:oauth:device", nil)
 			return err
 		},
 	}
@@ -430,7 +430,7 @@ func TestACPDeviceAuth(t *testing.T) {
 		f.cred(v, "key")   // cred_2, kept
 		f.attempt = device
 		f.statuses = []string{"pending", "complete"}
-		flow, wait, err := a.startDeviceAuth(context.Background(), "", "vendor", "vendor:oauth:device", map[string]string{"deploymentType": "github.com"}, false)
+		flow, wait, err := a.startDeviceAuth(context.Background(), "", "vendor", "vendor:oauth:device", map[string]string{"deploymentType": "github.com"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -456,7 +456,7 @@ func TestACPDeviceAuth(t *testing.T) {
 		f.add("vendor", "Vendor", oauthDevice)
 		f.attempt = device
 		f.statuses = []string{"failed"}
-		_, wait, err := a.startDeviceAuth(context.Background(), "", "vendor", "", nil, false)
+		_, wait, err := a.startDeviceAuth(context.Background(), "", "vendor", "", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -468,7 +468,7 @@ func TestACPDeviceAuth(t *testing.T) {
 		a, f, _ := newFakeAuth(t)
 		f.add("vendor", "Vendor", oauthDevice)
 		f.attempt = device
-		_, wait, err := a.startDeviceAuth(context.Background(), "", "vendor", "", nil, false)
+		_, wait, err := a.startDeviceAuth(context.Background(), "", "vendor", "", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -486,7 +486,7 @@ func TestACPDeviceAuth(t *testing.T) {
 			a, f, _ := newFakeAuth(t)
 			f.add("vendor", "Vendor", oauthDevice)
 			f.attempt = att
-			_, _, err := a.startDeviceAuth(context.Background(), "", "vendor", "", nil, false)
+			_, _, err := a.startDeviceAuth(context.Background(), "", "vendor", "", nil)
 			if !errors.Is(err, provider.ErrAuthUnsupported) || !slices.Equal(f.cancelled, []string{"con_2"}) {
 				t.Errorf("err = %v, cancelled %v; want refused and cancelled", err, f.cancelled)
 			}
@@ -495,7 +495,7 @@ func TestACPDeviceAuth(t *testing.T) {
 	t.Run("which method", func(t *testing.T) {
 		a, f, _ := newFakeAuth(t)
 		f.add("vendor", "Vendor", oauthDevice, integrationMethod{Type: "oauth", ID: "other"})
-		_, _, err := a.startDeviceAuth(context.Background(), "", "vendor", "", nil, false)
+		_, _, err := a.startDeviceAuth(context.Background(), "", "vendor", "", nil)
 		if !errors.Is(err, provider.ErrAuthMethodUnsupported) {
 			t.Errorf("no method named among two: %v, want refused", err)
 		}

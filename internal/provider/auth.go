@@ -277,11 +277,7 @@ type DeviceAuth interface {
 	// StartDeviceAuth begins a flow and returns what the phone must display.
 	// The returned wait func blocks until the flow completes, fails, or ctx is
 	// cancelled; callers run it off the request goroutine.
-	//
-	// confirmDestructive is passed through from the phone. No device flow
-	// destroys the existing credential now (codex's did, until the owned
-	// flow replaced it, MADR 0074 D20), so no implementation reads it.
-	StartDeviceAuth(ctx context.Context, upstreamID, methodID string, inputs map[string]string, confirmDestructive bool) (flow DeviceFlow, wait func(context.Context) error, err error)
+	StartDeviceAuth(ctx context.Context, upstreamID, methodID string, inputs map[string]string) (flow DeviceFlow, wait func(context.Context) error, err error)
 }
 
 // DeviceAuthState is a non-terminal update a flow may publish while it runs.
@@ -334,9 +330,9 @@ type DeviceAuthUpdateSource interface {
 // so providers that have not adopted the transaction contract keep working
 // unchanged (MADR 0074 D20/D27).
 //
-// There is no confirmDestructive parameter: an owned flow runs against an
-// isolated, empty pending home, so starting one cannot sign the host out and
-// there is nothing for the user to confirm (D22/F14).
+// An owned flow runs against an isolated, empty pending home, so starting
+// one cannot sign the host out and there is nothing for the user to confirm
+// (D22/F14).
 type OwnedDeviceAuth interface {
 	StartOwnedDeviceAuth(ctx context.Context, upstreamID, methodID string, inputs map[string]string) (DeviceAuthHandle, error)
 }

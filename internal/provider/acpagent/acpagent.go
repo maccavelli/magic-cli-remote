@@ -154,7 +154,7 @@ type Spec struct {
 	// not need to reach back into Config, and the phone's method id and inputs
 	// for an agent that offers several methods or asks for answers (0214 PLAN
 	// P6b Deviation 1).
-	StartDeviceAuth func(ctx context.Context, bin, upstreamID, methodID string, inputs map[string]string, confirmDestructive bool) (provider.DeviceFlow, func(context.Context) error, error)
+	StartDeviceAuth func(ctx context.Context, bin, upstreamID, methodID string, inputs map[string]string) (provider.DeviceFlow, func(context.Context) error, error)
 	// StaticModes is the fallback session-mode list for an agent that honors
 	// session/set_mode but advertises no modes at session/new|load. Used only
 	// when the agent reported none; an agent-supplied list always wins. Because
@@ -419,11 +419,11 @@ func (p *Provider) SupportsDeviceAuth() bool {
 }
 
 // StartDeviceAuth implements [provider.DeviceAuth] (MADR 0074 Strategy A).
-func (p *Provider) StartDeviceAuth(ctx context.Context, upstreamID, methodID string, inputs map[string]string, confirmDestructive bool) (provider.DeviceFlow, func(context.Context) error, error) {
+func (p *Provider) StartDeviceAuth(ctx context.Context, upstreamID, methodID string, inputs map[string]string) (provider.DeviceFlow, func(context.Context) error, error) {
 	if p.spec.StartDeviceAuth == nil {
 		return provider.DeviceFlow{}, nil, provider.ErrAuthUnsupported
 	}
-	return p.spec.StartDeviceAuth(ctx, p.cfg.Bin, upstreamID, methodID, cloneAuthInputs(inputs), confirmDestructive)
+	return p.spec.StartDeviceAuth(ctx, p.cfg.Bin, upstreamID, methodID, cloneAuthInputs(inputs))
 }
 
 // CommandTable implements [command.Tabler].

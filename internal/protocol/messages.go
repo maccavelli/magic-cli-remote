@@ -910,17 +910,11 @@ type SetActiveUpstreamPayload struct {
 }
 
 // StartAuthPayload begins an interactive auth flow (MADR 0074 Strategy A).
-//
-// ConfirmDestructive is required for flows that destroy an existing credential
-// before they can succeed — today only codex device auth, which deletes
-// ~/.codex/auth.json the moment it starts (D8). The daemon refuses such a flow
-// without it rather than silently logging the host out.
 type StartAuthPayload struct {
-	ProviderID         string            `json:"provider_id"`
-	UpstreamID         string            `json:"upstream_id"`
-	MethodID           string            `json:"method_id"`
-	Inputs             map[string]string `json:"inputs,omitempty"`
-	ConfirmDestructive bool              `json:"confirm_destructive,omitempty"`
+	ProviderID string            `json:"provider_id"`
+	UpstreamID string            `json:"upstream_id"`
+	MethodID   string            `json:"method_id"`
+	Inputs     map[string]string `json:"inputs,omitempty"`
 }
 
 // DeviceFlowPayload tells the phone what to display for an RFC 8628 flow.

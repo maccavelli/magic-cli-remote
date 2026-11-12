@@ -18,7 +18,6 @@ func (d *httpDialect) StartDeviceAuth(
 	api httpagent.API,
 	upstreamID, methodID string,
 	inputs map[string]string,
-	_ bool,
 ) (provider.DeviceFlow, func(context.Context) error, error) {
 	return httpagent.StartEngineDeviceFlow(ctx, api, d.log, "kilo",
 		upstreamID, methodID, inputs, d.fetchConfiguredUpstreams, kiloAuthFingerprint)
