@@ -133,10 +133,23 @@ disconnect rule for sign-ins (T5). D5 and D8 set them.
 
 ### What the upstream drafts give
 
+*(2026-11-13, re-read at go-llmprovider-sdk `3f87e2b` (`main`) and gobble-cli `8fa0b73` (`main`), from committed
+files only, and relayed to the owner by the cross-repository coordinator. Where this section and the notes below say
+"proposed", "untracked" or "drafts", read: go-llmprovider-sdk's 0073, 0074, 0075, 0076 and 0079 MADRs are `accepted`,
+and 0073's PLAN is `complete`; gobble-cli's 0051 and 0052 MADRs are `accepted` and committed (`011b63a`), their PLANs
+`in-progress`. `authcontract/v0.1.0` is tagged on `38e17de`, an ancestor of `3f87e2b`, and `git diff
+authcontract/v0.1.0 3f87e2b -- authcontract` is empty. 0074's Phases 0 to 3 are committed: the method facts on
+`AuthMethod`, `auth.SessionKind` and `(*OAuthSession).SessionKind()` (`5d08770`), and the v1
+`OAuthFlowOptions.NoLoopback` and `ChatGPTPlanOptions.NoLoopback`, `auth.ErrSignInDenied`, `auth.ErrSignInExpired` and
+`auth.VendorCLIPath` (`3f87e2b`). `llmprovider/x/signin` does not exist yet: it is 0074's Phase 4. 0075's code has not
+started. No decision of this record changes with these facts.)*
+
 * go-llmprovider-sdk `docs/decisions/0073-MADR-publish-an-auth-contract-module.md` (proposed): the module
   `github.com/maccavelli/go-llmprovider-sdk/authcontract`, standard library only, tagged `authcontract/vX.Y.Z` from
   `v0.1.0` (D1); `Method`, `Consent`, `Link`, `Field`, `Step`, `Answer`, `Failure` and the open enums `Kind`,
-  `Completion`, `Paste`, `Yields`, `ClientIdentity`, `StepKind`, `LinkRel`, `FieldType`, `ErrorKind` (D2, D3); a
+  `Completion`, `Paste`, `Yields`, `ClientIdentity`, `StepKind`, `LinkRel`, `FieldType`, `ErrorKind` (D2, D3)
+  *(2026-11-13: the tagged schema's `$defs` also hold the open enums `Feature` and `SessionKind`, the second from
+  0073-MADR's amendment of 2026-11-11, D13's note on session-kind labels)*; a
   generated schema, `authcontract/authcontract.schema.json`, with no `oneOf` and `"x-open-enum": true` on each enum
   (D4); golden vectors in `authcontract/testdata/vectors/` and `forward/` (D5); additive-only rules, a reader refusing a
   higher `schema_version` (D6). By the owner's O1 and O3 it also has, before `v0.1.0`, `KindOAuth` (`"oauth"`) and
@@ -196,6 +209,13 @@ changes a decision of this record.*
   `0074-MADR-one-sign-in-handle-and-method-facts.md` D4, which was being edited that day and, as read here, still
   calls it experimental; which it is, is that repository's. Magic depends only on gobble's behaviour, not on the
   SDK's option.)*
+  *(2026-11-13: settled in go-llmprovider-sdk. `0074-MADR-one-sign-in-handle-and-method-facts.md` D4, as the owner's
+  reversal of 2026-11-11 left it, makes `OAuthFlowOptions.NoLoopback` and `ChatGPTPlanOptions.NoLoopback` v1 fields
+  of `llmprovider/auth`, committed at `3f87e2b` (`oauth_loopback.go:66`, `oauth_plan.go:77`); `x/signin`'s
+  `Options.NoLoopback`, not yet built, passes through to them. "as read here, still calls it experimental" no longer
+  holds. This repository still names no `NoLoopback` and imports `llmprovider/auth` nowhere: D1's boundary refuses it
+  in every package, and the PLAN's P1 now plants it too. Magic relies only on gobble setting the option for a
+  `remote` sign-in.)*
 * *`wizard.Options.OAuthClients` is dropped (0076). **Not relied on.** Nothing here imports `wizard`.*
 * *The three corrected rules of 0074 D3 and D4 are confirmed: a browser sign-in gets `accepts` and a `paste` step only
   when the method's `Paste` fact is set; a sign-in takes three pastes in all; a pasted `access_denied` ends `failed`
@@ -281,6 +301,11 @@ the record awaits the owner's review. O5 (More Information) accepted the three n
   mapper uses, since the name check (`:100`) would otherwise refuse `authcontract.Method` in `grok/signin.go`. Every
   other SDK path stays grok's alone. The test is seen failing on a planted import of `.../llmprovider/x/signin` from
   `internal/ws`, and on `authcontract` imported from `internal/session`.
+  *(2026-11-13, the owner's ruling of that day, "Both packages": it is also seen failing on a planted import of
+  `.../llmprovider/auth` from `internal/ws`. `llmprovider/auth` is where the v1 surface this effort adds lives
+  (`NoLoopback`, `ErrSignInDenied`, `ErrSignInExpired`, `SessionKind`), so it is the import a later change is most
+  likely to reach for. The `x/signin` plant stays: the test reads imports with `go/parser`
+  (`sdk_boundary_test.go:60-65`), so it catches a path that exists in neither the pinned `v1.29.0` nor `3f87e2b`.)*
 * **gobble's boundary moves in step.** gobble's own import-boundary test, its archtest rules 1 and 4, is amended by
   gobble-cli `docs/decisions/0051-MADR-sign-in-through-acp-elicitation-on-the-sdk-auth-contract.md` D1 for the same
   module. Magic's gate and gobble's gate are each their repository's; neither reads the other.
@@ -460,7 +485,7 @@ Under go-llmprovider-sdk `0074-MADR-one-sign-in-handle-and-method-facts.md` D11 
 | grok | fixed: `api_key` and the OAuth methods with no shared `slot`, since grok keeps its API key and its OAuth session in two files that clear independently (`codex/logout.go:30-34`'s comment); `device_code`; `browser` (`browser_loopback`, `host_only` until probes U1 or U7) | device: `show_code` (`expires_at` 600 s, [0107-MADR-grok-phone-api-key-and-device-code-auth.md](0107-MADR-grok-phone-api-key-and-device-code-auth.md) D9), `waiting`, `done` or `failed` |
 | kilo | `GET /provider/auth`: each `api` entry `value`; each `oauth` entry `kind` `oauth`, `completion` `at_start` (O1, below); ids by label (`0074-MADR-remote-provider-auth-from-phone.md` §16 D31) | a `form` first when the method has prompts (the inputs `authorize` takes, `deviceauth.go:59-62`); then by the authorize URL: `show_code` and `waiting`, or `open_url` with `accepts` and a `paste` answered through kilo's callback route (probe U5) or the replay (`0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md`), else `failed` `unsupported` |
 | opencode | `GET /api/integration`: `key` → `value`; `oauth` → `kind` `oauth`, `completion` `at_start` (O1); `command` and `external` → `kind` `host_only`, `completion` `host_command`, the command in `Method.command` (O3) | `form` for the attempt's string fields; by the attempt: `show_code` and `waiting`; `mode: "code"` a `paste` with `accepts: code` once probe U6 names its submit route, else `failed` `unsupported` |
-| gobble | `_meta.gobble.methods` from gobble's `initialize` (gobble-cli `0051-MADR-sign-in-through-acp-elicitation-on-the-sdk-auth-contract.md` D4), as gobble states them; a method whose `completion` is `browser_loopback` (gobble's grok browser sign-in, which gobble drives only when named and which completes only where the browser reaches gobble's host, that record's D4 step 3) is listed `host_only` (D4). *(2026-11-11, R2: every phone sign-in carries `_meta.gobble.remote: true` (D8), and gobble then offers no method without a paste, so the phone is never offered Grok's browser sign-in through gobble as one it can start. If `_meta.gobble.methods` at `initialize`, which carries no `remote`, still lists it, it stays listed `host_only` as above, "Finish on the host"; which methods gobble lists there is gobble-cli 0051 D4's.)* | passed through from `_meta.gobble.step` (D8) |
+| gobble | `_meta.gobble.methods` from gobble's `initialize` (gobble-cli `0051-MADR-sign-in-through-acp-elicitation-on-the-sdk-auth-contract.md` D4), as gobble states them; a method whose `completion` is `browser_loopback` (gobble's grok browser sign-in, which gobble drives only when named and which completes only where the browser reaches gobble's host, that record's D4 step 3) is listed `host_only` (D4). *(2026-11-11, R2: every phone sign-in carries `_meta.gobble.remote: true` (D8), and gobble then offers no method without a paste, so the phone is never offered Grok's browser sign-in through gobble as one it can start. If `_meta.gobble.methods` at `initialize`, which carries no `remote`, still lists it, it stays listed `host_only` as above, "Finish on the host"; which methods gobble lists there is gobble-cli 0051 D4's.)* *(2026-11-13: it does list it. gobble-cli 0051-MADR D2's note of 2026-11-11 says that `Offered`, and so `_meta.gobble.methods`, does not change with `remote`, and grok's `browser_oauth` is offered (`acceptedBorrowed = {"grok"}`), so "If … still lists it" is settled: it stays listed `host_only`, "Finish on the host".)* *(2026-11-13, later, the owner's ruling "Probe Grok paste; keep 0247": D8's note of this date, under "The phone never starts Grok's browser sign-in through gobble", says what would change this row.)* | passed through from `_meta.gobble.step` (D8) |
 
 * **The scraper is quarantined** in one package, `internal/providerauth/scrape`: the ANSI, URL and code patterns of
   `cli.go:18-27` and `classify.go:52-59`, `:108-125`. No auth file may compile a regular expression over agent output:
@@ -565,6 +590,20 @@ mode** stays unadvertised, so the SDK refuses it." Its D6 reads: "**D6. Magic ad
   * **The phone never starts Grok's browser sign-in through gobble.** It was already listed `host_only` (D7's gobble
     row); with `remote` gobble would refuse it too, so the phone has no route to it and shows it, if gobble lists it
     at all, only as "Finish on the host".
+    *(2026-11-13: how gobble refuses it, should a request ever name it. gobble-cli 0051-MADR D4 step 1's note: a
+    named method that is offered but that `remote` rules out is answered before anything starts, with
+    `auth_required` and `ErrorData{Provider, Kind: "unsupported", Reason, Command}`, `Command` being the host command
+    `gobble auth login grok --method browser`; no elicitation is sent, `signin.Start` is not called and no port is
+    bound. The `auth_required` row of the table below maps it to a `failed` step of kind `unsupported`. gobble lists
+    the method at `initialize` all the same (D7's gobble row, its note of this date).)*
+    *(2026-11-13, later, after the owner's ruling of that day, "Probe Grok paste; keep 0247".)* gobble's phone sign-in is designed to run on `NoLoopback` (gobble-cli `0051-MADR-sign-in-through-acp-elicitation-on-the-sdk-auth-contract.md` D3/D4; not built at gobble-cli `8fa0b73`): the ChatGPT plan by paste, Grok and Kilo by device code. Grok's
+    browser sign-in is host-only today because the SDK treats Grok's paste as unverified (its `browser_oauth` method
+    has no `Paste` fact). The owner has added a live Grok browser-paste probe to go-llmprovider-sdk
+    `0074-PLAN-one-sign-in-handle-and-method-facts.md` Phase 7 (step 4, `TestLive_0074GrokPaste`, at `3f87e2b`),
+    which is pending. If xAI accepts the paste, the SDK sets Grok's `Paste` fact, and gobble offers Grok browser from
+    the phone through `NoLoopback` and paste, not through the replay of
+    `0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md`; D7's gobble row then lists it as gobble
+    states it. If xAI refuses it, Grok's device code stays the phone path.
   * **No gobble sign-in Magic starts binds a port on the host.** A plan sign-in through gobble holds no loopback
     port, so it cannot contend with codex's or kilo's 1455 (`0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md`,
     "Ports are shared"), and 0247's D3 port admission does not apply to it: it is not a replayable session.
@@ -584,6 +623,18 @@ mode** stays unadvertised, so the SDK refuses it." Its D6 reads: "**D6. Magic ad
   Phase 3 step 4): `$schema`, `$id`, `$defs`, `$ref`, `type`, `properties`, `required`, `enum`, `items`,
   `additionalProperties`, `format` and the annotations `x-open-enum` and `x-nullable`. The envelope's own models stay
   hand-written beside it.
+  *(2026-11-13, the owner's ruling of that day, "Amend 0246 now". The list above is short by one: the tagged
+  `authcontract.schema.json` at `authcontract/v0.1.0` carries a third annotation, `x-enum-labels`, on `SessionKind`'s
+  entry alone, and go-llmprovider-sdk 0073-MADR's amendment of 2026-11-11 ("How the labels reach the schema") adds it
+  to its D4 list and names this generator's exact check as the consumer that gains it. The accepted keywords are
+  therefore `$schema`, `$id`, `$defs`, `$ref`, `type`, `properties`, `required`, `enum`, `items`,
+  `additionalProperties`, `format` (`date-time` only) and the annotations `x-open-enum`, `x-nullable` and
+  `x-enum-labels`. What the generator does with it: an enum entry that carries `x-enum-labels` gets a `label` getter
+  on its extension type, returning the label of each known value; a value the pinned schema does not know has no
+  label of its own, so `label` returns the value verbatim, and that is what the phone shows. The labels are read from the schema alone, never written by hand (D13's
+  note on session-kind labels). Two more facts of the tagged schema the generator meets: `Paste` has the known value
+  `""` (`PasteNone`), which gets a named constant of its own (`none`) rather than an unnamed one; and the open enums
+  are eleven, `Feature` and `SessionKind` among them.)*
 * **When `toJson` writes a member, from the schema alone** (go-llmprovider-sdk
   `0073-MADR-publish-an-auth-contract-module.md` D4, "When a member is on the wire"). A required member always; a
   member marked `"x-nullable": true` (`Step.default`, `Step.error`, `Answer.secret`, `Answer.confirm`) whenever it is
@@ -613,7 +664,11 @@ mode** stays unadvertised, so the SDK refuses it." Its D6 reads: "**D6. Magic ad
   "Finish on the host" with its `command`, when it has one, and a copy button (O3), and its `detail`.
 * **Whose client a sign-in uses is shown (the owner's Q10: "The method's `client_identity` is shown on the
   phone").** The method row and the sign-in sheet name it from `Method.client_identity`: `vendor_borrowed`, "Signs in
-  as the vendor's own app"; `app_registered`, "Signs in as this app's own registration with the provider"; `none`, no
+  as the vendor's own app"; `app_registered`, ~~"Signs in as this app's own registration with the provider"~~
+  "Signs in as the agent's own registration with the provider" *(2026-11-13, the owner's ruling of that day: the
+  registration is the agent's, not Magic's; gobble's plan client is issued under its `AgentName`, "gobble"
+  (gobble-cli 0051-MADR D9), and go-llmprovider-sdk 0079-MADR names gobble on its refreshes, so "this app" on
+  Magic's phone named the wrong application)*; `none`, no
   line; `unknown`, an `at_start` method's (go-llmprovider-sdk `0073-MADR-publish-an-auth-contract-module.md` D2, O1),
   "Learned when the sign-in starts". An `at_start` method's `refreshable` and `revocable`, false there, are read as
   "not known", never as "no".
@@ -769,6 +824,12 @@ section's line numbers in this repository are read at `14200b6e`, and re-read at
     side. D1's boundary admits this unchanged: the type is `authcontract`'s, which D1 allows in `internal/protocol`,
     `internal/provider` and the agent packages' mappers, and `llmprovider/auth` and `llmprovider/x/signin` stay
     refused in every package. `answer` stays as above.)*
+    *(2026-11-13: an `oauth` row may carry no kind. By the owner's ruling of 2026-11-12 in go-llmprovider-sdk
+    (`0074-MADR-one-sign-in-handle-and-method-facts.md` D5, its note of that day), a Kilo session saved before the
+    SDK release that adds `Kind` has no kind to infer, and `SessionKind()` is `""`; gobble then asks for one fresh
+    Kilo sign-in. So `sessionKind` can be absent from a row whose `authType` is `oauth`, though gobble-cli 0052-MADR
+    D8 lists it for such rows. The daemon sends no `session_kind` for that upstream and the phone shows no "Stored
+    sign-in" line: an absent kind is not an unknown one, and is neither shown verbatim nor refused.)*
 * **Change: `provider.auth_consent`.** Phone to daemon, `{provider_id, upstream_id, consent_id, allow}`, async 30 s,
   as `provider.set_credential` is (`internal/protocol/op_timeouts.json`); it answers `ok` with `{auth: <the
   provider's auth block, re-read>}`. An optional `provider.ConsentSetter` (`SetConsent(ctx, upstreamID, consentID
@@ -872,6 +933,13 @@ section's line numbers in this repository are read at `14200b6e`, and re-read at
   `0055-MADR-release-v0-6-0-now-and-the-sign-in-redesign-as-v0-7-0.md` (accepted), gobble `v0.6.0` is released now from
   gobble-cli's `main` without the ACP sign-in redesign: it changes neither `gobble auth login --json`, ACP
   `authenticate` nor `_meta.gobble.*` (that record's F5). The redesign this cut-over waits for is `v0.7.0`.)*
+  *(2026-11-13: gobble `v0.6.0` is published, and `git show v0.6.0:go.mod` in gobble-cli pins acp-go-sdk2
+  `v1.36.0`, as this repository's `go.mod` does, so `0179-MADR-gobble-native-acp-provider.md` D14 gate 3 is met.
+  This repository does not adopt `v0.6.0`: by the owner's ruling of 2026-11-12, recorded in the fleet sequence
+  record `0006-MADR-sequence-the-auth-contract-effort-across-four-repositories.md` (D12's note), `KnownGoodVersion`
+  and the wire fixture go from `0.4.0` straight to `v0.7.0` at the PLAN's P4, one recapture instead of two. The
+  contract tag, `authcontract/v0.1.0`, also exists now (`38e17de`); the cut-over still waits for gobble `v0.7.0` and
+  `acpext/v0.5.0`, neither tagged at gobble-cli `8fa0b73`, whose acpext tags end at `v0.4.0`.)*
 * Bad, because D7's kilo and opencode rows depend on `oauth`, `at_start` and `command`, which the owner's O1 and O3
   put into the contract before its first tag: the cut-over cannot start until that tag holds them (PLAN gate G1).
 * Bad, because a sign-in holds a gobble process for up to 16 minutes, one per session, within the 8-session limit.
@@ -898,6 +966,7 @@ section's line numbers in this repository are read at `14200b6e`, and re-read at
 
 1. `go list -m all` names `.../authcontract` at its tag, with no `replace`; `TestSDKIsImportedOnlyByGrok` allows it in
    D1's packages and fails a planted `x/signin` import from `internal/ws`.
+   *(2026-11-13, the owner's ruling "Both packages": and a planted `llmprovider/auth` import from `internal/ws`.)*
 2. Every golden vector decodes and re-encodes in Go (`internal/protocol`) to the same bytes after compacting, and in
    Dart to an equal JSON value, every member present or absent as in the vector (`answer-confirm-false.json`'s
    `"confirm":false` included); every `forward/` vector keeps its unknown value; each seen failing on a vector edited in
@@ -1093,6 +1162,9 @@ stop. Item 4 is unchanged.)*
   slot comes back after 35 s (`server.go:1003-1012`) and the goroutine stays blocked.
 * **Neither the report nor go-llmprovider-sdk `0073-MADR-publish-an-auth-contract-module.md` names `TestSDKIsImportedOnlyByGrok`,** which refuses the
   contract module outside grok (D1).
+  *(2026-11-13: no longer holds for 0073. As accepted, that MADR names the test: its evidence row C42 cites this
+  repository's `sdk_boundary_test.go:72`, and its text names `TestSDKIsImportedOnlyByGrok` as the consumer gate the
+  module meets, amended by this record. The report still does not.)*
 * **go-llmprovider-sdk `0073-MADR-publish-an-auth-contract-module.md` D2, as first drafted, had no `Kind` or `Completion` for a method decided at start,
   no field for a host command, and mapped `open_url` and `show_code` onto URL mode,** which a form-only client such as
   Magic cannot receive. On 2026-11-10 it gained `oauth`, `at_start` and `command` (O1, O3) and `Step.secret`, and
@@ -1152,6 +1224,9 @@ kept as they were put.
   first; a scratch daemon home (`MCREMOTE_HOME` and `XDG_*` in a temporary directory) and a scratch agent home for the
   sign-in it starts; no sign-in completed (a code shown and left); quota: none. The PLAN's L6.
 * **U5, U6, U13** are `0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md`'s. **U1, U7** (grok's browser) are go-llmprovider-sdk's and the report's.
+  *(2026-11-13: the SDK's side of U1 is go-llmprovider-sdk `0074-PLAN-one-sign-in-handle-and-method-facts.md` Phase
+  7's live Grok browser-paste probe, `TestLive_0074GrokPaste`, pending; D8's note of this date says what each outcome
+  means for gobble's Grok browser sign-in from the phone.)*
 * **P-C. Whether codex's access-token login yields a refreshable session or an access-only one, and the shape of its
   `auth.json`.** It decides whether the coordinator can adopt the result: codex's adapter treats any `tokens` object as
   ChatGPT mode, `Revocable: true`, ordered by `last_refresh` (`codex/adapter.go:150-159`), and `NotOlder` orders by

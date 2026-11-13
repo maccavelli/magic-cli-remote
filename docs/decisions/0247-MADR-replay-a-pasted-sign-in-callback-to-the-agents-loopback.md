@@ -28,17 +28,36 @@ confirm their routes."
 gives the steps this needs: `open_url` with `accepts`, then `paste`, answered by `provider.auth_answer` with a redacted
 `Answer.paste`. This record decides what the daemon does with that paste when the agent cannot take it.
 
+*(2026-11-13, the owner's ruling of that day, "Probe Grok paste; keep 0247", relayed by the cross-repository
+coordinator. This record stays, for codex, kilo and opencode. go-llmprovider-sdk's `NoLoopback`
+(`0074-MADR-one-sign-in-handle-and-method-facts.md` D4; the v1 `OAuthFlowOptions.NoLoopback` and
+`ChatGPTPlanOptions.NoLoopback`, committed at that repository's `3f87e2b`) is an option of sign-ins the Go SDK drives:
+it binds no listener, and only a paste completes the sign-in. Of this repository's agents only gobble signs in
+through the SDK, and gobble sets it on every sign-in the phone starts (`_meta.gobble.remote: true`,
+`0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` D8). codex, kilo and opencode do
+not sign in through the Go SDK and bind and check their own loopback listeners, so the option does not reach them, and
+this record's replay stays their only route from the phone. `NoLoopback` supersedes nothing in D2 to D5; it touches
+only the two gobble rows of the table below.)*
+
 ### What each agent offers, at `912b9aa1`
 
 | Agent and method | Redirect | Agent-native paste | Today |
 | :--- | :--- | :--- | :--- |
 | gobble, a method with `completion` `browser_paste` (openai's plan) | gobble's own SDK flow | **yes:** ACP elicitation, the `paste` step's `callback` form (`0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` D8; gobble-cli `docs/decisions/0051-MADR-sign-in-through-acp-elicitation-on-the-sdk-auth-contract.md` D4) | host-only |
-| gobble, `browser_loopback` (grok's browser) | gobble's own SDK flow, on gobble's host | **no:** gobble drives it only when named, and it completes only where the browser reaches gobble's host (gobble-cli `0051-MADR-sign-in-through-acp-elicitation-on-the-sdk-auth-contract.md` D4 step 3); the SDK refuses a paste for Grok, as its paste is unverified (go-llmprovider-sdk `docs/decisions/0074-MADR-one-sign-in-handle-and-method-facts.md` D3's step rule, under which a browser sign-in gets `accepts` and a `paste` step only when the method's `Paste` fact is set, so `browser_loopback` gets none, and D4, which refuses one as `ErrUnsupported`; re-pointed 2026-11-11) | listed `host_only` (`0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` D7) |
+| gobble, `browser_loopback` (grok's browser) | gobble's own SDK flow, on gobble's host | **no:** gobble drives it only when named, and it completes only where the browser reaches gobble's host (gobble-cli `0051-MADR-sign-in-through-acp-elicitation-on-the-sdk-auth-contract.md` D4 step 3); the SDK refuses a paste for Grok, as its paste is unverified (go-llmprovider-sdk `docs/decisions/0074-MADR-one-sign-in-handle-and-method-facts.md` D3's step rule, under which a browser sign-in gets `accepts` and a `paste` step only when the method's `Paste` fact is set, so `browser_loopback` gets none, and D4, which refuses one as `ErrUnsupported`; re-pointed 2026-11-11) *(2026-11-13: amended. "gobble drives it only when named" no longer describes a phone sign-in: this repository sends `_meta.gobble.remote: true` on every sign-in the phone starts (`0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` D8), and with it gobble refuses this method before anything starts, answering `auth_required` with kind `unsupported` and the host `Command`, with no elicitation sent and no port bound (gobble-cli `0051-MADR-sign-in-through-acp-elicitation-on-the-sdk-auth-contract.md` D4 step 1's note, D3's note). The SDK's two refusals are distinct: an answer to Grok's browser step is `ErrInvalidRequest` (0074-MADR D3), and a sign-in with no listener (`NoLoopback`) for Grok is `ErrUnsupported`, returned before any request (D4). Not replayable: the listener is the SDK's inside gobble, and gobble binds none for a remote sign-in. The note below the table says what would change it.)* | listed `host_only` (`0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` D7) |
 | kilo, OpenAI ChatGPT browser | `http://localhost:1455/auth/callback` (`0074-MADR-remote-provider-auth-from-phone.md` §7.2, a live authorize response of 2026-08-10) | **unverified:** kilo's OpenAPI paths list `/provider/{providerID}/oauth/callback` (`internal/provider/kilo/testdata/kilo-spike-7.4.23/openapi-paths.txt:188`, a list of paths without verbs), and neither its verb nor its body is read; Magic never calls it (`deviceauth.go:38-40`). The same file lists `/api/integration/{integrationID}/connect/oauth` (`:17`) | refused at start |
 | kilo, xAI SuperGrok | a `redirect_uri` on loopback (the probe of `0086-MADR-phone-provider-auth-completion.md` D6) | as above | refused at start |
 | opencode, a browser integration | by the attempt's URL | **unverified:** an attempt of `mode: "code"` wants a code pasted back, and Magic refuses it (`acp_auth.go:658-661`); its submit route is not known | refused at start |
 | codex, `codex login` | `localhost:1455`, as the SDK's OpenAI client mirrors (`llmprovider/auth/oauth_loopback.go:38`, go-llmprovider-sdk v1.29.0) | **no:** codex-cli 0.167.0's `login` takes `--with-api-key`, `--with-access-token` and `--device-auth`, and no paste (the audit's probe log) | not advertised |
 | grok, `grok login --oauth` | accounts.x.ai delivers the code to the loopback by a cross-origin fetch (`oauth_loopback.go:471-474`), so the phone's address bar may never show it (report F13) | **unverified:** ACP `x.ai/auth/submit_code`, declined by `0107-MADR-grok-phone-api-key-and-device-code-auth.md` D5 | host-only |
+
+*(2026-11-13, on the gobble `browser_loopback` row, after the owner's ruling of that day,
+"Probe Grok paste; keep 0247".)* gobble's phone sign-in is designed to run on `NoLoopback` (gobble-cli `0051-MADR-sign-in-through-acp-elicitation-on-the-sdk-auth-contract.md` D3/D4; not built at gobble-cli `8fa0b73`): the ChatGPT plan by paste, Grok and Kilo by device code. Grok's browser sign-in is host-only today because the SDK treats Grok's paste as unverified (its
+`browser_oauth` method has no `Paste` fact). The owner has added a live Grok browser-paste probe to go-llmprovider-sdk
+`0074-PLAN-one-sign-in-handle-and-method-facts.md` Phase 7 (step 4, `TestLive_0074GrokPaste`, at `3f87e2b`), which is
+pending. If xAI accepts the paste, the SDK sets Grok's `Paste` fact, and gobble offers Grok browser from the phone
+through `NoLoopback` and paste, not through this record's replay. If xAI refuses it, Grok's device code stays the
+phone path.
 
 ### Facts that bound a replay
 
@@ -47,6 +66,10 @@ gives the steps this needs: `open_url` with `accepts`, then `paste`, answered by
 * **Ports are shared.** OpenAI-style sign-ins bind 1455, else 1457 (`oauth_loopback.go:38`), and fail with "registered
   callback ports unavailable" when both are taken (`:369`). codex's login and kilo's OpenAI browser flow use 1455
   (`0074-MADR-remote-provider-auth-from-phone.md` §7.2). Two such sign-ins at once on one host contend (report F14).
+  *(2026-11-13: a gobble sign-in the phone starts binds neither port. gobble sets the SDK's `NoLoopback` for it
+  (go-llmprovider-sdk `0074-MADR-one-sign-in-handle-and-method-facts.md` D4; `0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md`
+  D8), and a device sign-in binds none in any case. The contention D3 guards against is between codex's and kilo's own
+  listeners only.)*
 * **The paste is a secret.** It holds an authorization code. `0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` D3 redacts it in every log and never retains
   it. The mapper's `paste` step carries `secret: true`, the daemon sets the answer's `secret` from that step, and the
   contract's `Answer` then masks the paste in `String`, `GoString` and `LogValue` (go-llmprovider-sdk
@@ -83,6 +106,10 @@ In this order, decided per method by the mapper (`0246-MADR-take-provider-auth-t
 2. **The replay (D2),** where the agent listens on a loopback redirect and offers no paste.
 3. **`host_only`,** where neither holds: grok's browser until U1 or U7, and any flow whose callback is not a plain
    `GET` the user can see.
+   *(2026-11-13: gobble's Grok browser sign-in, which is gobble's and not the grok agent's, leaves this branch, if it
+   ever does, by branch 1, never by branch 2: the note below "What each agent offers" says how, by the owner's
+   ruling "Probe Grok paste; keep 0247", and go-llmprovider-sdk `0074-PLAN-one-sign-in-handle-and-method-facts.md`
+   Phase 7's Grok paste probe decides it.)*
 
 A method whose mechanism is known before start (codex's browser login) is listed with `completion` `browser_paste`
 for 1 and 2, and `browser_loopback` with reason `host_only` for 3. kilo's and opencode's OAuth methods stay listed
@@ -182,6 +209,9 @@ route) and ends `failed` with `too_many_sign_ins`, naming the port. Nothing is r
 4. D3's admission refuses a second replayable session on one port.
 5. U5, U6 and U13 are recorded, and D1's per-agent table matches what they found, gobble's two rows included
    (`0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md` D7's gobble row).
+   *(2026-11-13: gobble's `browser_loopback` row as amended on that date, read against go-llmprovider-sdk
+   `0074-PLAN-one-sign-in-handle-and-method-facts.md` Phase 7's Grok paste probe once it is recorded. If xAI accepted
+   the paste, the row moves to agent-native paste through `NoLoopback`, and no replay is built for it.)*
 6. The owner-run runs of the PLAN complete a codex browser sign-in, and each kilo or opencode method D1 assigns,
    from the phone.
 7. A session whose authorize URL names a port another replayable session holds is refused after start: the agent's

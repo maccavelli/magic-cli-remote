@@ -169,6 +169,16 @@ values `chatgpt`, `chatgpt_plan`, `grok` and `kilo_device`, each with its label,
 for the members above: the type missing, a value missing or spelled otherwise, or the labels held in Go only. If the
 labels need a schema keyword that P1 step 3's list (0073 D4's) does not hold, that is recorded here and is a
 deviation (C6) before P1.)*
+*(2026-11-13, a deviation recorded before P1 (C6), with the owner's resolution of that day. **Found,** reading the
+tag from go-llmprovider-sdk's own repository (`git show authcontract/v0.1.0:authcontract/authcontract.schema.json`,
+tag on `38e17de`): every member this gate names is there, the session-kind type included, with its four values and
+their labels (ChatGPT, ChatGPT plan, Grok, Kilo); the vector `answer-confirm-false.json` is there; and the schema's
+keyword set is P1 step 3's list plus one annotation, `x-enum-labels`, on `SessionKind`'s entry alone. The labels
+are in the schema, not in Go only. go-llmprovider-sdk 0073-MADR's amendment of 2026-11-11 adds that annotation to its
+D4 list. Not yet run: `go list -m` through the module proxy from a scratch directory; this gate still runs it.
+**Decided, the owner, 2026-11-13: "Amend 0246 now".** P1 step 3's list gains `x-enum-labels` and nothing else; the
+generator gives each labelled enum a `label` getter (MADR D9's note of this date); a self-test case and a planted
+break hold it (P1 step 6). No file joins P1's scope.)*
 
 ### P1 — the pin, the boundary, the vectors and the generator (MADR D1, D9)
 
@@ -185,10 +195,17 @@ deviation (C6) before P1.)*
      (`0073-PLAN-publish-an-auth-contract-module.md` Phase 3 step 4): `$schema`, `$id`, `$defs`, `$ref`, `type`,
      `properties`, `required`, `enum`, `items`, `additionalProperties`, `format`, `x-open-enum` and `x-nullable`,
      naming the keyword;
+     *(2026-11-13, the owner's ruling "Amend 0246 now", G1's deviation of this date: and `x-enum-labels`, the third
+     annotation of go-llmprovider-sdk 0073-MADR's amendment of 2026-11-11, which the tagged schema carries on
+     `SessionKind` alone; `format` is accepted with `date-time` only;)*
    * writes `apps/mobile/lib/data/protocol/authcontract.g.dart`: a header naming the module version, read from `go
      list -m` (the schema states none), and "generated; do not edit"; per object a `@immutable` class with `fromJson`
      (absent optional members as `null`, lists as empty), `toJson`, `==` and `hashCode`; per open enum an `extension
      type` over `String` with a `static const` per known value, `values`, and `isKnown`;
+     *(2026-11-13, the owner's ruling "Amend 0246 now": an enum entry carrying `x-enum-labels` also gets a `label`
+     getter, the schema's label for a known value and the value itself, verbatim, for one the pinned schema does not
+     know; no label is written by hand. The known value `""`, `Paste`'s `PasteNone`, gets a named constant, `none`,
+     like every other known value;)*
    * `toJson` writes a member by the schema alone (MADR D9): a required member always; an `x-nullable` member whenever
      it is not null, `false` included; any other optional member only when it is not its zero value; a `date-time`
      member as the `String` it was read as;
@@ -211,9 +228,10 @@ deviation (C6) before P1.)*
    | Test | Asserts | Planted break |
    | :--- | :--- | :--- |
    | `TestAuthContractVectorsRoundTrip` (`internal/protocol/authcontract_vectors_test.go`) | every copied vector decodes into the type its name gives and re-encodes to the same compact bytes | a copy's `seq` written as a string |
-   | `TestAuthContractForwardVectors` (same file) | each `forward/` vector decodes, keeps its unknown enum value, and drops its unknown field | the forward vector's unknown kind replaced by `done` |
+   | `TestAuthContractForwardVectors` (same file) | each `forward/` vector decodes, keeps its unknown enum value, and drops its unknown field *(2026-11-13: "drops its unknown field" where the vector has one; `forward/session-kind-unknown.json` at the tag is the bare string `"a_future_session_kind"`, which decodes into the session-kind type, keeps its value and re-encodes unchanged, go-llmprovider-sdk 0073-MADR's amendment of 2026-11-11, "The vectors")* | the forward vector's unknown kind replaced by `done` |
    | `TestSDKIsImportedOnlyByGrok` (extended) | `authcontract` allowed in D1's packages, grok's included, refused elsewhere; `x/signin` refused everywhere; grok's production files still limited to their names | `internal/ws` importing `.../llmprovider/x/signin`; `internal/session` importing `authcontract`; a grok production file using a `catalog` name outside `sdkAllowed`'s three |
-   | `gen_authcontract_dart.py --self-test` | a schema with `oneOf` is refused; an enum without `x-open-enum` is refused; a keyword outside D4's list is refused by name; output is stable across two runs | the keyword check removed |
+   | *(2026-11-13, the owner's ruling "Both packages")* `TestSDKIsImportedOnlyByGrok` (extended, `llmprovider/auth`) | `llmprovider/auth`, where the v1 `NoLoopback`, `ErrSignInDenied`, `ErrSignInExpired` and `SessionKind` live, is refused in every package, grok's included; the `x/signin` plant of the row above stays | `internal/ws` importing `.../llmprovider/auth` |
+   | `gen_authcontract_dart.py --self-test` | a schema with `oneOf` is refused; an enum without `x-open-enum` is refused; a keyword outside D4's list is refused by name; output is stable across two runs *(2026-11-13, the owner's ruling "Amend 0246 now": and a schema whose enum carries `x-enum-labels` is accepted, its extension type has a `label` getter giving each known value's label and an unknown value verbatim, and `Paste`'s `""` gets the named constant `none`)* | the keyword check removed *(2026-11-13: and, separately, `x-enum-labels` dropped from the accepted list, so the labelled schema is refused)* |
    | `make check-authcontract` | regenerated output equals the committed files, and is `dart format`-stable | a hand edit to `authcontract.g.dart`; one byte changed in a copied vector; a mis-indented line in the generator's template (the format check fails; recorded) |
    | `authcontract_vectors_test.dart` (`apps/mobile/test/`) | every vector decodes and re-encodes to an equal JSON value, each member present or absent as in the vector: `answer-confirm-false.json` keeps `"confirm":false`, a `paste` step with `secret` false omits it, `expires_at` comes back as the same string; an unknown `StepKind` is kept and `isKnown` is false | in a scratch copy of the generated file: `fromJson` dropping `expires_at`; `toJson` omitting `Answer.confirm` when `false`; `expires_at` re-formatted through `DateTime` |
    | `flutter analyze` (CI's Flutter job, and C4) | clean over `apps/mobile`, the generated file included | an unused import planted in a scratch copy of the generated file |
@@ -373,6 +391,11 @@ having landed; gobble-cli's `main` since its `f441c73`), so gate 3 is met when `
 (`0179-MADR-gobble-native-acp-provider.md` A10's note of this date). `v0.6.0` does not open G2: it adds no
 `_meta.gobble.methods`, and the acpext it is built with has no `fresh` (that record's F5, F6), so an unamended reading
 of this gate would stop on it.)*
+*(2026-11-13: gate 3 is met. gobble `v0.6.0` is published, and `git show v0.6.0:go.mod` in gobble-cli pins
+acp-go-sdk2 `v1.36.0`, as this repository's `go.mod` does at `a7c993c0`. Neither gobble's `v0.6.0` nor its `main` at
+`8fa0b73` has `acpext.AuthenticateMeta` or `MetaMethods`, and acpext's tags end at `v0.4.0`, so G2 is not open. This
+repository does not adopt `v0.6.0`, by the owner's ruling of 2026-11-12 (Rollout step 4's note of this date): G2,
+P4 and the fixture recapture read `v0.7.0`, and `KnownGoodVersion` goes from `0.4.0` to it in one step.)*
 *(2026-11-11, later the same day, the owner's rulings R1, R2 and R4, relayed by the coordinator. Each is read from
 the G2 release's tagged source, and from its `--help` or its tests where a behaviour is not a type, never assumed;
 nothing signs in and no quota is spent. A miss is a stop, recorded as a deviation (C6), except where a bullet says
@@ -456,6 +479,14 @@ shows what it shows today.)*
    (`_meta.gobble.step` through `acpext.MetaStep`, strict), `SignInAnswer` (`callback`, `allow`, fields); the catalog
    from `_meta.gobble.methods` (`acpext.MetaMethods`), kept per gobble version and filled by an `initialize`-only run,
    a `browser_loopback` method listed `host_only` (MADR D7). `KnownGoodVersion` the release of G2.
+   *(2026-11-13, the owner's ruling "Probe Grok paste; keep 0247": the method this rule meets is gobble's Grok
+   browser sign-in, host-only today because the SDK treats Grok's paste as unverified. If go-llmprovider-sdk
+   `0074-PLAN-one-sign-in-handle-and-method-facts.md` Phase 7's pending Grok paste probe finds that xAI accepts it,
+   the SDK sets Grok's `Paste` fact, gobble advertises the method as `browser_paste`, and this step lists it
+   available as gobble states it, through `NoLoopback` and paste, never through the replay of
+   `0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md`. The rule itself does not change: it reads
+   `completion`, never a provider id. If xAI refuses the paste, Grok's device code stays the phone path. MADR D8's note
+   of this date.)*
 5. `gobble/auth.go`: `startDeviceAuth`, `firstDeviceCode` and `loginEvent` go; so do the two id tables
    `deviceSignIn` and `noPhoneSignIn` and their partition test `TestDeviceTablesPartitionAcpextsLogins`
    ([0179-MADR-gobble-native-acp-provider.md](0179-MADR-gobble-native-acp-provider.md) A9.2, which removes them at this
@@ -608,7 +639,7 @@ outside tests (`git grep`); the old provider-auth tests pass unchanged.
    | `sign_in_sheet_test.dart` | each step kind renders; `paste` sends an `Answer` with the paste step's `seq` and the step's `secret`, obscures a secret field and clears it; an `open_url` with `accepts` shows the paste box with the following `paste` step and sends nothing for the `open_url`; `confirm` defaults to no and offers three outcomes, "allow" sending `confirm: true`, "decline background use" sending `confirm: false` and leaving the sheet open, "Cancel" sending `provider.auth_cancel`; an unknown kind shows its `text` and Cancel | the `seq` taken from the session; a secret paste shown in clear; the paste sent for the `open_url`'s `seq`; "decline background use" sending `provider.auth_cancel` |
    | `sign_in_resume_test.dart` | after a reconnect, a `finished` step closes the sheet with its outcome | `auth_sessions` not sent |
    | `app_contract_test.dart` | an `auth_ok`, and a `pair_ok`, with another `app_contract` shows "Update mcremote on the host…" and sends nothing more | the check removed; the check on `auth_ok` only |
-   | `provider_detail_screen_test.dart` (`apps/mobile/test/`) | no branch on a provider id: the shared-slot copy follows `slot` (codex's four methods are one credential; grok's key and OAuth are two); a browser method marked available is offered; an `at_start` method shows the learned-on-start label; a `host_only` method's `command` is shown and copied by its button; each `client_identity` value shows its line (`vendor_borrowed`, `app_registered`, `unknown`; none for `none`) | `providerId == 'codex'` restored; the copy button copying `detail`; `client_identity` not read |
+   | `provider_detail_screen_test.dart` (`apps/mobile/test/`) | no branch on a provider id: the shared-slot copy follows `slot` (codex's four methods are one credential; grok's key and OAuth are two); a browser method marked available is offered; an `at_start` method shows the learned-on-start label; a `host_only` method's `command` is shown and copied by its button; each `client_identity` value shows its line (`vendor_borrowed`, `app_registered`, `unknown`; none for `none`) *(2026-11-13, the owner's ruling on the copy, MADR D9's note of that date: `app_registered`'s line is asserted as "Signs in as the agent's own registration with the provider")* | `providerId == 'codex'` restored; the copy button copying `detail`; `client_identity` not read *(2026-11-13: and `app_registered` shown with the old "this app's own registration" copy)* |
 
    *(2026-11-11, R1; each seen failing, C3.)*
 
@@ -752,10 +783,17 @@ echo "refs/heads/master $(git rev-parse HEAD) refs/heads/master $(git rev-parse 
      `0217-PLAN-update-every-pin-to-its-current-release.md` P3j with that MADR's F3k. The last two land together
      (`0179-MADR-gobble-native-acp-provider.md` A10). The two records of the other repositories were being drafted
      that day and were in neither tree when this was written, so they are named by number, as relayed.
+     *(2026-11-13: step 0 is done. go-llmprovider-sdk's `0077-PLAN-go-1-27-4-for-go-2026-6859.md` is `complete`
+     (`0c65221`); gobble-cli's `0054-PLAN-go-1-27-4-and-sibling-pin-refresh.md` is `complete` (`834b6d1`), its `main`
+     on acp-go-sdk2 `v1.36.0` since `f441c73`; this repository's P3j landed as `83aac453`.)*
   1. go-llmprovider-sdk tags `authcontract/v0.1.0` (go-llmprovider-sdk `0073-PLAN-publish-an-auth-contract-module.md` Phase 4). G1 opens.
   2. go-llmprovider-sdk tags the minor carrying its `0074-MADR-one-sign-in-handle-and-method-facts.md` and
      `0075-MADR-chatgpt-plan-consent-host-id-and-client-reuse.md` (`v1.31.0` if its 0076 ships as `v1.30.0`). Magic
      does not require it; gobble does.
+     *(2026-11-13: 0076 shipped as `v1.30.0` (`aaa2904`), so the minor is `v1.31.0`. It also carries
+     go-llmprovider-sdk's `0079-MADR-name-the-app-on-refresh-revocation-and-the-chatgpt-originator.md` (that
+     repository's 0074-PLAN Phase 8 note of 2026-11-12). Step 1 is done: `authcontract/v0.1.0` is tagged on `38e17de`,
+     and G1 is read against it (G1's note of this date).)*
   3. gobble-cli tags `acpext/v0.5.0` and releases `v0.6.0` (gobble-cli `0051-PLAN-sign-in-through-acp-elicitation-on-the-sdk-auth-contract.md` rollout). G2 opens.
   4. This repository: P1 pins the contract tag; P4 pins `acpext/v0.5.0` and moves `KnownGoodVersion`; P6 completes
      the cut-over. The daemon and the app are released together, from one commit, with one `app_contract`.
@@ -770,6 +808,11 @@ echo "refs/heads/master $(git rev-parse HEAD) refs/heads/master $(git rev-parse 
      step 3, `v0.6.0` must pin acp-go-sdk2 `v1.36.0`" and "`v0.6.0` must also hold G2's R1 and R2 checks" now read
      `v0.7.0`. Whether this repository adopts `v0.6.0` before P4 (`KnownGoodVersion` and the fixture) is the owner's,
      not decided (`0179-MADR-gobble-native-acp-provider.md` A10's note of this date).)*
+     *(2026-11-13: "is the owner's, not decided" no longer holds. The owner ruled on 2026-11-12, as the fleet
+     sequence record `0006-MADR-sequence-the-auth-contract-effort-across-four-repositories.md` records in D12's note:
+     this repository does not adopt `v0.6.0`; it moves from `0.4.0` straight to `v0.7.0` through this plan's P4, with
+     one fixture recapture instead of two. gobble `v0.6.0` was published on 2026-11-12 on acp-go-sdk2 `v1.36.0`, which
+     meets gate 3 (G2's note of this date).)*
 * **Rollout:** after the release, a phone of the old build is refused at connect with `app_outdated`, and an old
   daemon is refused by the new app. The owner updates both. Stored credentials are untouched: the agents own them
   (`0074-MADR-remote-provider-auth-from-phone.md` D2), and the coordinator's manifests do not change.
@@ -783,3 +826,21 @@ echo "refs/heads/master $(git rev-parse HEAD) refs/heads/master $(git rev-parse 
 ## Execution record
 
 Not started. The MADR is `proposed`.
+
+*(2026-11-13, later, records only.)* The owner ruled on 0247's scope that day, "Probe Grok paste; keep 0247". This
+pair gains notes where it describes gobble's Grok browser sign-in from the phone (MADR D7's gobble row, D8, "Not
+verified"; P4 step 4), pointing to go-llmprovider-sdk `0074-PLAN-one-sign-in-handle-and-method-facts.md` Phase 7's
+pending Grok paste probe. `0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md` gains its own dated
+notes; its PLAN is unchanged.
+
+*(2026-11-13, records only; no phase started.)* This pair was re-read against go-llmprovider-sdk `3f87e2b` and
+gobble-cli `8fa0b73`, both committed `main`, and amended by dated notes, nothing struck except the one copy string the
+owner changed. The owner's rulings of that day, relayed by the cross-repository coordinator: "Amend 0246 now" (the
+`x-enum-labels` annotation: G1's deviation, P1 step 3 and step 6, MADR D9); "Both packages" (a planted
+`llmprovider/auth` import beside the `x/signin` one: P1 step 6, MADR D1 and Confirmation 1); and "the agent's own
+registration" (`app_registered`'s copy: MADR D9, P5 step 6). The other notes of that date correct facts that had
+moved: statuses and commits of the other repositories' records, the contract's enum list, `NoLoopback` settled as
+v1, gobble's listing and refusal of Grok's browser method, an `oauth` row with no session kind, the 0073-MADR's naming
+of this repository's boundary test, gobble `v0.6.0` published and not adopted, Rollout steps 0, 2 and 4, and G2.
+`0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md` and its PLAN are not changed: their scope is
+with the owner.
