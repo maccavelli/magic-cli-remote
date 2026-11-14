@@ -480,6 +480,12 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0244 | MADR | Tell the phone when an agent cannot switch its active upstream | [0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md](decisions/0244-MADR-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md) |
 | 0244 | PLAN | Implement telling the phone when an agent cannot switch its active upstream | [0244-PLAN-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md](decisions/0244-PLAN-tell-the-phone-when-an-agent-cannot-switch-its-active-upstream.md) |
 | 0245 | REPORT | Non-API-key auth across Magic, gobble and the SDK | [0245-REPORT-non-api-key-auth-across-magic-gobble-and-the-sdk.md](../docs/reports/0245-REPORT-non-api-key-auth-across-magic-gobble-and-the-sdk.md) |
+| 0246 | MADR | Take provider auth types from the SDK's auth contract, relay every sign-in as contract steps, and cut the daemon and the app over together | [0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md](decisions/0246-MADR-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md) |
+| 0246 | PLAN | Implement taking provider auth types from the SDK's auth contract, in one cut-over | [0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md](decisions/0246-PLAN-take-provider-auth-types-from-the-sdk-auth-contract-in-one-cut-over.md) |
+| 0247 | MADR | Replay a pasted sign-in callback to the agent's own loopback listener, only where the agent offers no paste of its own | [0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md](decisions/0247-MADR-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md) |
+| 0247 | PLAN | Implement replaying a pasted sign-in callback to the agent's loopback | [0247-PLAN-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md](decisions/0247-PLAN-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md) |
+| 0248 | MADR | Bring this repository's docs current, keep a changelog, and keep both current through a docs step in every phase | [0248-MADR-bring-the-docs-current-and-keep-them-so.md](decisions/0248-MADR-bring-the-docs-current-and-keep-them-so.md) |
+| 0248 | PLAN | Implement bringing this repository's docs current and keeping them so | [0248-PLAN-bring-the-docs-current-and-keep-them-so.md](decisions/0248-PLAN-bring-the-docs-current-and-keep-them-so.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
