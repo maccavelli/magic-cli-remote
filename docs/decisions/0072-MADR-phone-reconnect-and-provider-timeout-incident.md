@@ -165,8 +165,10 @@ Disk sessions remain owned by many historical device ids (mostly
 
 ### 1.5 Network
 
-Tailscale peers present (`100.64.0.3` host, `100.64.0.2` phone). Mesh
+Tailscale peers present (`<host-tailnet-ip>` host, `<phone-tailnet-ip>` phone). Mesh
 routing is available; **application listener is not**.
+
+*(2026-11-15: two addresses were redacted here by the owner's ruling "Scrub fixtures and comment; annotate records".)*
 
 ---
 
@@ -193,9 +195,11 @@ wrong behaviour · **S2** incomplete product wiring · **S3** harden/docs.
 **Evidence:** 17:00 `terminated signal` + launchd `removing service`;
 plist remains; `print` cannot find job; no process.
 
-**Why it matters:** Phone mesh (`wss://100.64.0.3:7531`) and relay
+**Why it matters:** Phone mesh (`wss://<tailnet-ip>:7531`) and relay
 (host registration) both depend on a live daemon. Operator sees
 “cannot reconnect to either path” which is true and total.
+
+*(2026-11-15: an address was redacted here by the owner's ruling "Scrub fixtures and comment; annotate records".)*
 
 **Likely mechanisms:**
 

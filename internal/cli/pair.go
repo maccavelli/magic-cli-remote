@@ -613,9 +613,8 @@ func openStoreFromFlags(cmd *cobra.Command) (*auth.Store, config.Config, error) 
 // resolvePairHost (pair.advertise_host).
 //
 // It follows the bind. A daemon listening on 127.0.0.1 that advertised its
-// tailnet address printed a QR no phone could dial — reproduced on this host:
-// `curl` to the advertised 100.64.0.3:7642 returned connection refused while
-// 127.0.0.1:7642 answered, because that was the only address in the listen set
+// tailnet address printed a QR no phone could dial: connections to that
+// address were refused, because loopback was the only address in the listen set
 // (MADR 0138 F11). Only the "follow the config" hosts — empty, "tailscale",
 // or a wildcard — get the Tailscale-IPv4 preference; an explicit bind
 // advertises itself.

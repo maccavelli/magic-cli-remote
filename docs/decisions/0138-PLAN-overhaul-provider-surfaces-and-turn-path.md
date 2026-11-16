@@ -1390,9 +1390,11 @@ wildcard — keep the Tailscale-IPv4 preference; an explicit bind advertises
 itself. Reproduced end to end against the same config that produced the bug:
 
 ```text
-BEFORE (installed 0.16.3)   Host: 100.64.0.3:7642   <- connection refused
+BEFORE (installed 0.16.3)   Host: <tailnet-ip>:7642   <- connection refused
 AFTER  (this build)         Host: 127.0.0.1:7642    <- the address it listens on
 ```
+
+*(2026-11-15: an address was redacted here by the owner's ruling "Scrub fixtures and comment; annotate records".)*
 
 **7.5 (F12) The auth-method warning is demoted to debug**, with the reason at
 the site: it fired 90 times and was true zero of them.
@@ -1430,9 +1432,11 @@ G3. the shell lane sharing the general budget
 
 G4. the tailnet-only advertise restored
     FAIL TestPairAdvertisesTheBoundHost/loopback_ipv4
-         detectAdvertiseHost("127.0.0.1") = "100.64.0.3:7531",
+         detectAdvertiseHost("127.0.0.1") = "<tailnet-ip>:7531",
          want "127.0.0.1:7531"
 ```
+
+*(2026-11-15: an address was redacted here by the owner's ruling "Scrub fixtures and comment; annotate records".)*
 
 **G2 was not run, and this says so rather than implying it was.** The step
 called for `TestACPConnectionSurvivesAStalledPump`, driving the SDK's queue to

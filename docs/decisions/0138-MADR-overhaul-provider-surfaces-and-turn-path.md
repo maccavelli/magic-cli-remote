@@ -283,20 +283,24 @@ Reproduced, not inferred. With `listen.host: 127.0.0.1` and
 `pair.advertise_host` empty, `mcremote pair create` printed:
 
 ```text
-Host:   100.64.0.3:7642
-WS URL: ws://100.64.0.3:7642/v1/ws
+Host:   <tailnet-ip>:7642
+WS URL: ws://<tailnet-ip>:7642/v1/ws
 ```
+
+*(2026-11-15: an address was redacted here by the owner's ruling "Scrub fixtures and comment; annotate records".)*
 
 while the process listened only on loopback:
 
 ```text
-$ curl -m3 http://100.64.0.3:7642/healthz ; echo $?
+$ curl -m3 http://<tailnet-ip>:7642/healthz ; echo $?
 7                                    # connection refused
 $ curl -m3 http://127.0.0.1:7642/healthz
 {"ok":true}
 $ lsof -nP -iTCP:7642 -sTCP:LISTEN
 mcremote  17885  <user>  6u  IPv4  TCP 127.0.0.1:7642 (LISTEN)
 ```
+
+*(2026-11-15: an address was redacted here by the owner's ruling "Scrub fixtures and comment; annotate records".)*
 
 `detectAdvertiseHost` (`internal/cli/pair.go:499`) prefers the Tailscale IPv4
 and never consults `cfg.Listen.Host`. A phone that scans that QR cannot

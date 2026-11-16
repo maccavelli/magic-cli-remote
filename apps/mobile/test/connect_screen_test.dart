@@ -297,6 +297,7 @@ void _useTallSurface(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
+// 100.64.7.7 is an example address in the tailnet (CGNAT) range, not a real host.
 void main() {
   setUp(() {
     // The V9 test pumps the real SettingsScreen, whose non-faked preference
@@ -492,7 +493,7 @@ void main() {
       _useTallSurface(tester);
       const fp = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
       const pairUri =
-          'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
+          'mcremote://pair?host=wss%3A%2F%2F100.64.7.7%3A7531&fp=$fp'
           '&token=mcr_relay&relay=wss%3A%2F%2Fheadscale.example%3A8443'
           '&hid=mac-host';
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -523,7 +524,7 @@ void main() {
       // And be persisted under the mcremote authority for reconnects.
       expect(store.relayUrl, 'wss://headscale.example:8443');
       expect(store.relayHostId, 'mac-host');
-      expect(store.relayAuthority, '100.64.0.3:7531');
+      expect(store.relayAuthority, '100.64.7.7:7531');
     },
   );
 
@@ -618,7 +619,7 @@ void main() {
   group('iOS parity (MADR 0067)', () {
     const fp = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
     const tokenUri =
-        'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
+        'mcremote://pair?host=wss%3A%2F%2F100.64.7.7%3A7531&fp=$fp'
         '&token=mcr_x';
 
     void mockClipboard(WidgetTester tester, String text) {
@@ -734,7 +735,7 @@ void main() {
         expect(find.textContaining('Could not reach host'), findsOneWidget);
         // Suggestive guidance, since iOS offers no permission-state API.
         expect(find.textContaining('Local Network'), findsOneWidget);
-        // Literal-IPv4 host (100.64.0.3) on iOS also gets the NAT64 note
+        // Literal-IPv4 host (100.64.7.7) on iOS also gets the NAT64 note
         // (0068 P5/T8): DNS64 cannot synthesize an address for a literal.
         expect(find.textContaining('IPv6-only network'), findsOneWidget);
       });
@@ -821,11 +822,11 @@ void main() {
 
   const fp = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
   const dualTokenUri =
-      'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
+      'mcremote://pair?host=wss%3A%2F%2F100.64.7.7%3A7531&fp=$fp'
       '&token=mcr_relay&relay=wss%3A%2F%2Fheadscale.example%3A8443'
       '&hid=mac-host';
   const dualCodeUri =
-      'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
+      'mcremote://pair?host=wss%3A%2F%2F100.64.7.7%3A7531&fp=$fp'
       '&code=K7M2-9X4P&relay=wss%3A%2F%2Fheadscale.example%3A8443'
       '&hid=mac-host';
 
@@ -1087,7 +1088,7 @@ void main() {
   ) async {
     _useTallSurface(tester);
     const meshOnlyUri =
-        'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
+        'mcremote://pair?host=wss%3A%2F%2F100.64.7.7%3A7531&fp=$fp'
         '&token=mcr_mesh';
     clipboardPairUri(tester, meshOnlyUri);
     final client = FakeMcremoteClient();

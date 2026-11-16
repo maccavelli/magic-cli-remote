@@ -1288,8 +1288,10 @@ F2, one document later.
 ### 2026-09-01 — P7 on the emulator: rows 1 and 2 FAIL, row 3 PASSES
 
 Run against AVD `mcremote_test` (Android 16 / API 36), paired to the live daemon
-at `100.64.0.3:7531` via the virtual-scene QR. Artifact: `make apk` output
+at `<tailnet-ip>:7531` via the virtual-scene QR. Artifact: `make apk` output
 **0.15.3.5**, release-mode assertion passed, clean-installed.
+
+*(2026-11-15: an address was redacted here by the owner's ruling "Scrub fixtures and comment; annotate records".)*
 
 **A near-miss worth recording first.** The APK initially staged for this run was
 built at 15:42; `apps/mobile/lib` last changed at 15:46 — it predated 0128 P3's

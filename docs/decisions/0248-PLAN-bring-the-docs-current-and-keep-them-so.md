@@ -58,6 +58,12 @@ plan pauses after each phase until the owner says to continue. See the execution
   application of the owner's standing approval of 2026-11-15 ("Yes, all approved plans"), the coordinator commits and
   pushes each owner-approved phase after the disclosure guard exits 0; tags, releases and force pushes still need the
   owner's word each time. The text before this note is kept as written.)*
+* **Amended 2026-11-15, by the owner's rulings, each relayed by the coordinator.** The lists above are kept as written; these exceptions apply to them.
+  * "Comments into this plan; the rest get records": Phase B may fix comment-only text, with no behaviour change, in `configs/*.yaml`, `internal/provider/codex/testdata/0.167.0/README.md`, the header of `.markdownlint-cli2.jsonc`, and the comments in the `Makefile`, `.github/workflows/ci.yml` and `scripts/codex-contract.ps1`. This changes the "Out of scope" bullet's `Makefile`, workflow, lint-config and `scripts/*` entries, for comment text only. The setup-service seed templates (`internal/cli/service/defaults_*.yaml`) and the deploy files (`deploy/`) stay out; each gets a queued record of its own.
+  * "Fix R130 and R147 here; drop the unused rules": `AGENTS.md:63` and `:83` (R130), `scripts/check_records.py` (R147) and the two mobile standards under `apps/mobile/docs/guides/standards/mobile/` (R122) join Phase B's files. This changes the "Out of scope" bullet's `scripts/*` entry and the "Process text" bullet's three lines.
+  * "Scrub fixtures and comment; annotate records": done once, outside any phase, in the change set that carries these rulings: the tailnet address in three test files and one code comment is replaced, and four records are redacted. The "Go doc comments only" bullet is kept; this is an identifier scrub (C6) that changes no test logic. See the execution record.
+  * Ruling 1 ("The code; fix it in its own record"), ruling 3 ("Prove it first, then decide") and ruling 4 ("Its own record") add no file. The seed's placeholder host secret is not changed by this plan.
+  * Further rulings, 2026-11-15, relayed by the coordinator. "Yes, all three, by amendment": three named exceptions to "comment-only" are added to the first bullet above, and nothing else: (1) R142, the `limits.max_conns` key at its default in `configs/mcrelay.example.yaml`; (2) R146, `live-codex-turn`, `live-codex-review` and `codesign-maybe` added to the `Makefile` `.PHONY` list; (3) R145, the printed path at `.github/workflows/ci.yml:541` and `:546`. "Fix the code first; guide waits": R42's truncation part leaves this plan for a queued record; Phase B still corrects the "walks backward" sentence only. "After the gobble branch work": see the execution record.
 
 ## Conventions every phase follows
 
@@ -339,6 +345,90 @@ git diff --cached --name-only > "$T/b-staged.out"; echo "exit=$?"               
 Acceptance: every "wrong" row whose destination is B is fixed, or carried with the owner's reason; and no file outside
 those rows is staged.
 
+#### Phase B, amended 2026-11-15 by the owner's rulings
+
+The Phase B text above is kept as written. The rulings below are the owner's, each relayed by the coordinator; the REPORT's
+rows carry the same destinations ([0248-REPORT-documentation-defect-list.md](../reports/0248-REPORT-documentation-defect-list.md)). Phase B does not run until the owner says to continue.
+
+* **Files added.**
+  * R53 and R54, `docs/guides/protocol-v1.md:498-500`, `:507`, `:515` and `:1663-1668` (ruling "Docs follow the code, all three"): rewrite the
+    passages to what the code does. Only codex serves `agent_sessions.list`; the ACP providers answer `unsupported`, and kilo
+    answers `agent_sessions_list_failed`. No provider emits `diagnostics_changed`. No behaviour change.
+  * R48, `docs/guides/chat-performance.md:40` (same ruling): only kilo suppresses an unchanged `usage_update`; acpagent and
+    codex forward every report.
+  * R42, `docs/guides/receipts.md:74-76` (ruling "Prove it first, then decide"): correct only the "walks backward from the last line" sentence.
+    Verification walks forward from line 1 and reports the first broken line. The sentence that says truncation is detected
+    stays as it is. *(2026-11-15, later: the experiment ran and the owner ruled "Fix the code first; guide waits"; see "Phase B, amended again" below.)*
+  * R130, `AGENTS.md:63` and `:83` (ruling "Fix R130 and R147 here; drop the unused rules"): name all five rule files (`.claude/rules/`, `.codex/rules/`,
+    `.grok/rules/`, `.kilo/agent/` and `.opencode/rules.md`). No rule text changes.
+  * R122, `apps/mobile/docs/guides/standards/mobile/architecture.md:36-45` and `apps/mobile/docs/guides/standards/mobile/dart.md:23-25` (same ruling): drop the two rules no code follows,
+    `AsyncNotifier` with `AsyncValue.guard()` and extension types. Search both standards and the mobile docs index for a
+    reference to either rule first.
+  * R147, `scripts/check_records.py:167-180` (same ruling): `apps/mobile/README.md` joins the unnumbered-docs set that the
+    existing link check reads. This is an extension of an existing check and an exception to MADR D4's "no new checks"; D4
+    carries a dated amendment. Run it before the other Phase B edits, so the check sees them.
+  * Comment-only text (ruling "Comments into this plan; the rest get records"): R101, `internal/provider/codex/testdata/0.167.0/README.md:59`; R139 to R141, the
+    three `configs/*.yaml` files (`config.example.yaml`, `config.prod.example.yaml`, `config.mesh-grok.yaml`) at the lines
+    the REPORT gives; R144, `.markdownlint-cli2.jsonc:2`; R145, `Makefile:153` and `:570` and `.github/workflows/ci.yml:510`;
+    R148, `scripts/codex-contract.ps1:147`.
+* **Not in Phase B.** R96 (ruling "The code; fix it in its own record"): the guide stays as it is, and is wrong until the queued record that makes `main`
+  map the errors to 2 and 3 lands. R34 and R35's state-directory question: the queued deploy-files record. The seed copies
+  of R139 to R141, and R143's comments: the queued setup-service seed record. R143's placeholder host secret (ruling
+  "Its own record"): its own queued MADR. R142 and R146, and the two echoed messages at `.github/workflows/ci.yml:541` and `:546`:
+  open for the owner, see the execution record. *(2026-11-15, later: R142, R146 and the two echoed messages are no longer open; see "Phase B, amended again" below. The deploy-files and seed records named above are one queued record, number 3 of four.)*
+* **Step added, R147 first (C2).** In a scratch clone, extend the function, then plant a broken relative link in a copy of
+  `apps/mobile/README.md`: `check_records.py --check-all` must exit non-zero and name the planted line. With the unchanged
+  script and the same planted copy it must exit 0. On the real tree the extended check also fails on R103's dead link at
+  `apps/mobile/README.md:184`, which Phase B fixes in the same phase. The execution record quotes the failing lines with
+  temporary paths as `<TMP>`.
+* **Step added, comment-only edits.** A scratch script reads the staged diff of the comment-only files and fails on any
+  added or removed line that is not a comment (`#` in YAML, `Makefile` and `.ps1`, `//` in `.jsonc`) or text of the
+  fixture README. Seen failing first on a planted code line (C2). The three example configs are parsed before and after
+  and compared, with the same result.
+* **Acceptance added.** R42's "walks backward" sentence is gone and its truncation sentence is unchanged; R53, R54 and R48
+  match the code, with no code file changed; `AGENTS.md:63` and `:83` name five rule files; the two mobile standards no
+  longer carry the two rules; `check_records.py --check-all` exits 0 with `apps/mobile/README.md` checked and was seen failing
+  on a planted link; every comment-only row above is fixed, and no staged file is outside the REPORT's rows, this PLAN and
+  the MADR.
+
+#### Phase B, amended again 2026-11-15 (further rulings)
+
+The rulings are the owner's, relayed by the coordinator. The text above is kept as written.
+
+* **Named exceptions to "comment-only"** (ruling "Yes, all three, by amendment"): exactly these, and nothing else.
+  1. R142: `configs/mcrelay.example.yaml` gains one line for `limits.max_conns` in the block at `:71-85`, in the file's own form (the
+     default, then a comment naming `MCRELAY_LIMITS_MAX_CONNS`). Phase B reads the default from the code when it adds the key
+     (`internal/relay/fileconfig.go:504` sets it from the defaults struct, and `internal/relay/config.go:59` holds it today); it does
+     not copy a number from this record.
+  2. R146: `live-codex-turn` (`Makefile:362`), `live-codex-review` (`Makefile:366`) and `codesign-maybe` (`Makefile:204`) join the
+     `.PHONY` list at `Makefile:158-161`.
+  3. R145: the printed path at `.github/workflows/ci.yml:541` and `:546` becomes `apps/mobile/docs/guides/ops-android-signing.md`.
+* **The diff check, widened, and how it tells these apart.** The scratch script of the comment-only step takes a per-file
+  allowance, and any other changed line fails it.
+  * `configs/mcrelay.example.yaml`: no removed line, and exactly one added line, which must match `max_conns: <n>` followed by the
+    comment `MCRELAY_LIMITS_MAX_CONNS`, where `<n>` equals the default the script reads from the code.
+  * `Makefile`: outside comment lines, only the `.PHONY` block may change. The script joins the block before and after, splits it on
+    whitespace and line continuations, and requires that the added names are exactly the three above and that none is removed.
+  * `.github/workflows/ci.yml`: outside comment lines, exactly two removed and two added lines, each added line equal to its removed
+    line with the one path replaced.
+  * Every other file: comment lines only, as before.
+
+  Seen failing first (C2) on four plants: an added line in `mcrelay.example.yaml` for another key; a fourth name in `.PHONY`; an added
+  `ci.yml` line that also changes another word; a non-comment line elsewhere in the `Makefile`. The execution record says what each
+  failure looked like.
+* **R42 (ruling "Fix the code first; guide waits").** The experiment ran, and the code is to change first, in queued record 4 of four (see the execution record).
+  Phase B still corrects the "walks backward" sentence only. The two sentences at `docs/guides/receipts.md:74-76` that truncation "is
+  detected" and that `mcremote receipts verify` is "safe to use in an audit script" stay as written, and **are false until that
+  record lands**: removing whole trailing lines, or emptying the file, is not detected, and `mcremote receipts verify` prints "chain
+  intact" and exits 0.
+* **Acceptance added.** The three exceptions are made and no other non-comment line changes. The example still loads: no test in
+  the repository loads `configs/mcrelay.example.yaml` (`internal/provider/registered/configfiles_test.go:22-24` and
+  `internal/cli/service/template_parity_test.go:30` read the `mcremote` examples only), so Phase B runs a scratch Go test in package
+  `relay`, not committed, that calls `Load` with `LoadOptions{ConfigFile: <the example>}` and then `FileConfig.Validate`
+  (`internal/relay/fileconfig.go:215`, `:557`), and asserts that `Limits.MaxConns` equals the default. It is seen failing first on a
+  copy whose `max_conns` is above the ceiling `validateLimitsConfig` enforces (`internal/relay/fileconfig.go:679`). `go test -count=1
+  ./internal/relay/` stays green, and `make -n live-codex-turn` still resolves.
+
 ### Phase C — missing feature docs
 
 * **Model class and effort:** mainstream, medium. The REPORT gives each item and the place it goes. The gobble
@@ -384,6 +474,14 @@ go test -count=1 -run '^TestTrackedFilesUseOnlyPlaceholderHomes$' ./internal/ > 
 
 Acceptance: the surface check reports zero missing in every list OQ4 places in scope, and its result is copied into
 the execution record (MADR Confirmation 5); every "missing" row whose destination is C is closed.
+
+#### Phase C, amended 2026-11-15
+
+*(The coordinator's application of the owner's answer to OQ4, "All that non-test code reads", not a new ruling.)* The
+platform variables `NOTIFY_SOCKET`, `COMSPEC` and `PATHEXT` (part of R24) are read by non-test code
+(`internal/sdnotify/sdnotify.go:29`, `internal/provider/launch/launch_windows.go:160`, `:201`). Phase C gives the three one short
+note in `docs/guides/config.md`. R35's documentation part stays in Phase C; its question about a writable state directory goes
+to the queued deploy-files record *(2026-11-15, later: queued record 3 of four)*.
 
 ### Phase D — doc comments on exported names
 
@@ -554,6 +652,7 @@ Acceptance:
   the owner's own exception: it changes one `Makefile` variable, `MARKDOWNLINT_DOCS_ROOTS`, so the existing
   `markdownlint-docs` gate also lints `CHANGELOG.md`. Still no new gate, CI job, check script or target, and no
   workflow change.)*
+  *(2026-11-15, the owner's ruling "Fix R130 and R147 here; drop the unused rules", relayed by the coordinator: one existing check, the unnumbered-docs link check in `scripts/check_records.py`, gains `apps/mobile/README.md`. Still no new gate, CI job, check script or target. See Phase B's amendment and MADR D4.)*
 * It changes no behaviour, and it makes no decision a stale doc exposes. Those go to the owner (D8).
 * It does not amend 0246's or 0247's records. Their gaining S1 and `CHANGELOG.md` in scope is a separate amendment for
   the owner.
@@ -787,6 +886,7 @@ four records (`docs/decisions/0072-MADR-*` 2 lines, `0138-MADR-*` 3, `0138-PLAN-
 `gobble-cli`, `go-llmprovider-sdk`, `go-tui-lib`, `acp-go-sdk2` and `dotfiles`: 0 occurrences each, nothing edited. No
 `*.devops.*.json` file is tracked in any of them; none was read. These remaining occurrences are for the owner: the
 records and the code comment are history or code, outside this change.
+*(2026-11-15, later: closed by the owner's ruling "Scrub fixtures and comment; annotate records", relayed by the coordinator. See "The owner's rulings after Phase A — 2026-11-15".)*
 
 **Introducing commits** (found by pickaxe over the guides' paths before and after their moves): the resolver address,
 the host-state sentences and the user name in `headscale.md`: `be10760d` (2026-07-19, "feat(mobile): improve endpoint
@@ -813,3 +913,213 @@ python3 ~/.global-git-hooks/github-disclosure.py redact   exit=0, would edit 0 f
 (R40, R116 and the owner-findings row, dated annotations).
 
 Staged, not committed; the coordinator commits and pushes after the disclosure guard (C5's annotation).
+
+### The owner's rulings after Phase A — 2026-11-15
+
+Run by a mainstream model at medium effort, on the coordinator's brief, from `master` at `6cf3115a` (clean). Each ruling is
+a label the owner chose from options the coordinator put; this entry quotes only the label, as the owner's ruling, relayed by
+the coordinator. No phase ran: the plan stays paused after Phase A, and nothing here is the owner's approval to commit, push,
+tag or rewrite history. No identifier value is quoted in this entry; each is named by kind and place.
+
+**The rulings, and where each is recorded.**
+
+| # | The owner's ruling, relayed by the coordinator | Recorded in |
+| :--- | :--- | :--- |
+| 1 | R96: "The code; fix it in its own record" | REPORT row R96 and its "Findings for the owner" row (dated annotations); Phase B's amendment ("Not in Phase B"); queued record A below. The guide stays as written and is wrong until that record lands. |
+| 2 | R53, R54, R48: "Docs follow the code, all three" | REPORT rows and findings rows, now B; Phase B's amendment, first three bullets of "Files added"; MADR D8's note |
+| 3 | R42: "Prove it first, then decide" | REPORT row R42 and its findings row; Phase B's amendment (the "walks backward" sentence only); the truncation sentence waits for the coordinator's experiment and the owner's next ruling *(2026-11-15, later: the experiment ran and the owner ruled "Fix the code first; guide waits"; see "Further rulings of the owner — 2026-11-15")* |
+| 4 | R143's placeholder host secret: "Its own record" | REPORT row R143 and its findings row; Scope amendment (no file added; the seed's placeholder is unchanged); queued record D below |
+| 5 | The remaining tailnet address: "Scrub fixtures and comment; annotate records" | The Scope amendment, and "The tailnet address" below |
+| 6 | The rows outside the file scope: "Comments into this plan; the rest get records" | The Scope amendment; Phase B's amendment; REPORT section "Outside the PLAN's file scope (owner)" (a note and per-row annotations); MADR D8's note |
+| 7 | R130, R147, R122: "Fix R130 and R147 here; drop the unused rules" | The Scope amendment; Phase B's amendment; "What this PLAN does not do" (a note); MADR D4's note (the exception) and D8's note (`AGENTS.md`) |
+
+Also, as the coordinator's application of the owner's answer to OQ4 ("All that non-test code reads"), and not a new ruling:
+`NOTIFY_SOCKET`, `COMSPEC` and `PATHEXT` (part of R24) are read by non-test code, so Phase C gives them one short note in
+`docs/guides/config.md`. Recorded in Phase C's amendment, MADR OQ4's answer (a note) and REPORT row R24.
+
+**MADR amendments, or why none.** D4: a dated note for ruling 7's exception (an existing check gains one file; no new gate,
+CI job, check script or `Makefile` target). D8: one dated note for rulings 5, 6 and 7 (the scope grows by comment-only text
+and `AGENTS.md:63` and `:83`). D7 and D8 need no change for rulings 1, 2 and 3: ruling 1 is the code fix D8 sends to the
+owner, now sent to a record of its own; ruling 2 is D7's rule as written; ruling 3 waits on an experiment *(2026-11-15, later: replaced by a dated note in D8)*. D8's note says
+so. OQ4's answer carries the coordinator's application. No other decision or fact the MADR asserts changes.
+
+**Ruling 6, row by row** (REPORT rows R34 to R148 outside the file scope, read against the code):
+
+| Row | Placement |
+| :--- | :--- |
+| R34 | queued deploy-files record: the fix is to the launchd plist, a deploy file |
+| R35 | Phase C keeps the documentation part; whether the system unit gains a writable state directory goes to the queued deploy-files record |
+| R101 | Phase B, comment-only (the codex fixture README) |
+| R139, R140, R141 | Phase B for the three `configs/*.yaml` files; the seed copies (`internal/cli/service/defaults_*.yaml`) go to the queued seed record |
+| R142 | **Open, stopped.** See below |
+| R143 | the seed comments go to the queued seed record; the placeholder host secret goes to queued record D (ruling 4) |
+| R144 | Phase B, comment-only (the lint config's header) |
+| R145 | Phase B for the three comments at `Makefile:153`, `Makefile:570` and `.github/workflows/ci.yml:510`; two echoed messages at `ci.yml:541` and `:546` are **open**, see below |
+| R146 | **Open, stopped.** See below |
+| R147 | Phase B, by ruling 7 |
+| R148 | Phase B, comment-only (`scripts/codex-contract.ps1:147`) |
+
+**Stopped on, for the owner (nothing was decided).** *(2026-11-15, later: all three were ruled "Yes, all three, by amendment" and are Phase B's named exceptions; see "Further rulings of the owner — 2026-11-15". The text below is kept as written.)*
+
+* **R142**, `configs/mcrelay.example.yaml:71-85` lacks `limits.max_conns`. Every other key in that block is a live line with
+  its default and a comment naming its variable, so the natural fix is a new live key, which is not comment-only text.
+  Evidence: `internal/relay/fileconfig.go:162`, `:255`, `:504`. Options: (a) the owner rules that adding a key at its default
+  value to an example config is inside ruling 6's scope (recommended: it matches the file and changes no behaviour of a
+  daemon started from the example, once the default is read from `fileconfig.go:504` and copied); (b) add it as a commented
+  line, which is comment-only but breaks the file's pattern; (c) send it to the queued seed record. If nothing is done, the
+  example config stays one key short, as it is now.
+* **R146**, `Makefile:362` and `:366` and `codesign-maybe` (`Makefile:204`) are defined but not in `.PHONY` (`Makefile:158-161`).
+  Adding them to `.PHONY` is not comment text: it changes how `make` treats a file or directory of the same name.
+  Options: (a) the owner rules that it counts as inside ruling 6 (recommended: three names, no behaviour change in this
+  tree, where no file has those names); (b) send it to a record of its own; (c) drop the row. If nothing is done, the targets
+  stay as they are.
+* **R145, the two echoed messages** at `.github/workflows/ci.yml:541` and `:546` cite `docs/guides/ops-android-signing.md`,
+  which now lives under `apps/mobile/docs/guides/`. The row lists only `:510`. The two lines are `echo` text in a workflow
+  step, so they are not comments. Options: (a) the owner rules that message text in a workflow counts as inside ruling 6
+  (recommended: it is the same stale path); (b) send them to a record of their own. If nothing is done, a fork owner
+  reading the build log is pointed at a moved file.
+
+**Queued records, none drafted by this entry.** A: the queued record that makes `main` map `auth-recovery`'s errors to exit
+codes 2 and 3 (ruling 1). B: the deploy-files record (the launchd plist and the system unit; R34, and R35's state-directory
+question). C: the setup-service seed record (the seed templates; the seed copies of R139 to R141, and R143's comments).
+D: the MADR for the mcrelay seed's placeholder host secret (ruling 4). E: the receipts experiment, which the coordinator
+started separately (ruling 3); its result and the owner's next ruling decide the truncation sentence.
+*(2026-11-15, later: the five records here became four; B and C are one record. See "Further rulings of the owner — 2026-11-15".)*
+
+**The tailnet address (ruling 5).** The address, and the same kind found by a scratch script that prints path, line and kind
+and never the value, over `git grep` of the tracked files at `6cf3115a`: 8 files, 19 lines. After the edit: 0 files.
+That first scan matched the one value, so it found no place the earlier entry ("Identifiers in two published guides —
+2026-11-15") had missed, and it did not match the class. The coordinator's review found one more device's address in a
+record; see "The class check, on review" below. The scripts, their value files and their output were in the scratch folder
+and were deleted afterwards.
+
+* Fixtures, replaced by one fixed example address in the tailnet (CGNAT) range, with one comment per file saying it is an
+  example. The tests assert the address is carried through to the advertised host, the pair URI and the relay authority,
+  which the replacement does equally. No test logic changed: `apps/mobile/test/connect_screen_test.dart` (7 lines),
+  `internal/cli/pair_advertise_test.go` (2 lines; the test comment also lost its claim of a reproduction on the operator's
+  host), `internal/cli/pair_test.go` (1 line).
+* The code comment at `internal/cli/pair.go:617` lost the address and the claim that it was reproduced on a particular host;
+  what it explains about `detectAdvertiseHost` stays.
+* Four records, each value replaced in place with `<tailnet-ip>` and a dated redaction note placed after the paragraph or
+  code block that held it, outside any quotation, so no quoted output was altered by a note:
+  `docs/decisions/0072-MADR-phone-reconnect-and-provider-timeout-incident.md` (2 lines, 2 notes),
+  `docs/decisions/0138-MADR-overhaul-provider-surfaces-and-turn-path.md` (3 lines, 2 notes),
+  `docs/decisions/0138-PLAN-overhaul-provider-surfaces-and-turn-path.md` (2 lines, 2 notes),
+  `apps/mobile/docs/decisions/0126-PLAN-android-client-debugging-pass-findings.md` (1 line, 1 note). Nothing else in them changed.
+* History is not rewritten: the value remains in earlier revisions and in tags. The disclosure guard's deny list was not
+  read or edited; it is the owner's.
+* Seen failing: the scratch script, run on the tree at `6cf3115a`, reported 8 files and 19 lines; on the changed tree, none.
+
+**The class check, on review (2026-11-15, the same ruling).** The scan was rebuilt to match every IPv4 address in
+100.64.0.0/10 in the tracked files, and a kind was assigned by reading each line, never printing the address: "observed" (a
+record, doc or comment that states it as a real device's or host's address, or as command output from a real machine),
+"example" (a fixture or doc that uses it as an example, or CIDR notation) or "unclear". Lines by kind, at `6cf3115a` and then
+on the changed tree: observed 23 and 0; example 156 and 170 (the entry itself names the range once); unclear 8 and 8. It was seen failing first on the tree at
+`6cf3115a`: 23 observed lines in 11 files, the 19 earlier lines plus the four below.
+
+* Three more observed places were redacted, and one fixture fixed. In `docs/decisions/0072-MADR-phone-reconnect-and-provider-timeout-incident.md`
+  the sentence at line 168 named two devices, and the phone's address remained: it is now `<phone-tailnet-ip>`, the host's
+  is `<host-tailnet-ip>`, and the paragraph's note says two addresses were redacted. In
+  `docs/decisions/0089-MADR-long-running-session-stability.md`, lines 314 and 349 stated the host's mesh address as read from a
+  log: `<tailnet-ip>`, one note after the table and one after the paragraph.
+  In `docs/decisions/0129-PLAN-background-alert-delivery-survives-task-removal.md`, line 897 (a `lsof` command with the
+  phone's address): `<phone-tailnet-ip>`, one note after the paragraph. In `internal/tailnet/tailnet_test.go:37` the phone's
+  address in a fixture is replaced by a second example address in the range, with a comment above that says the addresses
+  are examples; the test's assertion is unchanged.
+* The fixtures' "example" verdict for the address this change introduced rests on the comment added in each of the four test
+  files (`connect_screen_test.dart`, `pair_advertise_test.go`, `pair_test.go`, `tailnet_test.go`). The older fixtures use one
+  address in 114 test lines and in docs; they carry no such comment and are "example" by that use alone.
+* Unclear, left unchanged (they share that one widely used example address, and no line says it is an example):
+  `README.md:786`, `docs/guides/config.md:555`, `internal/cli/examples.go:36`, `:78`, `:103` and `:115`,
+  `apps/mobile/lib/features/connect/connect_screen.dart:1512`, and
+  `apps/mobile/android/app/src/main/res/xml/network_security_config.xml:26`.
+* Other private or identifying values, read-only, over the files in this change set: no MagicDNS (`.ts.net`) name, no node or
+  auth key, no 64-hex string and no tailnet IPv6 address. Private IPv4 addresses appear only in test fixtures, one
+  RFC 1918 address in `connect_screen_test.dart` (10 lines) and one LAN address in `pair_advertise_test.go:18`, both
+  examples; the other matches in `0072`, `0126` and `0129` were four-part version strings, not addresses.
+
+**Checks, after the last edit.** ```text
+go test -count=1 ./internal/cli/                         exit=0 (single package, on the session host)
+go test -count=1 ./internal/tailnet/                     exit=0 (single package, after the class check)
+gofmt -l <the four changed .go files>                    exit=0, no output
+make pre-add-check FILES="<the four .go files>"          exit=0, "4 file(s) clean (gofmt, golint, govulncheck)"
+dart format --output=none --set-exit-if-changed test/connect_screen_test.dart   exit=0, 0 changed
+run-heavy -- flutter test test/connect_screen_test.dart  exit=0, 43 tests passed
+python3 -B scripts/check_records.py --check-all          exit=0, file empty
+make check-records                                       exit=0
+make markdownlint-docs                                   exit=0, "Linting: 61 files", "Summary: 0 issues in 0 files"
+python3 ~/.global-git-hooks/github-disclosure.py redact  exit=0, "would edit 0 file(s), 0 path(s) need a rename by hand"
+citation check of every path:line this change wrote      exit=0, 97 checked, 0 bad
+```
+
+The citation checker, on a planted record with one line beyond a file's end and one file that does not exist, reported
+exactly those two and exited 1. The identifier scan is described above.
+
+**Not verified.** The queued records' contents; the receipts experiment (since run, see "Further rulings of the owner — 2026-11-15"); every Phase B rewrite, since Phase B has not run
+(the rows above name what it will change, from the REPORT's evidence); the line numbers the REPORT gives for rows outside the
+file scope were re-read only for R101, R122, R130, R144, R145, R146 and R148.
+
+**Files.** `docs/reports/0248-REPORT-documentation-defect-list.md`; the MADR; this PLAN; the four test files and
+`internal/cli/pair.go`; the six records above.
+
+Staged, not committed; the coordinator commits and pushes after the disclosure guard (C5's annotation); the plan pauses
+until the owner says to continue.
+
+### Further rulings of the owner — 2026-11-15
+
+Run by the same mainstream model on the coordinator's relay, in the same change set. Each ruling is a label the owner chose from
+options the coordinator put; this entry quotes only the label, as the owner's ruling, relayed by the coordinator. No phase ran.
+Nothing here is the owner's approval to commit, push, tag or rewrite history.
+
+| # | The owner's ruling, relayed by the coordinator | Recorded in |
+| :--- | :--- | :--- |
+| 8 | R42, after the experiment: "Fix the code first; guide waits" | REPORT row R42 and its findings row (dated annotations; the "waits for the experiment" wording is replaced); Scope amendment; Phase B, amended again; MADR D8 (a dated note); this entry |
+| 9 | R142, R146 and the two echoed paths of R145: "Yes, all three, by amendment" | REPORT rows R142, R145, R146 and the section note; Scope amendment (three named exceptions); Phase B, amended again (the exceptions, the widened diff check and how it tells them apart, the example-config acceptance); MADR D8 (a dated note) |
+| 10 | When the new records are drafted: "After the gobble branch work" | The list of four queued records below; REPORT rows R34, R35, R42, R96, R139 to R141 and R143, the section note and the totals note |
+
+**The receipts experiment (ruling 8).** The coordinator ran it against the real code on a scratch copy; the test was not committed, and this
+session did not repeat it. What was observed: `Verify` (`internal/receipt/store.go:296`, in the walk at `:286-356`) reads forward from
+line 1. Removing whole trailing lines, or emptying the file, is not detected by the library or by `mcremote receipts verify`, which
+prints "chain intact" and exits 0. A half-cut last line, a removed middle or first line, and an edited byte are detected. Nothing
+outside the file records the chain's head or length: the daemon's `lastHash` (`internal/receipt/store.go:34-36`) is an in-memory cache.
+So `docs/guides/receipts.md:74-76` is false in two ways until the queued record lands: truncation is not detected, and `verify` is not
+safe for an audit script on that account. 0248 leaves both sentences as written, says so here and in Phase B's amendment, and corrects
+only "walks backward" in Phase B.
+
+**The four queued records, listed once.** None is drafted by this entry. Each waits for the same thing: the owner's ruling "After the gobble branch work",
+relayed by the coordinator.
+
+| # | Queued record | Rows it takes |
+| :--- | :--- | :--- |
+| 1 | The `auth-recovery` exit codes: `main` maps the errors to 2 and 3 | R96 |
+| 2 | The mcrelay seed's placeholder host secret | R143 (the placeholder) |
+| 3 | The stale text of the setup-service seed templates and the deploy files, with the system unit's state-directory question | R34; R35's unit part; the seed copies of R139 to R141; R143's comments |
+| 4 | Receipts tail-truncation detection | R42's truncation part |
+
+Until record 1 lands, `docs/guides/ops-credential-recovery.md:73-75` is wrong; until record 4 lands, `docs/guides/receipts.md:74-76` is wrong.
+The earlier entry's records A, B, C and D become 1, 3 (B and C merged) and 2, and E (the experiment) became record 4.
+
+**Row destinations after these rulings.** B: R142, R146 and R145's two echoed paths join Phase B as named exceptions. Queued: R34, R96
+and R143 whole; R35's unit part (record 3); R42's truncation part (record 4). The REPORT's totals note has the counts: B 85, C 44,
+D 8, F 3, open for the owner 0, closed earlier 2, queued 3 whole rows, 145 in all.
+
+**Open for the owner, not decided: eight address lines.** The class check of the earlier entry could not tell these from a real address
+by reading. One address is used as an example in many tests and appears in these lines, which are left unchanged:
+`README.md:786`, `docs/guides/config.md:555`, `internal/cli/examples.go:36`, `:78`, `:103` and `:115`,
+`apps/mobile/lib/features/connect/connect_screen.dart:1512`, and
+`apps/mobile/android/app/src/main/res/xml/network_security_config.xml:26`. If the owner says it is a real address, they are redacted under
+the ruling "Scrub fixtures and comment; annotate records", and so are its other occurrences; if not, they stay.
+
+**Checks, after the last edit.** ```text
+python3 -B scripts/check_records.py --check-all          exit=0, file empty
+make check-records                                       exit=0
+make markdownlint-docs                                   exit=0, "Summary: 0 issues in 0 files"
+python3 ~/.global-git-hooks/github-disclosure.py redact  exit=0, "would edit 0 file(s), 0 path(s) need a rename by hand"
+citation check of every path:line this change wrote      exit=0, 120 checked, 0 bad
+```
+
+The citation checker was rewritten after the scratch folder was removed. Run again on a planted record in a scratch repository with one commit, it
+reported exactly the two planted faults (a line beyond a file's end, and a file that does not exist) and exited 1; on a clean plant it
+exited 0. No Go or Dart file changed in this round, so no test was re-run.
+
+**Files.** The REPORT, the MADR and this PLAN. Staged, not committed; the plan pauses until the owner says to continue.

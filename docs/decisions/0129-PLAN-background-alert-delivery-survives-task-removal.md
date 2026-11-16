@@ -894,11 +894,13 @@ stays open; see the new deferred entry below.
 
 **`lsof` was measuring the wrong thing, and earlier records lean on it.** The
 socket counts reported in P4 and P5 (`phone sockets: 1`) came from
-`lsof -iTCP:7531 -sTCP:ESTABLISHED | grep 100.64.0.2`. That entry turned out to
+`lsof -iTCP:7531 -sTCP:ESTABLISHED | grep <phone-tailnet-ip>`. That entry turned out to
 be the *same* fd and source port (`0xed1300a04916be99`, `:38128`, fd `90u`)
 across an hour of connects and disconnects — a stale or persistent view, not
 the app's live connection. It read `1` continuously through a window the daemon
 logged as disconnected.
+
+*(2026-11-15: an address was redacted here by the owner's ruling "Scrub fixtures and comment; annotate records".)*
 
 The C1 conclusions in P4 and P5 still stand, but on different evidence: the
 daemon logs `reason=replaced` at exactly the moment a second login displaces a

@@ -4,9 +4,10 @@ import "testing"
 
 func TestPairAdvertisesTheBoundHost(t *testing.T) {
 	// A daemon listening on loopback that advertised its tailnet address
-	// printed a QR no phone could dial. Reproduced on the operator's host:
-	// curl to the advertised 100.64.0.3:7642 returned connection refused while
-	// 127.0.0.1:7642 answered (MADR 0138 F11).
+	// printed a QR no phone could dial: connections to the advertised tailnet
+	// address were refused while the loopback address answered (MADR 0138 F11).
+	// 100.64.7.7 is an example address in the tailnet (CGNAT) range, not a
+	// real host.
 	for _, tc := range []struct {
 		name       string
 		listenHost string
@@ -15,7 +16,7 @@ func TestPairAdvertisesTheBoundHost(t *testing.T) {
 		{"loopback ipv4", "127.0.0.1", "127.0.0.1:7531"},
 		{"loopback ipv6", "::1", "[::1]:7531"},
 		{"a specific lan address", "192.168.1.40", "192.168.1.40:7531"},
-		{"a specific tailnet address", "100.64.0.3", "100.64.0.3:7531"},
+		{"a specific tailnet address", "100.64.7.7", "100.64.7.7:7531"},
 		{"a hostname", "devbox.local", "devbox.local:7531"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

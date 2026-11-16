@@ -311,7 +311,7 @@ Source: `journalctl --user -u mcremote`, kilo engine logs under
 | 03:24–03:30 | Four operator `systemctl` stop/start cycles. Each: `shutting down reason="terminated signal received"` → `session closed purge=false` → `engine stopped … kilo … graceful=true`. Memory peaks recorded: **3.6 GiB** (01:08), **4.8 GiB** (03:24), **1.9 GiB in 1m49s** (03:26). |
 | 03:30:36 | kilo `prompt_async` / `session.turn.open` after the last bounce. |
 | 03:45–04:27 | Hundreds of kilo `background_process.updated` events (the long job). |
-| 04:25:28 | Phone **peer_closed** the mesh socket in the same second a **relay tunnel was bridged** (`local=100.64.0.4:7531` — mesh address of the host). DialEpisode failover while the tailnet was up. |
+| 04:25:28 | Phone **peer_closed** the mesh socket in the same second a **relay tunnel was bridged** (`local=<tailnet-ip>:7531` — mesh address of the host). DialEpisode failover while the tailnet was up. |
 | 04:27:17 | **`mcremote.service: The kernel OOM killer killed some processes in this unit.`** `Failed with result 'oom-kill'`. kilo log last line is `background_process.updated`. Session closed `purge=false`. kilo engine `graceful=true`. |
 | 04:27:20 | systemd `Restart=always`. Engines prewarm (opencode + kilo + grok ACP). **No session rehydrate.** |
 | 04:29:53–04:30:00 | Phone, still holding the chat, sends seven RPCs → `ws error frame code=session_not_live`. Toast path: *"That session is no longer running on the host — start again from Sessions."* (`mc_exception.dart`) |
@@ -323,6 +323,8 @@ Source: `journalctl --user -u mcremote`, kilo engine logs under
 | 04:48:56 | kilo SSE resync `context deadline exceeded`. |
 | 04:49:34 | **Second `oom-kill`.** Session closed. kilo stopped. |
 | 04:49:40 | Restart. Phone reconnects **via relay** immediately (`tunnel bridged` at 04:49:43) because sticky/death state still says mesh died. |
+
+*(2026-11-15: an address was redacted here by the owner's ruling "Scrub fixtures and comment; annotate records".)*
 
 Host at assessment time (same failure mode still live):
 
@@ -346,8 +348,10 @@ A `read_deadline` after Doze is not evidence the tailnet is down — it
 is evidence the **phone stopped writing**. Success on relay is then
 persisted as sticky (`_recordTransportSuccess`), so later reconnects
 stay on relay. 04:25:28 and 04:44:27–30 are that path. The tunnel
-`local=100.64.0.4:7531` is the host's Tailscale address: mesh was up
+`local=<tailnet-ip>:7531` is the host's Tailscale address: mesh was up
 on the host the entire time.
+
+*(2026-11-15: an address was redacted here by the owner's ruling "Scrub fixtures and comment; annotate records".)*
 
 **"The kilo session was closed."**
 

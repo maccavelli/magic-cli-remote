@@ -171,6 +171,7 @@ omits.)*
   they are: `make check-records`, `make markdownlint-docs`, `internal/protocol`'s doc-coverage tests, the home-path
   guard, and the pre-add rule's `golint`. Rejected: "Add checks to each gate", "Checks in the three release repos
   only".
+  *(2026-11-15, an exception to "no new checks", by the owner's ruling "Fix R130 and R147 here; drop the unused rules", relayed by the coordinator: `scripts/check_records.py` gains `apps/mobile/README.md` in its unnumbered-docs link check. It extends an existing check by one file, as OQ7's exception did for the lint target. It adds no new gate, CI job, check script or `Makefile` target, and it is first seen failing on a planted broken link. The text above is kept as written.)*
 * **D5. A docs step in every phase that changes behaviour.** Every later brief for code in this repository carries a
   docs step, per the mandate. The step names each doc the change makes false or incomplete: a README, a guide,
   `architecture.md`, a config or protocol reference, the doc comments of the names it adds, and the `CHANGELOG.md`
@@ -201,6 +202,8 @@ omits.)*
 * **D8. Out of scope.** No behaviour change to code. A doc-versus-code difference whose fix might be the code is listed
   for the owner. No decision that a stale doc exposes is made here. `AGENTS.md` and the per-agent rule files change only
   as OQ5 allows. Record front matter is OQ2. No other repository is touched.
+  *(2026-11-15, the owner's rulings, each relayed by the coordinator; the text above is kept as written. "Comments into this plan; the rest get records": Phase B may also fix comment-only text, with no behaviour change, in `configs/*.yaml`, the codex fixture README, the lint config's header, and the comments in the `Makefile`, the CI workflow and `scripts/codex-contract.ps1`; the setup-service seed templates and the deploy files stay out and get a queued record of their own. Comment edits change no `Makefile` target, so D4 is not touched by them. "Fix R130 and R147 here; drop the unused rules": `AGENTS.md:63` and `:83` name all five rule files, which is beyond the three lines OQ5 allows; no rule text changes. "Scrub fixtures and comment; annotate records": the tailnet address in test fixtures, one code comment and four records is replaced or redacted, which changes no behaviour and no test logic. Rulings "The code; fix it in its own record", "Docs follow the code, all three" and "Prove it first, then decide" need no change to D7 or D8: the first is the code fix that D8 sends to the owner and the owner sent to a record of its own, the second is D7's rule as written (the doc is rewritten to the code), and the third waits on an experiment.)*
+  *(2026-11-15, later, the owner's rulings, relayed by the coordinator. "Fix the code first; guide waits": the experiment ran, and R42's truncation part is a code fix, which D8 sends to a record of its own; that replaces "waits on an experiment" above. "Yes, all three, by amendment": Phase B's comment-only widening gains three named exceptions, one `limits.max_conns` key at its default in `configs/mcrelay.example.yaml`, three names in `.PHONY`, and two printed paths in the CI workflow. They change no behaviour of the product, add no gate, CI job or target, and are named in the PLAN's Scope amendment. "After the gobble branch work": the four queued records wait for it.)*
 
 ### Consequences
 
@@ -374,6 +377,7 @@ the owner. OQ5 is the exception: the coordinator applied it from the owner's rul
     non-test code reads, with the internal markers in a short 'set by the daemon, do not set' table in the config
     guide; test-only variables described where their live or fixture target is described; every make target as one
     row in the README's Development table." Rejected: "User-facing only"; "Also test-only variables". That is (a).*
+    *(2026-11-15, the coordinator's application of this answer to three platform variables, not a new ruling of the owner's: `NOTIFY_SOCKET`, `COMSPEC` and `PATHEXT` are read by non-test code, so Phase C gives them one short note in `docs/guides/config.md`.)*
 * **OQ5. `AGENTS.md` and the per-agent rule files.** 0239 D8 left their text to the owner's word.
   * (a) Allow factual fixes in Phase B: the `docs/NNNN-MADR-*` path in `.opencode/rules.md:36` and
     `.kilo/agent/madr-and-plan-skill.md:41`, and `AGENTS.md:51`'s list of live targets. Also allow, in Phase E, one
