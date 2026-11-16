@@ -486,6 +486,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0247 | PLAN | Implement replaying a pasted sign-in callback to the agent's loopback | [0247-PLAN-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md](decisions/0247-PLAN-replay-a-pasted-sign-in-callback-to-the-agents-loopback.md) |
 | 0248 | MADR | Bring this repository's docs current, keep a changelog, and keep both current through a docs step in every phase | [0248-MADR-bring-the-docs-current-and-keep-them-so.md](decisions/0248-MADR-bring-the-docs-current-and-keep-them-so.md) |
 | 0248 | PLAN | Implement bringing this repository's docs current and keeping them so | [0248-PLAN-bring-the-docs-current-and-keep-them-so.md](decisions/0248-PLAN-bring-the-docs-current-and-keep-them-so.md) |
+| 0248 | REPORT | Documentation defect list, 2026-11 | [0248-REPORT-documentation-defect-list.md](../docs/reports/0248-REPORT-documentation-defect-list.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

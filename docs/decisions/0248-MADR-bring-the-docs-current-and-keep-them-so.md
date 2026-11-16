@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-11-14
+status: accepted
+date: 2026-11-15
 decision-makers: Project Owner
 consulted: "this repository at 0fbed31b (master, clean), read-only; a read-only documentation survey of this repository at 0fbed31b by a mainstream-tier agent, 2026-11-14, kept in the coordinator's session and not committed; the coordinator's re-check of three of its rows; this draft's own verification of the survey's leads at 0fbed31b; 0239-MADR-audit-record-statuses-and-docs-accuracy-2026-11.md, its PLAN and 0239-REPORT-record-status-and-docs-accuracy-audit.md; 0246 and 0247's MADRs and PLANs (proposed); the CHANGELOG.md files of go-selfupdate-lib v1.26.2 and go-llmprovider-sdk v1.29.0, read from the module cache"
 informed: "the cross-repository coordinator, which relayed the owner's rulings and writes the briefs that carry the docs step"
@@ -104,7 +104,8 @@ its date depends on another repository. The 0246 and 0247 PLANs name `protocol-v
   2026-11-12. The fix has to happen in each change, not in an occasional sweep.
 * A reader of a release should be able to learn what it changed without reading `git log` or the records. Today the
   GitHub Releases carry only a compare link.
-* No new gate, CI job or check script (the owner's ruling).
+* No new gate, CI job or check script (the owner's ruling). *(2026-11-14, OQ7: the owner's own exception. One existing
+  gate, `make markdownlint-docs`, gains one file, `CHANGELOG.md`.)*
 * A tag should not wait on gaps it did not cause, but it must not ship docs it made false (the owner's ruling).
 * History is kept. Records are not rewritten. A guide's stale fact is replaced (0239's rules).
 * The fleet's sibling libraries already keep `CHANGELOG.md` in the Keep a Changelog 1.1.0 form (go-selfupdate-lib
@@ -135,7 +136,15 @@ make every change carry its own docs, which is the only route the evidence above
 also avoid the cost of new gates and keep a tag from waiting on old gaps.
 
 The rulings are decided. This record is `proposed` until the owner accepts this text as their statement and answers
-OQ1 to OQ8 below.
+OQ1 to OQ8 below. *(2026-11-14: OQ1, OQ3 and OQ6 are answered, and OQ5 is applied from another ruling. OQ2, OQ4, OQ7
+and OQ8 remain open. The record stays `proposed`.)* *(2026-11-14, later: the owner answered OQ2, OQ4, OQ7 and OQ8 as
+well, so no question is open. The record stays `proposed`: the owner has answered the questions but has not yet
+approved the plan or said when it starts.)* *(2026-11-15: the owner approved the pair, one phase at a time, as the
+coordinator relayed it. This record is `accepted`; the PLAN's execution record quotes the approval. Phase A's verdicts
+on the leads in the table below are in
+[0248-REPORT-documentation-defect-list.md](../reports/0248-REPORT-documentation-defect-list.md), which corrects three of
+its counts: Survey B3's list, the live targets `AGENTS.md:51` omits, and the guides the README's documentation table
+omits.)*
 
 * **D1. The mandate.** Docs in this repository are accurate, comprehensive and kept up to date. The owner's words:
   "Docs across all related repos should be accurate, comprehensive and kept up to date. When they fall behind they are
@@ -153,7 +162,11 @@ OQ1 to OQ8 below.
   correction to a user doc is an entry only when acting on the old text would have gone wrong (A1 is one). How far back
   it starts is OQ1. Rejected: "Keep each repo's current practice", "Release-notes reports everywhere".
 * **D4. No new checks** (the owner chose "Fix the docs, no new checks"). This repository's PLAN adds no gate, no CI job
-  and no check script, and changes no `Makefile` target. A one-off command a phase runs to prove its own work is
+  and no check script, and changes no `Makefile` target. *(2026-11-14, OQ7, the owner's own exception: "Put
+  CHANGELOG.md in the Makefile's list of linted docs roots. It widens an existing gate by one file; the changelog can
+  no longer drift out of lint." So the PLAN changes one `Makefile` variable, `MARKDOWNLINT_DOCS_ROOTS`, and with it
+  what the existing `markdownlint-docs` target lints. It still adds no new gate, CI job or check script.)* A one-off
+  command a phase runs to prove its own work is
   verification. It lives in the executing session's scratchpad and is never committed. The checks that exist stay as
   they are: `make check-records`, `make markdownlint-docs`, `internal/protocol`'s doc-coverage tests, the home-path
   guard, and the pre-add rule's `golint`. Rejected: "Add checks to each gate", "Checks in the three release repos
@@ -164,7 +177,8 @@ OQ1 to OQ8 below.
   `Unreleased` entry. It updates them in the same commit, or it states why none is needed. The phase's execution record
   says which. This is how the owner's choice of "no new checks" keeps the docs current. It applies to 0246's and
   0247's phases once they start. Their scopes gain `CHANGELOG.md` and the docs step by an amendment that the owner
-  approves. This record does not make that amendment.
+  approves. This record does not make that amendment. *(2026-11-14, OQ5's note: the step lives in this record and in
+  briefs only, not in `AGENTS.md` or a rule file.)*
 * **D6. Release ordering** (the owner chose "Release-caused fixes before each tag"). Before a tag, every statement that
   release makes false is fixed, and what it ships is documented, including its `CHANGELOG.md` section. Older gaps go
   into this repository's docs plan and land after the tag. Here, "release-caused" means made false or left undocumented
@@ -177,6 +191,9 @@ OQ1 to OQ8 below.
     S2);
   * Phases B, C, D and F, the older gaps, land after that tag (OQ6 asks whether docs-only phases may land earlier while
     the tag is held by 0246's gate G2). Rejected: "All fixes before each tag", "Tags first, docs after".
+  * *(2026-11-14, by OQ6's answer: the Markdown-only Phases A, E, B, C and F run now, one at a time, pausing at a
+    phase boundary if a release step starts. Phase D, which edits Go files, waits for 0246's cut-over. The bullet
+    above is kept as drafted.)*
 * **D7. Rules carried from 0239.** Records keep their history. A guide's stale fact is replaced, not annotated. The
   generated index is regenerated, never hand-edited. Where a doc describes behaviour the code does not have, the doc is
   rewritten to the code and the difference is listed for the owner. That last rule was the owner's answer to 0239's Q3.
@@ -190,16 +207,20 @@ OQ1 to OQ8 below.
 * Good, because each change carries its own docs, which is the one route the 2026-11-08 to 2026-11-12 drift shows will
   hold.
 * Good, because a release has notes a reader can use, in the same form as the sibling libraries.
-* Good, because no gate is added, so no build or tag can be blocked by a docs check.
+* Good, because no gate is added, so no build or tag can be blocked by a docs check. *(2026-11-14, OQ7: no new gate is
+  added. But the existing markdownlint gate now covers `CHANGELOG.md`, so a lint fault in it fails the lint step of
+  the Docs and CI workflows. That is the owner's intent: "the changelog can no longer drift out of lint".)*
 * Good, because the tag after `v0.26.0` is not held for gaps it did not cause.
 * Neutral, because the existing checks still do not see completeness, so a missed docs step is caught only by the next
   brief or audit that reads the change.
 * Bad, because currency now rests on every brief including the docs step and every executor doing it. A coordinator
   who drops the step drops the guarantee, and no check notices.
 * Bad, because older gaps, including the README's missing gobble section, stay in place until after the next tag, and
-  that tag is waiting on another repository (OQ6).
+  that tag is waiting on another repository (OQ6). *(2026-11-14: OQ6's answer lets the Markdown-only phases run now,
+  so this holds only for Phase D's doc comments.)*
 * Bad, because the doc-comment measure is large if OQ3 includes struct fields and interface methods: 1,284 more
-  comments.
+  comments. *(2026-11-14: OQ3's answer limits fields and interface methods to the contract types. Phase A counts
+  them.)*
 
 ### Confirmation
 
@@ -217,7 +238,8 @@ Without a new check, a reader knows the docs are current by these records and fi
 5. Phase C's one-off surface lists (providers, commands, flags, environment variables per OQ4, settings keys, make
    targets, deploy units) each find a description for every item, and the result is in the PLAN's execution record.
 6. The existing checks pass at each phase: `make check-records`, `make markdownlint-docs`, and, where a protocol guide
-   changed, `go test -count=1 ./internal/protocol/`.
+   changed, `go test -count=1 ./internal/protocol/`. *(2026-11-14, OQ7: from Phase E on, `make markdownlint-docs`
+   includes `CHANGELOG.md`.)*
 
 ## Pros and Cons of the Options
 
@@ -292,7 +314,8 @@ Without a new check, a reader knows the docs are current by these records and fi
 
 ### Open questions for the owner
 
-Each question has options and a recommendation. None is decided here.
+Each question has options and a recommendation. None is decided here. *(2026-11-14: each question is now answered by
+the owner. OQ5 is the exception: the coordinator applied it from the owner's ruling. See the dated note under each.)*
 
 * **OQ1. Where `CHANGELOG.md` starts.**
   * (a) From the next release forward. The header says releases up to `v0.26.0` have no notes, and points to the tags,
@@ -304,6 +327,11 @@ Each question has options and a recommendation. None is decided here.
     exist. Of the backfilled sections, `v0.26.0` is the one a reader needs: it is the baseline 0246's breaking
     cut-over changes. A full backfill costs a judgment-heavy pass over 1,806 commits to record releases nobody will
     upgrade from.
+  * *Answered 2026-11-14 by the owner, relayed by the coordinator (one question put for all three docs plans): "Latest
+    tag forward": "An Unreleased section and one section for the latest tag, then a single pointer to where older
+    notes live (tui's migration guide, acp's release-notes reports, magic's tags and records). Least work, nothing
+    duplicated; older releases are one link away." Rejected: "Plus one line per older tag"; "Full backfill". Here that
+    is (b): an `Unreleased` section, one `v0.26.0` section, and a pointer to this repository's tags and records.*
 * **OQ2. The 168 records with no YAML front matter** (82 MADRs, 67 PLANs, 19 REPORTs).
   * (a) Leave them as dated history.
   * (b) Add front matter to all 168.
@@ -311,6 +339,9 @@ Each question has options and a recommendation. None is decided here.
   * *Recommendation: (a).* 0200 and 0239 D3 already left the 149 MADRs and PLANs as they are ("touch 149 closed
     records for no reader's benefit"). The mandate is about accuracy, and the missing front matter makes no record
     inaccurate.
+  * *Answered 2026-11-14 by the owner, relayed by the coordinator: "Leave them as history": "Change none of the 168.
+    Missing front matter makes no record wrong, and it matches what 0200 and 0239 decided for 149 of them." Rejected:
+    "Reports only"; "Add to all 168". That is (a).*
 * **OQ3. What "every exported name" covers.**
   * (i) Go declarations godoc lists at top level: package doc comments, exported funcs and types, methods on exported
     types, and consts and vars under their own or a group comment. At `0fbed31b` that is 9 missing: 5 methods and 4
@@ -323,6 +354,13 @@ Each question has options and a recommendation. None is decided here.
     what a user configures or receives, and the guides describe each one already, so a field comment there links to
     them. Dart stays out unless the owner says otherwise. The ruling's other half, "feature docs", covers the app's
     behaviour.
+  * *Answered 2026-11-14 by the owner, relayed by the coordinator (one question put for all three docs plans): "Fields
+    of public and contract types": "Top-level names, plus exported fields and interface methods of public packages and
+    of the types users configure or receive (wire and config structs). A field counts as documented when its type's
+    comment names it." Rejected: "Top-level names only"; "Every exported identifier". Here every importable package
+    is under `internal/`, and the rest are `main` packages, so the field rule reaches the contract types only. That
+    reading is this draft's. The PLAN's Phase A names the contract types and counts their fields. The Dart API was not
+    put to the owner and is not ruled on. It stays out, as recommended, until the owner says otherwise.*
 * **OQ4. What "every environment variable" and "every make target" cover.**
   * (a) Every name non-test code reads, internal markers included (`MCREMOTE_ENGINE_ID`, `MCREMOTE_ENGINE_OWNER`, which
     the daemon sets on its children), and every `.PHONY` target.
@@ -332,6 +370,10 @@ Each question has options and a recommendation. None is decided here.
     `docs/guides/config.md`, test-fixture variables described where their live or fixture target is described, and
     every target as one row of the README's Development table.* It is the reading closest to the ruling's "every", and
     each item costs one table row.
+  * *Answered 2026-11-14 by the owner, relayed by the coordinator: "All that non-test code reads": "Every variable
+    non-test code reads, with the internal markers in a short 'set by the daemon, do not set' table in the config
+    guide; test-only variables described where their live or fixture target is described; every make target as one
+    row in the README's Development table." Rejected: "User-facing only"; "Also test-only variables". That is (a).*
 * **OQ5. `AGENTS.md` and the per-agent rule files.** 0239 D8 left their text to the owner's word.
   * (a) Allow factual fixes in Phase B: the `docs/NNNN-MADR-*` path in `.opencode/rules.md:36` and
     `.kilo/agent/madr-and-plan-skill.md:41`, and `AGENTS.md:51`'s list of live targets. Also allow, in Phase E, one
@@ -341,6 +383,12 @@ Each question has options and a recommendation. None is decided here.
   * *Recommendation: (a).* `AGENTS.md` is the normative copy every agent loads (its own words). A rule that keeps docs
     current only through briefs is safer when the rule is in the file every brief's executor reads. The paragraph
     states a rule; it adds no check.
+  * *2026-11-14, not put to the owner again. On the same question for the global rules file, the owner ruled "Skill
+    only": the docs rule lives in the coordinator skill and in briefs, not in a rules file. The coordinator applied
+    that ruling to this repository's files and told the owner so. The owner has not ruled on per-repository files
+    specifically, and a contrary word from the owner replaces this. Applied here as (b): factual fixes only (the record
+    path in the two rule files, and `AGENTS.md:51`'s live-targets list), and no docs-step paragraph in `AGENTS.md`.
+    D5's docs step and the PLAN's S1 and S2 live in this record and in briefs only.*
 * **OQ6. May older-gap phases land before the next tag?** D6 puts B, C, D and F after it, and that tag waits on
   0246's G2, a gobble release whose date depends on another repository.
   * (a) As ruled: after the tag.
@@ -348,17 +396,30 @@ Each question has options and a recommendation. None is decided here.
     with one. Phase D waits for 0246's cut-over, because it edits Go files 0246 rewrites.
   * *Recommendation: (b).* The ruling's purpose, that a tag should not wait on old gaps, does not come into play
     while the tag is held by something else. The mandate says gaps get harder to fix the longer they stand.
+  * *Answered 2026-11-14 by the owner, relayed by the coordinator (one question put for all three docs plans): "Yes,
+    docs-only phases now": "Phases that change only Markdown run now, one at a time, and pause at a phase boundary if
+    a release step starts. Doc-comment phases that edit Go files wait where code is about to be rewritten (magic's
+    0246 cut-over)." Rejected: "As ruled: after the tag"; "Defect list and changelog now, rest after". That is (b).*
 * **OQ7. `CHANGELOG.md` in lint and in the GitHub Release.**
   * (a) Neither: each phase that edits it lints it by hand with the repository's markdownlint configuration.
   * (b) Add it to `MARKDOWNLINT_DOCS_ROOTS` in the `Makefile`.
   * (c) (b) plus publishing the tag's section as the GitHub Release body.
   * *Recommendation: (a).* (b) extends a gate and (c) changes the release workflow, which "Fix the docs, no new checks"
     rules out for now.
+  * *Answered 2026-11-14 by the owner, relayed by the coordinator: "Add to the lint target": "Put CHANGELOG.md in the
+    Makefile's list of linted docs roots. It widens an existing gate by one file; the changelog can no longer drift
+    out of lint." Rejected: "Neither; lint by hand" (this draft's recommendation); "Lint and release text". That is
+    (b). It is the owner's own exception to "Fix the docs, no new checks": an existing gate gains one file. D4 carries
+    a note, and the PLAN's Phase E makes the change and shows the target failing on a broken changelog.*
 * **OQ8. `AGENTS.md` is a regular file and there is no `CLAUDE.md`.** The fleet's workspace layout makes `CLAUDE.md`
   canonical and `AGENTS.md` a link to it.
   * (a) Out of this pair: a workspace-scaffolding record of its own.
   * (b) Fold it into Phase F.
   * *Recommendation: (a).* It is a layout decision, not a docs fix.
+  * *Answered 2026-11-14 by the owner, relayed by the coordinator: "A separate record": "Keep it out of the docs plans.
+    It is a workspace layout decision, so it gets its own scaffolding record, which could cover all five repositories
+    at once." Rejected: "Fold into this plan"; "Leave as it is". That is (a). It is out of this pair, and the
+    coordinator's ledger carries it.*
 
 ### What is not verified
 
