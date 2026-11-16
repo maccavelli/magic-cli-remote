@@ -301,10 +301,10 @@ check-libs:
 
 # User-facing markdownlint (MADR 0180 D6). --no-globs so the project
 # .markdownlint-cli2.jsonc include set does not pull in the rest of the tree.
-# D6: root README, docs README/architecture/guides/reports, mobile README,
-# and after P4 the mobile docs README/architecture/guides/reports.
+# D6: root README, CHANGELOG.md, docs README/architecture/guides/reports,
+# mobile README, and after P4 the mobile docs README/architecture/guides/reports.
 # Not AGENTS.md. Not MADR/PLAN.
-MARKDOWNLINT_DOCS_ROOTS := README.md docs/README.md docs/architecture.md \
+MARKDOWNLINT_DOCS_ROOTS := README.md CHANGELOG.md docs/README.md docs/architecture.md \
 	docs/guides docs/reports apps/mobile/README.md \
 	apps/mobile/docs/README.md apps/mobile/docs/architecture.md \
 	apps/mobile/docs/guides apps/mobile/docs/reports

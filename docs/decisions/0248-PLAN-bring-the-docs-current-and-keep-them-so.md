@@ -1212,3 +1212,216 @@ contains it. The disclosure guard's deny list is the owner's to update; nothing 
 
 **Files.** 24 files changed by the replacement: the 4 code files, the 3 docs, the 2 records, 6 Dart tests and 9 Go tests of
 the table above; this PLAN. Staged, not committed.
+
+### Phase E — 2026-11-16
+
+Run by a mainstream model at medium effort, as the phase prices it, on the coordinator's brief, from `master` at
+`1109a42a`. The owner approved the plan on 2026-11-15 one phase at a time ("Approve, one phase at a time"), and on
+2026-11-16 said, in their own words: "proceed with magic-cli-remote Phase E". That is the owner's word, relayed by the
+coordinator. It approves Phase E only. No identifier value is quoted in this entry; the help-text commits are described
+by kind only.
+
+**Start state (C1).** Branch `master`, `HEAD` `1109a42a`, level with `origin/master`, tree clean.
+`git log --oneline 0fbed31b..HEAD` is five commits: `1109a42a`, `076c895d`, `6cf3115a`, `e1922f35`, `4e085b86` (tables
+below). Re-read at `HEAD` before acting: `Makefile:302-306` (comment) and `:307` (variable), `docs.yml:12`, `:14`, `:54`,
+`ci.yml:12`, `:14`, `:87`. Every line is where the plan cites it, with the content the plan describes. `git diff
+0fbed31b HEAD -- Makefile .github` is empty.
+
+**Steps.**
+
+1. C1, above.
+2. Header, `CHANGELOG.md:1-8`: what it covers (D3), Keep a Changelog 1.1.0, versions are this repository's `vX.Y.Z` tags,
+   no claim of Semantic Versioning.
+3. `## [Unreleased]`, `CHANGELOG.md:10`, **empty, held for an owner question** (below).
+4. `## [v0.26.0] - 2026-11-12`, `CHANGELOG.md:12`: Added 6, Changed 1, Fixed 6, Removed 2 (15 entries), each linking its
+   record by full filename. No older section. The one pointer for older releases is `CHANGELOG.md:90` ("Older
+   releases": the releases and tags pages at the URL the README's install section uses, and `docs/README.md`), and the
+   two link definitions follow it. Every claim about a flag, field, code, file or behaviour was read in
+   `git show v0.26.0:<path>` (the gobble keys, env names and `make live-gobble`; the `limit_*`, `upstream_switch_unsupported`,
+   `backup_state` and `recovery_available` members and the five new codes in `protocol-v1.md`; the 15-minute and 600-second
+   code lifetimes; the slug ids; the user units' directives at `v0.25.1` against `v0.26.0`; `confirm_destructive` present
+   at `v0.25.1`, absent at `v0.26.0`; the Go directive 1.27.3 to 1.27.4).
+5. `README.md:1643` (documentation table) and `docs/README.md:509` ("see what changed in a release").
+   **5a.** `Makefile:307` gains `CHANGELOG.md`, and the comment line `:304` names it. The comment reflowed by one word on
+   `:304-305`. Nothing else changed in the `Makefile` (`git diff -U0 -- Makefile`: two hunks, `:304-305` and `:307`).
+   **5b.** The widened gate, seen failing on two scratch clones of `HEAD` (since removed). The broken file is the real
+   one with a `*` marker on its first entry and one extra blank line:
+   * broken file, new `Makefile`: `exit=2`. Failing lines: `CHANGELOG.md:16:1 error MD004/ul-style Unordered list style
+     [Expected: dash; Actual: asterisk]`, `CHANGELOG.md:89 error MD012/no-multiple-blanks Multiple consecutive blank
+     lines [Expected: 1; Actual: 2]`, and two `MD032/blanks-around-lists` lines at `:23` and `:24` that the marker change
+     caused. (`<TMP>` is the scratch clone.)
+   * broken file, `HEAD`'s `Makefile`: `exit=0`, "Linting: 61 files", "Summary: 0 issues in 0 files". The variable is what
+     makes the lint see the file.
+   * real file, new `Makefile`: `exit=0`, "Linting: 62 files", "Summary: 0 issues in 0 files".
+6. Checks, then staged.
+
+**The `[Unreleased]` question (point 1 of the brief).** `git log --oneline v0.26.0..HEAD` is seven commits, two before
+`0fbed31b` (`a7c993c0`, `0fbed31b`) and the five above. The plan's step 3 says "At `0fbed31b` there are none", which is
+still true of those two (records only). Of the five, `4e085b86`, `e1922f35`, `6cf3115a` change records, the REPORT and two
+guides' placeholders; `076c895d` changes tests, a code comment (`internal/cli/pair.go`) and records; `1109a42a` replaces
+an example address with a placeholder in four help examples (`internal/cli/examples.go`), the Host field's hint text
+in the phone app (`apps/mobile/lib/features/connect/connect_screen.dart`), one field comment, one XML comment, three
+docs, tests and two records. D3 (MADR, line 161) says entries are for changes "a user, operator or app can see", and
+line 162 limits doc corrections to those where "acting on the old text would have gone wrong". This PLAN's own entry for
+2026-11-16 calls the two edits "a user-visible string" (this record, the "Deviation from the plan" paragraph of "The
+example address — 2026-11-16"). Neither the plan nor D3 says whether replaced example text counts, so Phase E did not
+decide it. `[Unreleased]` is staged empty, and the question went to the coordinator with three options.
+
+**Commit table, `v0.25.1..v0.26.0`: 63 commits, 31 touch a non-Markdown file, 32 are Markdown only.** The plan's "30" is
+by subject prefix: `1ff7fe58` is `docs(systemd)` but changes the shipped unit and its template. User-visible 23, not 8.
+Entry labels: A1 gobble, A2 usage-limit detail, A3 upstream switch, A4 backup state, A5 sign-in codes, A6 code
+lifetime, C1 slug ids, F1 user units, F2 two codes registered, F3 grok stub, F4 codex phone logout, F5 sign-in
+update race, F6 Go 1.27.4, R1 `confirm_destructive`, R2 keyring code, legacy codex flow, codex sign-out dialog.
+
+| Commit | User-visible | Entry or reason |
+| :--- | :--- | :--- |
+| `6178ad32` fix(systemd) | yes | F1 |
+| `1ff7fe58` docs(systemd), shipped unit and template | yes | F1 (comment and scope text) |
+| `711201e9` fix(protocol) | yes | F2 |
+| `13ab62ed` test(session) | no | test-only change to a test helper |
+| `821a58a3` feat(acpagent) | no | internal hooks (`AuthPreferenceFunc`, `CloseTimeout`); their user effect is A1 |
+| `f4248820` feat(provider) gobble | yes | A1 |
+| `6338cf19` test(gobble) fixture | no | tests and recorded fixture |
+| `e2b394fd` test(gobble) | no | test only |
+| `ead24d7c` feat(agenterr) | yes | A2 |
+| `fd6a7dd3` feat(limit) | yes | A2 |
+| `ec120785` feat(mobile) | yes | A2 |
+| `402a4f22` feat(gobble) | yes | A2 (gobble fills the same fields) |
+| `33bffce8` feat(provider) | yes | A3 |
+| `15b8d9d5` feat(mobile) | yes | A3 |
+| `995d442b` test(gobble) | no | fixture metadata only |
+| `912b9aa1` chore(deps) | no | dependency pins, "no library requirement changes" (its body) |
+| `ae13109a` fix(go) | yes | F6 |
+| `3c3d64d7` chore(deps) | no | dependency pin. Its one text effect is a wrapped refusal's wording in `mcremote update` (the library names its package once). Judged not worth an entry; the coordinator may overrule *(2026-11-16, later: the owner ruled it an entry, Changed; see "Phase E, the owner's two rulings" below)* |
+| `14200b6e` refactor(httpagent) | yes | C1 |
+| `f6e99522` feat(providerauth) | yes | A6, F5 |
+| `83b68cbe` feat(gobble) register | yes | A1 |
+| `83aac453` chore(deps) | no | dependency pin; added tests only |
+| `ea18ceff` feat(provider-auth) | yes | A5 |
+| `6c8f2623` refactor(provider-auth) | yes | R2 |
+| `589753ad` fix(grok) | yes | F3 |
+| `6bf1e9a4` fix(codex) | yes | F4 |
+| `4bb23579` feat(auth) | yes | A4 |
+| `af8c42fb` fix(gobble) | yes | A1 (device sign-in for grok and kilo only) |
+| `bac7db11` fix(gobble) | yes | A1 (30-second bound) |
+| `4614263c` feat(gobble) | yes | A1 (a row with a reason is not configured) |
+| `d78d42ea` refactor(provider) | yes | R1 |
+
+The 32 Markdown-only commits (`03d2fdd5`, `119a0338`, `15cec5a8`, `254f996b`, `31e21118`, `33a4a6c3`, `37aebdcb`,
+`38f2594e`, `39b83ba9`, `3e2f784b`, `4831e6c5`, `4d036801`, `5380ffbf`, `654b5a39`, `739e5983`, `7791def2`, `84d40e10`,
+`85865449`, `90b52af1`, `95653d7b`, `a6d21a77`, `a6fdf855`, `aff9c7b4`, `bcde74ab`, `c6abb741`, `c87d22e4`, `cb68b744`,
+`d493b32a`, `dde47a11`, `ec41bca0`, `eefb7c25`, `ffbda60f`) are records, reports, guide corrections and process
+text. None has an entry. Three of them correct guides (`38f2594e`, `c6abb741`, `d493b32a`); D3's second sentence makes a
+correction an entry only when acting on the old text would have gone wrong, and Phase A's REPORT lists those guides'
+older defects separately. They are not entries.
+
+**Commit table, `v0.26.0..HEAD`: 7 commits.**
+
+| Commit | User-visible | Reason |
+| :--- | :--- | :--- |
+| `a7c993c0` | no | records only (six MADR and PLAN files) |
+| `0fbed31b` | no | records only |
+| `4e085b86` | no | `docs/README.md` index rows and this pair |
+| `e1922f35` | no | this pair and the REPORT |
+| `6cf3115a` | no | two guides' identifiers replaced with placeholders; the plan's own record |
+| `076c895d` | no | tests, a code comment and records. The comment edit changes no output |
+| `1109a42a` | **held for the owner** | help examples and the Host hint text show a placeholder; the rest is docs, tests, comments *(2026-11-16, later: yes, an entry; the owner ruled it, see "Phase E, the owner's two rulings" below)* |
+
+**Seen failing first (C2).** The link checker, on a copy of `CHANGELOG.md` in the scratch folder with a record filename
+changed (`0240-MADRX-...`) and the `[v0.26.0]` and `[Unreleased]` link definitions broken or removed: `exit=1`, "dead
+link: docs/decisions/0240-MADRX-make-the-shipped-...", "undefined reference label: Unreleased", "undefined reference
+label: v0.26.0", "21 checked, 3 bad". On the real file: `exit=0`, "23 checked, 0 bad". The checker, the commit
+classifier and the file that breaks the changelog stay in the scratch folder and are not committed. Step 5b is above.
+
+**Verification**, after the last edit (each to a scratch file, the status taken before any filter):
+
+```text
+test -f CHANGELOG.md                                              exit=0
+grep -c '^## \[Unreleased\]$' CHANGELOG.md                        exit=0, count 1
+npx --yes markdownlint-cli2@0.24.0 --no-globs CHANGELOG.md        exit=0, "Linting: 1 file", "Summary: 0 issues in 0 files"
+python3 <scratch>/linkcheck.py CHANGELOG.md                       exit=0, 23 checked, 0 bad
+python3 -B scripts/check_records.py --check-all                   exit=0, output empty
+make markdownlint-docs                                            exit=0, "Linting: 62 files", CHANGELOG.md in its Finding list
+step 5b, broken file and new Makefile                             exit=2, CHANGELOG.md named
+step 5b, broken file and HEAD's Makefile                          exit=0
+git diff -U0 -- Makefile                                          exit=0, two hunks: the comment and MARKDOWNLINT_DOCS_ROOTS
+python3 ~/.global-git-hooks/github-disclosure.py redact           exit=0, "would edit 0 file(s), 0 path(s) need a rename by hand"
+```
+
+The redact preview ran with `CHANGELOG.md` already added, since it reads tracked files only, and again after the other
+files were staged.
+
+**Deviations.** None. The line numbers the plan cites are unmoved (start state). One count differs from the plan's text:
+31 commits touch a non-Markdown file, where Phase E's header says 30 (see the table's note).
+
+**Not done.** The `[Unreleased]` entry, which waits for the owner. No other file changed: the plan gives Phase E two
+rows, and a pointer from the README's "Upgrading later" section is left as an open row (below).
+
+**Open row for another phase.** `README.md:106` ("Upgrading later") says nothing of the changelog, where a reader
+upgrading would look. Phase F owns it. No contributor text says entries go under `[Unreleased]`, by the OQ5 ruling that
+S1 lives in this record and in briefs only.
+
+**Not verified.** No suite, build or test ran. The Dart and Go behaviour behind an entry was read in the tree at the tag,
+not run. The tag's GitHub Release body was not opened.
+
+**Files.** `CHANGELOG.md` (new); `README.md` (one row); `docs/README.md` (one row); `Makefile` (comment and variable);
+this PLAN. Staged, not committed; the coordinator commits and pushes after the disclosure guard (C5's annotation); the
+plan pauses until the owner says to continue.
+
+### Phase E, the owner's two rulings — 2026-11-16
+
+Applied by the same mainstream model at medium effort, on the coordinator's relay. Each ruling is a label the owner chose
+from options the coordinator put; this entry quotes only the label, as the owner's ruling, relayed by the coordinator.
+Nothing here is the owner's approval to commit, push or tag. The Phase E entry above is kept as written; this entry
+answers its open points by dated addition.
+
+**1. `[Unreleased]`: "One entry: help, hint and guides".** The Phase E entry's `[Unreleased]` question is answered.
+`CHANGELOG.md:10-15` now holds one `### Changed` entry: example addresses in `--help` output, the phone's Host field hint
+and the guides were replaced with placeholders, linking this PLAN. It names no address. MADR D3 carries a dated note
+that this case is an entry, since D3 did not settle it. The `v0.26.0..HEAD` table's row for `1109a42a` is annotated.
+Options not chosen: no entry; an entry for the help text and the hint only.
+
+**2. `3c3d64d7`: "A one-line Changed entry".** Written under `v0.26.0`'s `### Changed`, linking
+`0217-MADR-update-every-pin-to-its-current-release.md`, the record the commit cites. The coordinator's recommendation
+was the other way (no entry, reason recorded); the owner chose this. Options not chosen: no entry; folding it into a
+dependencies line.
+
+How the text was established, since the commit's test comment was not taken as evidence. `go.mod` pins
+`go-selfupdate-lib` v1.24.0 at `v0.25.1` and v1.26.2 at `v0.26.0`; both are in the module cache. `v0.25.1` and `v0.26.0`
+were built in scratch worktrees (since removed) and run with a scratch `HOME`, the binary in its `.local/bin`, standard
+input closed, `update --force` and no `--yes`. Stderr, last line:
+
+```text
+v0.25.1: update failed: selfupdate: mcremote: selfupdate: pass --yes to apply without prompting: selfupdate: confirmation required
+v0.26.0: update failed: selfupdate: mcremote: pass --yes to apply without prompting: confirmation required
+```
+
+More than the confirmation refusal changed. Two other refusals, run the same way: without `--force`, a local build gave
+`...selfupdate: mcremote: selfupdate: replacing a local build requires --force to install v0.26.0` and now gives
+`...selfupdate: mcremote: replacing a local build requires --force to install v0.26.0`; a binary outside the allowed roots
+gave `...selfupdate: mcremote: selfupdate: target <path> is outside allowed roots` and now gives `...selfupdate: mcremote:
+target <path> is outside allowed roots`. `update --check --yes` ("--check and --yes are contradictory") reads the same at
+both tags, because it is not wrapped behind a prefix there. The library's v1.26.1 note says every error it wraps behind
+a literal prefix drops the inner prefix. `mcrelay update` shares the update client (`cmd/mcrelay/main.go`,
+`internal/relay/update.go`); it was not run. The entry also says the library's notes list reworded text for the symlink
+refusal and a few others (v1.26.0, taken in by `912b9aa1`); those were read in the library's changelog and not run.
+
+**Commit tables, corrected.** `v0.25.1..v0.26.0`: 31 commits touch a non-Markdown file; user-visible 24, not 7 (`3c3d64d7`
+moves across). The 8 listed earlier as not user-visible are now 7: `13ab62ed`, `821a58a3`, `6338cf19`, `e2b394fd`,
+`995d442b`, `912b9aa1`, `83aac453`. `3c3d64d7` maps to a new label, C2. Of those 7, `912b9aa1`'s reason ("no library
+requirement changes") holds for the module graph but not for text: the same pin took v1.26.0's reworded messages, which
+C2 now mentions. It was not re-ruled; the owner's ruling named `3c3d64d7`. `v0.26.0..HEAD`: 7 commits, 6 not
+user-visible and 1 user-visible (`1109a42a`, now an entry in `[Unreleased]`). The `v0.26.0` section has
+Added 6, Changed 2, Fixed 6, Removed 2, which is 16 entries.
+
+**Checks, after the last edit** (each to a scratch file, the status taken before any filter):
+
+```text
+make markdownlint-docs                                  exit=0
+markdownlint-cli2 --no-globs CHANGELOG.md               exit=0
+python3 <scratch>/linkcheck.py CHANGELOG.md             exit=0
+python3 -B scripts/check_records.py --check-all         exit=0, output empty
+python3 ~/.global-git-hooks/github-disclosure.py redact exit=0, would edit 0 file(s)
+```
+
+**Files.** `CHANGELOG.md`; the MADR (D3's dated note); this PLAN. Staged, not committed.

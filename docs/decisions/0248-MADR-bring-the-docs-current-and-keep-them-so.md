@@ -161,6 +161,11 @@ omits.)*
   libraries use, with an `Unreleased` section at the top. Entries are for changes a user, operator or app can see. A
   correction to a user doc is an entry only when acting on the old text would have gone wrong (A1 is one). How far back
   it starts is OQ1. Rejected: "Keep each repo's current practice", "Release-notes reports everywhere".
+  *(2026-11-16, Phase E, the owner's ruling "One entry: help, hint and guides", relayed by the coordinator: D3 did not
+  settle whether replaced example text counts. It does: example text a user sees in `--help` output or in the app, such
+  as the phone's Host field hint, is an entry, and so are the guides' examples replaced with it. The sentence above is
+  kept as written. The same day, the owner's ruling "A one-line Changed entry" made a changed error string of
+  `mcremote update` an entry under the same reading, "can see".)*
 * **D4. No new checks** (the owner chose "Fix the docs, no new checks"). This repository's PLAN adds no gate, no CI job
   and no check script, and changes no `Makefile` target. *(2026-11-14, OQ7, the owner's own exception: "Put
   CHANGELOG.md in the Makefile's list of linted docs roots. It widens an existing gate by one file; the changelog can

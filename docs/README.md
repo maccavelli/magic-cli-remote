@@ -506,6 +506,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | sign Android or iOS builds | [Android signing](../apps/mobile/docs/guides/ops-android-signing.md), [iOS signing](../apps/mobile/docs/guides/ops-ios-signing.md) |
 | understand the wire protocol | [protocol-v2.md](guides/protocol-v2.md) (delta over [protocol-v1.md](guides/protocol-v1.md)) |
 | find why a decision was made | the records table above, starting at [0001-MADR-architecture-mcremote.md](decisions/0001-MADR-architecture-mcremote.md) |
+| see what changed in a release | [CHANGELOG.md](../CHANGELOG.md) |
 | check a library's newest release before moving a pin | `make check-libs`; [0207-PLAN-finish-full-semver-pins-and-check-libs.md](decisions/0207-PLAN-finish-full-semver-pins-and-check-libs.md), V2 |
 | see what grok 1.0.77 changed relative to Magic's grok provider | [0237-REPORT](reports/0237-REPORT-grok-1.0.77-surface-and-magic-provider.md) |
 | know why an event can arrive before `auth_ok` | [0238-MADR-tolerate-pushes-before-the-auth-reply.md](decisions/0238-MADR-tolerate-pushes-before-the-auth-reply.md) |

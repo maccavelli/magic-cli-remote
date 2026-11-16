@@ -1640,6 +1640,7 @@ Language/style guides live under `docs/guides/standards/`.
 
 | Doc | Description |
 |-----|-------------|
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release, from v0.26.0 |
 | [docs/guides/protocol-v1.md](docs/guides/protocol-v1.md) | WebSocket JSON schema (source of truth for the wire) |
 | [docs/guides/protocol-v2.md](docs/guides/protocol-v2.md) | v1 delta: negotiation, resume, gap signalling (shipped) |
 | [docs/guides/config.md](docs/guides/config.md) | mcremote config, flags, and env reference |
