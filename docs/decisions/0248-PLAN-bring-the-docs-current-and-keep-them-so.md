@@ -1848,3 +1848,45 @@ on the auth payload sent to the phone). R21: `internal/provider/gobble/auth.go:9
 Other config-guide rows looked at again: none meets the test, and none is as close as R21. `docs/guides/config.md` has no
 other corrected row; the next nearest is R28 (`config-mcrelay.md`, derived variable names also work), an omission, not a
 wrong outcome. Nothing is listed for the coordinator.
+
+#### R151 — 2026-11-16
+
+Provenance: a mainstream-tier model at medium effort, on the coordinator's brief. The owner said, in their own words,
+"Resolve r151", relayed by the coordinator. That approves establishing the fact and making the guide say it. It approves
+no change to the build (no Gradle, Android Gradle plugin, JDK or script change), and none was made.
+
+**Route 1, documented.** Read 2026-11-16, `https://docs.gradle.org/current/userguide/compatibility.html`: the Java table
+rows are "| 25 | 9.1.0 | 9.1.0 and after |" and "| 26 | 9.4.0 | 9.4.0 and after |", that is, Gradle 9.1.0 is the first to
+run on Java 25 and 9.4.0 the first to run on Java 26. The same page: "A JVM version between 17 and 27 is required to
+execute Gradle. JVM 28 and later versions are not yet supported." (the page documents version 9.9.1). The 9.3.1 release
+notes (`https://docs.gradle.org/9.3.1/release-notes.html`) have no sentence on Java 25 or 26. The pinned versions are
+Gradle 9.3.1 (`apps/mobile/android/gradle/wrapper/gradle-wrapper.properties`), Android Gradle plugin 9.1.1 and Kotlin
+plugin 2.4.0 (`apps/mobile/android/settings.gradle.kts:22-23`). The AGP 9.1 release notes
+(`https://developer.android.com/build/releases/agp-9-1-0-release-notes`, read 2026-11-16) give a minimum JDK of 17 and
+a minimum and default Gradle of 9.3.1; they say nothing on JDK 25 or 26. Nothing about this repository was sent in any
+request.
+
+**Route 2, observed.** Not possible. `/usr/libexec/java_home -V` lists one JDK, Temurin 25.0.4.1 (arm64) under
+`/Library/Java/JavaVirtualMachines`; `/opt/homebrew/opt` has no `openjdk` keg (so the guide's example
+`/opt/homebrew/opt/openjdk@25/...` path does not exist on this Mac today), and no JDK 26 exists. Nothing was installed,
+and no build, clone or Gradle daemon was started. Route 1 is not contradicted by anything observed.
+
+**What changed.** The guide's gotcha 2 states the observation of 2026-08-13 (Gradle 9.1, JDK 26, `jlink`) as observed,
+and the documented position for 9.3.1 (Java 26 supported only from 9.4.0), dated, with the sentence that no build of 9.3.1
+on JDK 26 has been run. The instruction (use JDK 25 for `./gradlew`) stands. REPORT R151 is marked resolved. No new
+row. `CHANGELOG.md` is unchanged: D3's test is not met, because acting on the old text (use JDK 25) goes right.
+`apps/mobile/docs/architecture.md:60-63` (CI uses JDK 25) is still true and is unchanged.
+
+**Not verified.** That Gradle 9.3.1 actually fails on JDK 26 (the matrix says unsupported, not how it fails); that the
+`openjdk@25` example path exists on any current host.
+
+**Addition, R151 — 2026-11-16 (later).** Found while resolving R151, at the coordinator's request: the guide's example
+line `JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home ./gradlew …` named a path that does not
+exist on the macOS host the passage is about (no Homebrew `openjdk` keg; the only JDK is a Temurin 25 under
+`/Library/Java/JavaVirtualMachines`). The line was Phase B's own edit (`@21` to `@25` without checking the path). Fixed as
+the coordinator's application of the owner's standing rule that docs are accurate, not a new ruling of the owner's. The
+example is now `JAVA_HOME="$(/usr/libexec/java_home -v 25)" ./gradlew …`, with one clause that it selects an installed
+JDK 25 on macOS and that on Linux `JAVA_HOME` is set to the JDK 25 install directory. `/usr/libexec/java_home -v 25`
+exited 0. The Homebrew path appears nowhere else in the mobile docs or `README.md`; `openjdk@21` appears only in
+records 0126, 0127 and 0168, which are historical and were left. Gradle was not run. This closes the "not verified"
+item about the example path above.

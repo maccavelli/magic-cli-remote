@@ -20,11 +20,16 @@ the scratchpad as `shot.sh` (rm stale files → `adb emu screenrecord
 screenshot` → rename newest).
 
 **2. Gradle invoked directly needs the JDK CI uses, 25.**
-`./gradlew` bypasses `flutter config --jdk-dir`. On 2026-08-13 Gradle 9.1 rejected this
-host's default JDK 26 during its own `jlink` step. Prefix with:
+`./gradlew` bypasses `flutter config --jdk-dir`, so set `JAVA_HOME` to a JDK 25 yourself.
+On 2026-08-13 Gradle 9.1 rejected this host's default JDK 26 during its own `jlink` step
+(observed). The wrapper now pins Gradle 9.3.1 with Android Gradle plugin 9.1.1, and Gradle's
+compatibility matrix (read 2026-11-16) lists running Gradle on Java 26 only from 9.4.0, so
+9.3.1 on JDK 26 is outside what Gradle supports. That is the documented position; no build of
+9.3.1 on JDK 26 has been run. Prefix with the line below, which selects an installed JDK 25 on
+macOS; on Linux set `JAVA_HOME` to the JDK 25 install directory instead:
 
 ```sh
-JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home ./gradlew …
+JAVA_HOME="$(/usr/libexec/java_home -v 25)" ./gradlew …
 ```
 
 Also note `android/gradlew` is **gitignored** by the Flutter template, so a
