@@ -10,10 +10,11 @@ const _fpB64 = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
 void main() {
   test('parses mcremote pair URI with token', () {
     final p = PairPayload.tryParse(
-      'mcremote://pair?host=100.64.0.1%3A7531&token=mcr_deadbeef',
+      // 100.64.7.7 is an example address in the tailnet (CGNAT) range, not a real host.
+      'mcremote://pair?host=100.64.7.7%3A7531&token=mcr_deadbeef',
     );
     expect(p, isNotNull);
-    expect(p!.host, 'ws://100.64.0.1:7531#mode=off');
+    expect(p!.host, 'ws://100.64.7.7:7531#mode=off');
     expect(p.mode, TlsMode.off);
     expect(p.secure, isFalse);
     expect(p.token, 'mcr_deadbeef');
@@ -22,7 +23,7 @@ void main() {
 
   test('parses pair URI with short code', () {
     final p = PairPayload.tryParse(
-      'mcremote://pair?host=100.64.0.1%3A7531&code=K7M2-9X4P',
+      'mcremote://pair?host=100.64.7.7%3A7531&code=K7M2-9X4P',
     );
     expect(p, isNotNull);
     expect(p!.code, 'K7M2-9X4P');
@@ -44,49 +45,49 @@ void main() {
     for (final scheme in ['ws%3A%2F%2F', 'http%3A%2F%2F']) {
       final p = PairPayload.tryParse(
         'mcremote://pair?host=$scheme'
-        '100.64.0.1%3A7531%2Fv1%2Fws&token=mcr_x',
+        '100.64.7.7%3A7531%2Fv1%2Fws&token=mcr_x',
       );
       expect(p, isNotNull);
-      expect(p!.host, 'ws://100.64.0.1:7531#mode=off');
-      expect(p.hostAuthority, '100.64.0.1:7531');
+      expect(p!.host, 'ws://100.64.7.7:7531#mode=off');
+      expect(p.hostAuthority, '100.64.7.7:7531');
       expect(p.secure, isFalse);
       expect(
         SettingsStore.normalizeWsUrl(p.host),
-        'ws://100.64.0.1:7531/v1/ws',
+        'ws://100.64.7.7:7531/v1/ws',
       );
     }
   });
 
   test('a scheme-less host without a pin is legacy plaintext', () {
     final p = PairPayload.tryParse(
-      'mcremote://pair?host=100.64.0.1%3A7531&token=mcr_x',
+      'mcremote://pair?host=100.64.7.7%3A7531&token=mcr_x',
     );
     expect(p, isNotNull);
     expect(p!.secure, isFalse);
     expect(p.mode, TlsMode.off);
-    expect(SettingsStore.normalizeWsUrl(p.host), 'ws://100.64.0.1:7531/v1/ws');
+    expect(SettingsStore.normalizeWsUrl(p.host), 'ws://100.64.7.7:7531/v1/ws');
   });
 
   group('certificate fingerprint', () {
     test('is parsed from fp= and survives in host as a #fp= fragment', () {
       final p = PairPayload.tryParse(
-        'mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531'
+        'mcremote://pair?host=wss%3A%2F%2F100.64.7.7%3A7531'
         '&code=K7M2-9X4P&fp=$_fpB64',
       );
       expect(p, isNotNull);
       expect(p!.fingerprint, _fpB64);
-      expect(p.host, 'wss://100.64.0.1:7531#fp=$_fpB64');
-      expect(p.hostAuthority, '100.64.0.1:7531');
+      expect(p.host, 'wss://100.64.7.7:7531#fp=$_fpB64');
+      expect(p.hostAuthority, '100.64.7.7:7531');
       // The fragment is the transport for the pin through the connect flow,
       // and must not corrupt the URLs derived from the same string.
       expect(SettingsStore.fingerprintFrom(p.host), _fpB64);
       expect(
         SettingsStore.normalizeWsUrl(p.host),
-        'wss://100.64.0.1:7531/v1/ws',
+        'wss://100.64.7.7:7531/v1/ws',
       );
       expect(
         SettingsStore.healthzUrl(p.host),
-        'https://100.64.0.1:7531/healthz',
+        'https://100.64.7.7:7531/healthz',
       );
     });
 
@@ -279,14 +280,14 @@ void main() {
   group('relay + hid (MADR 0015)', () {
     test('parses relay and host id', () {
       final p = PairPayload.tryParse(
-        'mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531'
+        'mcremote://pair?host=wss%3A%2F%2F100.64.7.7%3A7531'
         '&code=K7M29X4P&fp=$_fpB64&relay=relay.example.com&hid=devbox-1',
       );
       expect(p, isNotNull);
       expect(p!.hasRelay, isTrue);
       expect(p.relay, 'wss://relay.example.com');
       expect(p.hostId, 'devbox-1');
-      expect(p.hostAuthority, '100.64.0.1:7531');
+      expect(p.hostAuthority, '100.64.7.7:7531');
     });
 
     test('rejects relay without hid and hid without relay', () {

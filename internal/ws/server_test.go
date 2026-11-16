@@ -828,8 +828,9 @@ func TestHTTPEndpointAuth(t *testing.T) {
 		RequireDeviceToken: true,
 		// A release reports buildinfo's version verbatim, tag and v included
 		// (MADR 0054 S2, D13).
-		Version:      "v0.17.1",
-		ListenAddr:   "100.64.0.1:7531",
+		Version: "v0.17.1",
+		// 100.64.7.7 is an example address in the tailnet (CGNAT) range, not a real host.
+		ListenAddr:   "100.64.7.7:7531",
 		HeadscaleURL: "https://headscale.example",
 	})
 	srv.SetTLSStatus("letsencrypt", true)
@@ -877,7 +878,7 @@ func TestHTTPEndpointAuth(t *testing.T) {
 		if body["headscale_control_url"] != "https://headscale.example" {
 			t.Fatalf("body=%v", body)
 		}
-		if body["listen"] != "100.64.0.1:7531" || body["version"] != "v0.17.1" {
+		if body["listen"] != "100.64.7.7:7531" || body["version"] != "v0.17.1" {
 			t.Fatalf("body=%v", body)
 		}
 		if body["tls_mode"] != "letsencrypt" || body["tls_fell_back"] != true {

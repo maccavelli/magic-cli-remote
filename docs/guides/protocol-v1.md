@@ -55,7 +55,7 @@ There is no CA to trust in that mode, so clients authenticate the daemon by
 the same pair QR that carries the pair code:
 
 ```text
-mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531&code=K7M29X4P&fp=<fingerprint>&mode=selfsigned
+mcremote://pair?host=wss%3A%2F%2F100.x.y.z%3A7531&code=K7M29X4P&fp=<fingerprint>&mode=selfsigned
 ```
 
 | param | meaning |

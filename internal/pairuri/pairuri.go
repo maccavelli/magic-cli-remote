@@ -36,7 +36,7 @@ type Payload struct {
 	// Host is host:port, optionally prefixed with ws:// or wss:// to pin the
 	// transport the client must dial. A bare host means "client default".
 	// This is always the **mcremote** peer (mesh/LAN/direct), never the relay.
-	Host string // e.g. "wss://100.64.0.1:7531"
+	Host string // e.g. "wss://100.x.y.z:7531"
 	// Token is a durable device token, e.g. "mcr_…" (optional if Code set).
 	Token string
 	// Code is a short pair code, e.g. "K7M29X4P" (optional if Token set).

@@ -283,9 +283,11 @@ reconnect.
 **Acceptance:** re-register a node so its tailnet IP changes; a previously
 paired phone reconnects without a QR rescan.
 
-**Tests.** Pin at `100.64.0.1:7531`, re-key to `100.64.0.9:7531` with the same
+**Tests.** Pin at `<tailnet-ip>:7531`, re-key to `100.64.0.9:7531` with the same
 device identity and certificate → still validates. Same address, *different*
 fingerprint → still a hard `cert_mismatch`.
+
+*(2026-11-16: an address was redacted here by the owner's ruling "Treat it as real; replace it everywhere".)*
 
 ---
 

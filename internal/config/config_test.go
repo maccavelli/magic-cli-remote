@@ -110,12 +110,13 @@ func TestPairAdvertiseHost(t *testing.T) {
 	}
 
 	// Canonical env overrides the file.
-	t.Setenv("MCREMOTE_PAIR_ADVERTISE_HOST", "100.64.0.1:7531")
+	// 100.64.7.7 is an example address in the tailnet (CGNAT) range, not a real host.
+	t.Setenv("MCREMOTE_PAIR_ADVERTISE_HOST", "100.64.7.7:7531")
 	cfg, err = config.Load(config.LoadOptions{ConfigFile: path})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Pair.AdvertiseHost != "100.64.0.1:7531" {
+	if cfg.Pair.AdvertiseHost != "100.64.7.7:7531" {
 		t.Fatalf("canonical env: advertise_host=%q", cfg.Pair.AdvertiseHost)
 	}
 
@@ -397,7 +398,7 @@ func TestTLSValidate(t *testing.T) {
 		{
 			name: "letsencrypt with an IP domain",
 			cfg: withTLS(func(t *config.TLSConfig) {
-				t.LetsEncrypt.Domains = []string{"100.64.0.1"}
+				t.LetsEncrypt.Domains = []string{"100.64.7.7"}
 				t.LetsEncrypt.Email = "ops@example.com"
 			}),
 			wantErr: "is an IP address",

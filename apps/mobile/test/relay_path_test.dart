@@ -8,7 +8,8 @@ void main() {
   group('ConnectionPath + relay', () {
     test('relay when not directly reachable', () {
       final p = PairPayload.tryParse(
-        'mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531'
+        // 100.64.7.7 is an example address in the tailnet (CGNAT) range, not a real host.
+        'mcremote://pair?host=wss%3A%2F%2F100.64.7.7%3A7531'
         '&code=K7M29X4P&fp=AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA'
         '&relay=wss%3A%2F%2Frelay.example.com&hid=devbox-1',
       )!;
@@ -16,7 +17,7 @@ void main() {
       expect(path.usesRelay, isTrue);
       expect(path.relayUrl, 'wss://relay.example.com');
       expect(path.hostId, 'devbox-1');
-      expect(path.mcremoteHost, contains('100.64.0.1'));
+      expect(path.mcremoteHost, contains('100.64.7.7'));
     });
 
     test('direct when reachable even if relay present', () {

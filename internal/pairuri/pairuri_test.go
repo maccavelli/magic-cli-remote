@@ -9,7 +9,8 @@ import (
 
 func TestEncodeParseRoundTrip(t *testing.T) {
 	raw, err := pairuri.Encode(pairuri.Payload{
-		Host:  "100.64.0.1:7531",
+		// 100.64.7.7 is an example address in the tailnet (CGNAT) range, not a real host.
+		Host:  "100.64.7.7:7531",
 		Token: "mcr_deadbeef",
 	})
 	if err != nil {
@@ -22,7 +23,7 @@ func TestEncodeParseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Host != "100.64.0.1:7531" || p.Token != "mcr_deadbeef" {
+	if p.Host != "100.64.7.7:7531" || p.Token != "mcr_deadbeef" {
 		t.Fatalf("got %+v", p)
 	}
 	if p.HasRelay() {
@@ -32,7 +33,7 @@ func TestEncodeParseRoundTrip(t *testing.T) {
 
 func TestEncodeParseRelayAndHostID(t *testing.T) {
 	raw, err := pairuri.Encode(pairuri.Payload{
-		Host:   "wss://100.64.0.1:7531",
+		Host:   "wss://100.64.7.7:7531",
 		Code:   "K7M29X4P",
 		Relay:  "relay.example.com",
 		HostID: "devbox-1",
@@ -54,7 +55,7 @@ func TestEncodeParseRelayAndHostID(t *testing.T) {
 		t.Fatalf("hid=%q", p.HostID)
 	}
 	// Host remains mcremote identity peer.
-	if p.Host != "wss://100.64.0.1:7531" {
+	if p.Host != "wss://100.64.7.7:7531" {
 		t.Fatalf("host=%q", p.Host)
 	}
 }
@@ -82,7 +83,7 @@ func TestRelayHidMustPair(t *testing.T) {
 
 func TestEncodeParseCode(t *testing.T) {
 	raw, err := pairuri.Encode(pairuri.Payload{
-		Host: "100.64.0.1:7531",
+		Host: "100.64.7.7:7531",
 		Code: "K7M2-9X4P",
 	})
 	if err != nil {
@@ -99,7 +100,7 @@ func TestEncodeParseCode(t *testing.T) {
 
 func TestEncodeStripsPathKeepsScheme(t *testing.T) {
 	raw, err := pairuri.Encode(pairuri.Payload{
-		Host:  "ws://100.64.0.1:7531/v1/ws",
+		Host:  "ws://100.64.7.7:7531/v1/ws",
 		Token: "mcr_x",
 	})
 	if err != nil {
@@ -112,7 +113,7 @@ func TestEncodeStripsPathKeepsScheme(t *testing.T) {
 	// The path goes, but the transport must survive: dropping ws:// here would
 	// silently upgrade an opt-out plaintext daemon to wss on a client that now
 	// defaults to TLS.
-	if p.Host != "ws://100.64.0.1:7531" {
+	if p.Host != "ws://100.64.7.7:7531" {
 		t.Fatalf("host=%q", p.Host)
 	}
 }

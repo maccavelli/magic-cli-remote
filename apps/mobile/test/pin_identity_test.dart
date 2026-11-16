@@ -49,8 +49,9 @@ Future<SettingsStore> _pairedToA() async {
     allowPlaintextFallback: false,
   );
   await store.setDeviceId('dev-a');
-  await store.setHost('100.64.0.1:7531');
-  await store.setFingerprint('100.64.0.1:7531', _fpA, deviceId: 'dev-a');
+  // 100.64.7.7 is an example address in the tailnet (CGNAT) range, not a real host.
+  await store.setHost('100.64.7.7:7531');
+  await store.setFingerprint('100.64.7.7:7531', _fpA, deviceId: 'dev-a');
   return store;
 }
 
@@ -72,7 +73,7 @@ void main() {
     );
 
     expect(
-      await store.getFingerprint('100.64.0.1:7531', deviceId: 'dev-a'),
+      await store.getFingerprint('100.64.7.7:7531', deviceId: 'dev-a'),
       _fpA,
       reason: 'the probe must not overwrite the paired daemon\'s pin',
     );

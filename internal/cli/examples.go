@@ -33,7 +33,7 @@ const rootExample = `
   # the mesh IP in selfsigned mode. --host overrides either.
   mcremote pair code --name phone --qr
   mcremote pair code --name phone --host devbox.ts.example.com:7531 --qr   # letsencrypt
-  mcremote pair code --name phone --host 100.64.0.1:7531 --qr               # selfsigned only
+  mcremote pair code --name phone --host 100.x.y.z:7531 --qr               # selfsigned only
   mcremote pair code --name phone --ttl 5m
   mcremote pair create --name phone --qr
   mcremote pair create --name phone --qr --host devbox.ts.example.com:7531
@@ -75,7 +75,7 @@ const pairExample = `
   mcremote pair code --name phone
   mcremote pair code --name phone --qr
   mcremote pair code --name phone --host devbox.ts.example.com:7531 --qr   # letsencrypt
-  mcremote pair code --name phone --host 100.64.0.1:7531 --qr               # selfsigned only
+  mcremote pair code --name phone --host 100.x.y.z:7531 --qr               # selfsigned only
   mcremote pair code --name phone --ttl 5m --qr
   mcremote pair code --name phone --copy     # URI to the clipboard via the terminal (OSC 52)
   mcremote pair          # same as pair code (default subcommand)
@@ -100,7 +100,7 @@ const pairCodeExample = `
   mcremote pair code --name phone
   mcremote pair code --name phone --qr
   mcremote pair code --name phone --host devbox.ts.example.com:7531 --qr   # letsencrypt
-  mcremote pair code --name phone --host 100.64.0.1:7531 --qr               # selfsigned only
+  mcremote pair code --name phone --host 100.x.y.z:7531 --qr               # selfsigned only
   mcremote pair code --name phone --ttl 5m
   mcremote pair code --name phone --ttl 10m --qr
   mcremote pair code --name android --host devbox.ts.example.com:7531
@@ -112,7 +112,7 @@ const pairCreateExample = `
   mcremote pair create --name phone
   mcremote pair create --name phone --qr
   mcremote pair create --name phone --qr --host devbox.ts.example.com:7531
-  mcremote pair create --name phone --qr --host 100.64.0.1:7531   # selfsigned only
+  mcremote pair create --name phone --qr --host 100.x.y.z:7531   # selfsigned only
   mcremote pair create --name desktop --qr
   mcremote pair create --name smoke
   mcremote pair create --name phone --data-dir ~/.local/share/mcremote

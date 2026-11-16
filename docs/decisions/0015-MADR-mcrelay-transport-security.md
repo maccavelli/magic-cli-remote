@@ -150,8 +150,10 @@ deferred in a later ADR.
 Example (illustrative):
 
 ```
-mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531&code=K7M29X4P&fp=<mcremote-fp>&mode=selfsigned&relay=wss%3A%2F%2Frelay.example.com&hid=<host_id>
+mcremote://pair?host=wss%3A%2F%2F<tailnet-ip>%3A7531&code=K7M29X4P&fp=<mcremote-fp>&mode=selfsigned&relay=wss%3A%2F%2Frelay.example.com&hid=<host_id>
 ```
+
+*(2026-11-16: an address was redacted here by the owner's ruling "Treat it as real; replace it everywhere".)*
 
 **Client connection preference:**
 
@@ -333,8 +335,10 @@ Join plane (WebSocket, JSON text until splice):
 Pair URI example with relay routing:
 
 ```
-mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531&code=…&fp=…&mode=selfsigned&relay=wss%3A%2F%2Frelay.example.com&hid=devbox-1
+mcremote://pair?host=wss%3A%2F%2F<tailnet-ip>%3A7531&code=…&fp=…&mode=selfsigned&relay=wss%3A%2F%2Frelay.example.com&hid=devbox-1
 ```
+
+*(2026-11-16: an address was redacted here by the owner's ruling "Treat it as real; replace it everywhere".)*
 
 Code must not invent a second auth model on the relay without reopening this ADR.
 

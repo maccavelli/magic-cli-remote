@@ -783,7 +783,7 @@ Viper also maps other keys as `MCREMOTE_` + uppercased path with `_` (e.g.
 export MCREMOTE_LISTEN_HOST=tailscale       # tailnet IPv4 only; 0.0.0.0 is an explicit opt-in
 export MCREMOTE_LISTEN_PORT=7531
 export MCREMOTE_LOG_LEVEL=info
-export MCREMOTE_PAIR_HOST=100.64.0.1:7531   # selfsigned mode only
+export MCREMOTE_PAIR_HOST=100.x.y.z:7531   # selfsigned mode only
 
 # Let's Encrypt over Route 53 DNS-01
 export MCREMOTE_TLS_DOMAINS=devbox.ts.example.com

@@ -537,7 +537,7 @@ void main() {
       // the full set of per-daemon hints the next attempt must not reuse.
       const fp = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
       const pairUri =
-          'mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531&fp=$fp'
+          'mcremote://pair?host=wss%3A%2F%2F100.64.7.7%3A7531&fp=$fp'
           '&token=mcr_a&relay=wss%3A%2F%2Frelay.a.example&hid=host-a';
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
@@ -1322,7 +1322,7 @@ void main() {
       _useTallSurface(tester);
       // The silent-wipe shape: host survived (non-secret), token gone,
       // probe reports the marker outliving it.
-      final store = FakeSettingsStore(host: '100.64.0.1:7531')
+      final store = FakeSettingsStore(host: '100.64.7.7:7531')
         ..probeResult = SecretStoreHealth.credentialsLost;
       final client = FakeMcremoteClient();
       await tester.pumpWidget(_wrap(store: store, client: client));
@@ -1343,7 +1343,7 @@ void main() {
       // Incident #2's shape: the per-key wipe ate the identity, the token
       // survived — dialling would mint a fresh key and earn a guaranteed
       // client_key_mismatch on top of the banner.
-      final store = FakeSettingsStore(host: '100.64.0.1:7531', token: 'mcr_ok')
+      final store = FakeSettingsStore(host: '100.64.7.7:7531', token: 'mcr_ok')
         ..probeResult = SecretStoreHealth.credentialsLost;
       final client = FakeMcremoteClient();
       await tester.pumpWidget(_wrap(store: store, client: client));
@@ -1357,7 +1357,7 @@ void main() {
       tester,
     ) async {
       _useTallSurface(tester);
-      final store = FakeSettingsStore(host: '100.64.0.1:7531')
+      final store = FakeSettingsStore(host: '100.64.7.7:7531')
         ..probeResult = SecretStoreHealth.credentialsLost;
       await tester.pumpWidget(
         _wrap(store: store, client: FakeMcremoteClient()),
@@ -1404,7 +1404,7 @@ void main() {
     });
 
     testWidgets('a healthy store shows no banner', (tester) async {
-      final store = FakeSettingsStore(host: '100.64.0.1:7531');
+      final store = FakeSettingsStore(host: '100.64.7.7:7531');
       await tester.pumpWidget(
         _wrap(store: store, client: FakeMcremoteClient()),
       );

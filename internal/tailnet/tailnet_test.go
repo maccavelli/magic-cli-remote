@@ -16,13 +16,13 @@ func TestDetectIPv4Success(t *testing.T) {
 		cs := []string{"-test.run=TestHelperProcess", "--", command}
 		cs = append(cs, args...)
 		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
-		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1", "TAILSCALE_OUTPUT=100.64.0.1"}
+		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1", "TAILSCALE_OUTPUT=100.64.7.7"}
 		return cmd
 	}
 
 	ip := detectIPv4()
-	if ip != "100.64.0.1" {
-		t.Errorf("got %q, want 100.64.0.1", ip)
+	if ip != "100.64.7.7" {
+		t.Errorf("got %q, want 100.64.7.7", ip)
 	}
 }
 
@@ -35,13 +35,13 @@ func TestDetectIPv4MultiLine(t *testing.T) {
 		cs = append(cs, args...)
 		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
 		// Example tailnet (CGNAT-range) addresses, not real hosts.
-		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1", "TAILSCALE_OUTPUT=100.64.0.1\n100.64.7.8"}
+		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1", "TAILSCALE_OUTPUT=100.64.7.7\n100.64.7.8"}
 		return cmd
 	}
 
 	ip := detectIPv4()
-	if ip != "100.64.0.1" {
-		t.Errorf("got %q, want 100.64.0.1", ip)
+	if ip != "100.64.7.7" {
+		t.Errorf("got %q, want 100.64.7.7", ip)
 	}
 }
 

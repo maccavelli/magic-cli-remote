@@ -52,23 +52,24 @@ void main() {
 
   test('normalizeWsUrl strips http scheme (no ws://http:// bug)', () {
     expect(
-      SettingsStore.normalizeWsUrl('http://100.64.0.1:7531'),
-      'ws://100.64.0.1:7531/v1/ws',
+      // 100.64.7.7 is an example address in the tailnet (CGNAT) range, not a real host.
+      SettingsStore.normalizeWsUrl('http://100.64.7.7:7531'),
+      'ws://100.64.7.7:7531/v1/ws',
     );
     expect(
-      SettingsStore.normalizeWsUrl('https://100.64.0.1:7531'),
-      'wss://100.64.0.1:7531/v1/ws',
+      SettingsStore.normalizeWsUrl('https://100.64.7.7:7531'),
+      'wss://100.64.7.7:7531/v1/ws',
     );
   });
 
   test('normalizeWsUrl strips pasted path', () {
     expect(
-      SettingsStore.normalizeWsUrl('100.64.0.1:7531/v1/ws'),
-      'wss://100.64.0.1:7531/v1/ws',
+      SettingsStore.normalizeWsUrl('100.64.7.7:7531/v1/ws'),
+      'wss://100.64.7.7:7531/v1/ws',
     );
     expect(
-      SettingsStore.normalizeWsUrl('100.64.0.1:7531/healthz'),
-      'wss://100.64.0.1:7531/v1/ws',
+      SettingsStore.normalizeWsUrl('100.64.7.7:7531/healthz'),
+      'wss://100.64.7.7:7531/v1/ws',
     );
   });
 
@@ -81,29 +82,29 @@ void main() {
 
   test('healthzUrl uses port 7531 not a garbage concatenation', () {
     expect(
-      SettingsStore.healthzUrl('100.64.0.1:7531'),
-      'https://100.64.0.1:7531/healthz',
+      SettingsStore.healthzUrl('100.64.7.7:7531'),
+      'https://100.64.7.7:7531/healthz',
     );
     expect(
-      SettingsStore.healthzUrl('100.64.0.1'),
-      'https://100.64.0.1:7531/healthz',
+      SettingsStore.healthzUrl('100.64.7.7'),
+      'https://100.64.7.7:7531/healthz',
     );
     expect(
-      SettingsStore.healthzUrl('ws://100.64.0.1:7531/v1/ws'),
-      'http://100.64.0.1:7531/healthz',
+      SettingsStore.healthzUrl('ws://100.64.7.7:7531/v1/ws'),
+      'http://100.64.7.7:7531/healthz',
     );
     expect(
-      SettingsStore.healthzUrl('http://100.64.0.1:7531'),
-      'http://100.64.0.1:7531/healthz',
+      SettingsStore.healthzUrl('http://100.64.7.7:7531'),
+      'http://100.64.7.7:7531/healthz',
     );
   });
 
   test('healthzUrl and httpBaseFromWs follow the ws scheme, fp and all', () {
     // The `#fp=` fragment must never leak into a request URL.
-    const host = 'wss://100.64.0.1:7531#fp=$_fpB64';
-    expect(SettingsStore.healthzUrl(host), 'https://100.64.0.1:7531/healthz');
-    expect(SettingsStore.httpBaseFromWs(host), 'https://100.64.0.1:7531');
-    expect(SettingsStore.normalizeWsUrl(host), 'wss://100.64.0.1:7531/v1/ws');
+    const host = 'wss://100.64.7.7:7531#fp=$_fpB64';
+    expect(SettingsStore.healthzUrl(host), 'https://100.64.7.7:7531/healthz');
+    expect(SettingsStore.httpBaseFromWs(host), 'https://100.64.7.7:7531');
+    expect(SettingsStore.normalizeWsUrl(host), 'wss://100.64.7.7:7531/v1/ws');
   });
 
   group('fingerprint parsing', () {
@@ -195,12 +196,12 @@ void main() {
         allowPlaintextFallback: false,
       );
 
-      await store.setFingerprint('wss://100.64.0.1:7531', _fpHex);
+      await store.setFingerprint('wss://100.64.7.7:7531', _fpHex);
       // Stored canonically, whatever encoding went in.
-      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+      expect(await store.getFingerprint('100.64.7.7:7531'), _fpB64);
       // Scheme and fragment do not change which daemon this identifies.
       expect(
-        await store.getFingerprint('ws://100.64.0.1:7531#fp=$_fpB64'),
+        await store.getFingerprint('ws://100.64.7.7:7531#fp=$_fpB64'),
         _fpB64,
       );
     });
@@ -213,19 +214,19 @@ void main() {
         allowPlaintextFallback: false,
       );
 
-      await store.setFingerprint('100.64.0.1:7531', _fpHex);
+      await store.setFingerprint('100.64.7.7:7531', _fpHex);
       await store.setFingerprint('100.64.0.9:7531', _fpB64Other);
 
       // Alternating between two daemons used to discard whichever pin was not
       // written last, forcing a QR rescan on every switch.
-      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+      expect(await store.getFingerprint('100.64.7.7:7531'), _fpB64);
       expect(await store.getFingerprint('100.64.0.9:7531'), _fpB64Other);
-      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+      expect(await store.getFingerprint('100.64.7.7:7531'), _fpB64);
     });
 
     test('migrates the old single-slot format instead of re-pairing', () async {
       SharedPreferences.setMockInitialValues({
-        'flutter.cert_fingerprint_host': '100.64.0.1:7531',
+        'flutter.cert_fingerprint_host': '100.64.7.7:7531',
       });
       final prefs = await SharedPreferences.getInstance();
       final secure = _InMemorySecureStorage({'cert_fingerprint': _fpB64});
@@ -235,13 +236,13 @@ void main() {
         allowPlaintextFallback: false,
       );
 
-      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+      expect(await store.getFingerprint('100.64.7.7:7531'), _fpB64);
       // Migrated, not merely read through: the legacy slot is retired and the
       // pin survives in the new store.
       expect(secure.values['cert_fingerprint'], isNull);
       expect(prefs.getString('cert_fingerprint_host'), isNull);
       expect(secure.values['cert_pins'], isNotNull);
-      expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+      expect(await store.getFingerprint('100.64.7.7:7531'), _fpB64);
       // And it is still scoped: another daemon does not inherit it.
       expect(await store.getFingerprint('100.64.0.9:7531'), isNull);
     });
@@ -257,7 +258,7 @@ void main() {
 
       // Pairing records the pin against the identity the daemon issued.
       await store.setFingerprint(
-        '100.64.0.1:7531',
+        '100.64.7.7:7531',
         _fpB64,
         deviceId: 'dev-abc',
       );
@@ -284,7 +285,7 @@ void main() {
       );
       await store.setDeviceId('dev-abc');
       await store.setFingerprint(
-        '100.64.0.1:7531',
+        '100.64.7.7:7531',
         _fpB64,
         deviceId: 'dev-abc',
       );
@@ -296,7 +297,7 @@ void main() {
       await store.setFingerprint('100.64.0.9:7531', _fpB64Other);
 
       expect(
-        await store.getFingerprint('100.64.0.1:7531', deviceId: 'dev-abc'),
+        await store.getFingerprint('100.64.7.7:7531', deviceId: 'dev-abc'),
         _fpB64,
       );
       // The new pin is still recorded — as a pending, host-scoped record.
@@ -312,7 +313,7 @@ void main() {
       );
       await store.setDeviceId('dev-abc');
       await store.setFingerprint(
-        '100.64.0.1:7531',
+        '100.64.7.7:7531',
         _fpB64,
         deviceId: 'dev-abc',
       );
@@ -340,18 +341,18 @@ void main() {
         );
 
         await store.setFingerprint(
-          '100.64.0.1:7531',
+          '100.64.7.7:7531',
           _fpB64,
           deviceId: 'dev-abc',
         );
         expect(
-          await store.getFingerprint('100.64.0.1:7531', deviceId: 'dev-abc'),
+          await store.getFingerprint('100.64.7.7:7531', deviceId: 'dev-abc'),
           _fpB64,
         );
         // Same address, different daemon identity: returning the other device's
         // pin would vouch for a host it says nothing about.
         expect(
-          await store.getFingerprint('100.64.0.1:7531', deviceId: 'dev-xyz'),
+          await store.getFingerprint('100.64.7.7:7531', deviceId: 'dev-xyz'),
           isNull,
         );
       },
@@ -368,15 +369,15 @@ void main() {
         );
 
         // First connect: the QR fingerprint is known, the device id is not.
-        await store.setFingerprint('100.64.0.1:7531', _fpB64);
-        expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+        await store.setFingerprint('100.64.7.7:7531', _fpB64);
+        expect(await store.getFingerprint('100.64.7.7:7531'), _fpB64);
 
         // Pair completes and the daemon issues an id; the client re-persists
         // the pin against it, which is what promotes the pending record.
         await store.setDeviceId('dev-abc');
-        expect(await store.getFingerprint('100.64.0.1:7531'), _fpB64);
+        expect(await store.getFingerprint('100.64.7.7:7531'), _fpB64);
         await store.setFingerprint(
-          '100.64.0.1:7531',
+          '100.64.7.7:7531',
           _fpB64,
           deviceId: 'dev-abc',
         );
@@ -398,11 +399,11 @@ void main() {
         allowPlaintextFallback: false,
       );
 
-      await store.setFingerprint('100.64.0.1:7531', _fpB64);
+      await store.setFingerprint('100.64.7.7:7531', _fpB64);
       // A pin from another daemon would either fail closed or, worse, vouch
       // for the wrong identity.
       expect(await store.getFingerprint('100.64.0.9:7531'), isNull);
-      expect(await store.getFingerprint('100.64.0.1:9999'), isNull);
+      expect(await store.getFingerprint('100.64.7.7:9999'), isNull);
     });
 
     test('refuses to persist a malformed fingerprint', () async {
@@ -429,14 +430,14 @@ void main() {
       );
 
       await store.setFingerprint(
-        '100.64.0.1:7531',
+        '100.64.7.7:7531',
         _fpB64,
         deviceId: 'dev-abc',
         mode: TlsMode.letsencrypt,
       );
 
       final pin = await store.getPinnedCert(
-        '100.64.0.1:7531',
+        '100.64.7.7:7531',
         deviceId: 'dev-abc',
       );
       expect(pin, isNotNull);
@@ -456,8 +457,8 @@ void main() {
 
       // What a build predating the mode wrote. Reading it as letsencrypt would
       // silently widen the trust set of an existing pin to the public CAs.
-      await store.setFingerprint('100.64.0.1:7531', _fpB64);
-      final pin = await store.getPinnedCert('100.64.0.1:7531');
+      await store.setFingerprint('100.64.7.7:7531', _fpB64);
+      final pin = await store.getPinnedCert('100.64.7.7:7531');
       expect(pin!.fingerprint, _fpB64);
       expect(pin.mode, TlsMode.selfsigned);
     });
@@ -471,19 +472,19 @@ void main() {
       );
 
       await store.setFingerprint(
-        '100.64.0.1:7531',
+        '100.64.7.7:7531',
         _fpB64,
         mode: TlsMode.letsencrypt,
       );
       // The host was re-paired in selfsigned mode: the rule must narrow with
       // the pin rather than leaving the wider one in place.
       await store.setFingerprint(
-        '100.64.0.1:7531',
+        '100.64.7.7:7531',
         _fpB64Other,
         mode: TlsMode.selfsigned,
       );
 
-      final pin = await store.getPinnedCert('100.64.0.1:7531');
+      final pin = await store.getPinnedCert('100.64.7.7:7531');
       expect(pin!.fingerprint, _fpB64Other);
       expect(pin.mode, TlsMode.selfsigned);
     });
@@ -909,7 +910,7 @@ void main() {
     test('clearSecrets removes exactly the secrets and the marker; host and '
         'path preferences survive', () async {
       SharedPreferences.setMockInitialValues({
-        'flutter.host': '100.64.0.1:7531',
+        'flutter.host': '100.64.7.7:7531',
         'flutter.pinned_session_cwds': ['/home/me/proj'],
         'flutter.recent_session_cwds': ['/home/me/other'],
       });
@@ -931,7 +932,7 @@ void main() {
       // still complete TLS afterwards (0066 incident #3 follow-up).
       expect(secure.values['cert_pins'], '{}');
       expect(prefs.getBool('expect_credentials'), isNull);
-      expect(prefs.getString('host'), '100.64.0.1:7531');
+      expect(prefs.getString('host'), '100.64.7.7:7531');
       expect(prefs.getStringList('pinned_session_cwds'), ['/home/me/proj']);
       expect(prefs.getStringList('recent_session_cwds'), ['/home/me/other']);
     });
@@ -939,7 +940,7 @@ void main() {
     test('clearAll clears connection identity but keeps path preferences '
         '(0066 F9)', () async {
       SharedPreferences.setMockInitialValues({
-        'flutter.host': '100.64.0.1:7531',
+        'flutter.host': '100.64.7.7:7531',
         'flutter.device_id': 'dev1',
         'flutter.relay_url': 'https://relay',
         'flutter.pinned_session_cwds': ['/home/me/proj'],

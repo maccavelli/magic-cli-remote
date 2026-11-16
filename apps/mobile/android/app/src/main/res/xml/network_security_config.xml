@@ -23,7 +23,7 @@
   re-enable cleartext globally. Add a narrow <domain-config> for that one host:
 
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">100.64.0.1</domain>
+        <domain includeSubdomains="false">100.x.y.z</domain>
     </domain-config>
 -->
 <network-security-config>

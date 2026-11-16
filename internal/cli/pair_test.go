@@ -45,7 +45,7 @@ func TestResolvePairHostLetsEncryptUsesDomain(t *testing.T) {
 	cfg := leConfig(t)
 	// Even with an operator-pinned advertise host, LE must win: the CA issues
 	// for the domain, so advertising anything else fails hostname verification.
-	cfg.Pair.AdvertiseHost = "100.64.0.1:7531"
+	cfg.Pair.AdvertiseHost = "100.64.7.7:7531"
 
 	got := resolvePairHost("", cfg)
 	if got != "devbox.ts.example.com:7531" {
@@ -55,11 +55,11 @@ func TestResolvePairHostLetsEncryptUsesDomain(t *testing.T) {
 
 func TestResolvePairHostSelfSignedUsesAdvertiseHost(t *testing.T) {
 	cfg := selfSignedConfig(t)
-	cfg.Pair.AdvertiseHost = "100.64.0.1:7531"
+	cfg.Pair.AdvertiseHost = "100.64.7.7:7531"
 
 	got := resolvePairHost("", cfg)
-	if got != "100.64.0.1:7531" {
-		t.Fatalf("host=%q want 100.64.0.1:7531", got)
+	if got != "100.64.7.7:7531" {
+		t.Fatalf("host=%q want 100.64.7.7:7531", got)
 	}
 
 	// A bare host inherits listen.port.
@@ -72,7 +72,7 @@ func TestResolvePairHostSelfSignedUsesAdvertiseHost(t *testing.T) {
 // The per-run --host flag overrides even a configured advertise host.
 func TestResolvePairHostFlagBeatsAdvertiseHost(t *testing.T) {
 	cfg := selfSignedConfig(t)
-	cfg.Pair.AdvertiseHost = "100.64.0.1:7531"
+	cfg.Pair.AdvertiseHost = "100.64.7.7:7531"
 	if got := resolvePairHost("other.example.com:9443", cfg); got != "other.example.com:9443" {
 		t.Fatalf("host=%q want other.example.com:9443", got)
 	}
@@ -181,7 +181,7 @@ func runPairCode(t *testing.T, yaml string) pairuri.Payload {
 		t.Fatal(err)
 	}
 	t.Setenv("MCREMOTE_CONFIG", cfgPath)
-	t.Setenv("MCREMOTE_PAIR_HOST", "100.64.0.1:7531")
+	t.Setenv("MCREMOTE_PAIR_HOST", "100.64.7.7:7531")
 
 	cmd := newPairCmd()
 	var buf bytes.Buffer

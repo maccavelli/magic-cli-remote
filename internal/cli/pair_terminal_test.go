@@ -46,7 +46,8 @@ func writePairConfig(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Setenv("MCREMOTE_CONFIG", cfgPath)
-	t.Setenv("MCREMOTE_PAIR_HOST", "100.64.0.1:7531")
+	// 100.64.7.7 is an example address in the tailnet (CGNAT) range, not a real host.
+	t.Setenv("MCREMOTE_PAIR_HOST", "100.64.7.7:7531")
 	return dataDir
 }
 

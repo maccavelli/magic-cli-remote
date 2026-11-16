@@ -1509,7 +1509,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                   controller: _hostCtrl,
                   decoration: InputDecoration(
                     labelText: 'Host (mcremote)',
-                    hintText: '100.64.0.1:7531',
+                    hintText: '100.x.y.z:7531',
                     border: const OutlineInputBorder(),
                     helperText: 'Mesh: tailnet IP + :7531 (not Headscale :443)',
                   ),

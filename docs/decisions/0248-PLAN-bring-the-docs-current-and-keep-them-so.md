@@ -1109,6 +1109,7 @@ by reading. One address is used as an example in many tests and appears in these
 `apps/mobile/lib/features/connect/connect_screen.dart:1512`, and
 `apps/mobile/android/app/src/main/res/xml/network_security_config.xml:26`. If the owner says it is a real address, they are redacted under
 the ruling "Scrub fixtures and comment; annotate records", and so are its other occurrences; if not, they stay.
+*(2026-11-16, later: closed by the owner's ruling "Treat it as real; replace it everywhere", relayed by the coordinator. See "The example address — 2026-11-16".)*
 
 **Checks, after the last edit.** ```text
 python3 -B scripts/check_records.py --check-all          exit=0, file empty
@@ -1123,3 +1124,91 @@ reported exactly the two planted faults (a line beyond a file's end, and a file 
 exited 0. No Go or Dart file changed in this round, so no test was re-run.
 
 **Files.** The REPORT, the MADR and this PLAN. Staged, not committed; the plan pauses until the owner says to continue.
+
+### The example address — 2026-11-16
+
+Run by a mainstream model at medium effort, on the coordinator's brief, from `master` at `076c895d` (clean). A first agent
+scanned and read, then was stopped for a host reboot before editing anything; this run re-scanned, edited and checked. The
+old example address is not quoted here or anywhere else in this change; it is named by kind and place, and the scratch
+files that held it were deleted.
+
+**Deviation from the plan (C7).** The plan's scope is Markdown and comment-only Go and Dart text; its Scope amendment
+covers "the tailnet address in test fixtures, one code comment and four records". The old example address is used as an
+example in tests, a CLI help text, a UI hint, a code comment and an Android XML comment, which the plan did not name. On
+2026-11-16 the owner ruled, relayed by the coordinator, by choosing the label "Treat it as real; replace it everywhere":
+the address is swapped for an obvious example address in docs, CLI examples, tests and the mobile screen, with the tests
+re-run, as its own commit; history is not rewritten. This entry records that ruling as the resolution. It closes the
+paragraph "Open for the owner, not decided: eight address lines" above (annotated there). No MADR decision changes.
+Two of the edits change a user-visible string, not only a comment: the four help examples in `internal/cli/examples.go`
+and the Host field's hint text in the connect screen. No test or golden asserted either text (the scan found the old
+address in no assertion on them).
+
+**The Android line.** `apps/mobile/android/app/src/main/res/xml/network_security_config.xml:26` sits inside the XML comment
+at lines 2-28, in a how-to ("If you must run a plaintext daemon ... add a narrow `<domain-config>`"). The live
+configuration (lines 30-36) is only `base-config cleartextTrafficPermitted="false"` with system trust anchors. Replacing
+the address changes no allowed host. It was edited like the rest: the comment text only.
+
+**Counts, before and after (lines at `076c895d`; a line with two occurrences counts twice; the first agent's "25 files"
+was 24).**
+
+| Kind | Place | Before | After |
+| :--- | :--- | :--- | :--- |
+| code | `internal/cli/examples.go` (4), `internal/pairuri/pairuri.go` (1, a field comment), `apps/mobile/lib/features/connect/connect_screen.dart` (1, the hint text), `apps/mobile/android/.../network_security_config.xml` (1, comment) | 7 | 0 |
+| doc | `README.md` 1, `docs/guides/config.md` 1, `docs/guides/protocol-v1.md` 1 | 3 | 0 |
+| test, Dart | `connect_screen_test.dart` 5, `connection_card_test.dart` 7, `pair_uri_test.dart` 16, `pin_identity_test.dart` 3, `relay_path_test.dart` 2, `settings_store_test.dart` 52 | 85 | 0 |
+| test, Go | `internal/cli` (`pair_daemon_test.go` 1, `pair_terminal_test.go` 1, `pair_test.go` 6, `setup_service_test.go` 1), `internal/config/config_test.go` 3, `internal/pairuri/pairuri_test.go` 7, `internal/relayhost/backoff_test.go` 2, `internal/tailnet/tailnet_test.go` 6, `internal/ws/server_test.go` 2 | 29 | 0 |
+| record | `docs/decisions/0004-PLAN-hardening-implementation.md` 1 (redacted), `docs/decisions/0015-MADR-mcrelay-transport-security.md` 2 (redacted) | 3 | 0 |
+| all | 24 files | 127 | 0 |
+
+**Replacement forms.** Tests: the one fixed example `100.64.7.7`, the form `076c895d` introduced, so each test keeps its
+relations (the same literal in input and expectation, in the same position). Where a test needs a second distinct address,
+`internal/tailnet/tailnet_test.go` already carried `100.64.7.8`; the multi-line test now reads `100.64.7.7` then
+`100.64.7.8`. The test in `internal/config/config_test.go` that expects "is an IP address" still gets an IP literal. A
+comment saying the address is an example in the tailnet (CGNAT) range, not a real host, is added once in each of the 12
+test files that had none (`076c895d`'s form); `connect_screen_test.dart`, `pair_test.go` and `tailnet_test.go` already had
+one. In the Go files that comment sits above the statement that holds the literal where a field comment would have
+re-aligned unrelated fields. Prose and the examples a reader copies and adapts (`README.md`, `config.md`,
+`protocol-v1.md`, the four help examples, the Host hint, the `pairuri.go` field comment, the Android comment): the
+placeholder `100.x.y.z`, the form `docs/guides/headscale.md` already uses; none of these lines needs a concrete address to
+run or to show a shape.
+
+**Records, redacted.** The brief's first instruction was to edit a record only where a line states the address as an
+observed real device's or host's address, and so the first pass left three record lines. That was too narrow. The
+coordinator applied two rulings of the owner together: "Treat it as real; replace it everywhere" and, for the same class
+of value, "Scrub fixtures and comment; annotate records". A real address used as an illustration in a record is still the
+address. This is the coordinator's application of those two rulings, not a new ruling. The three lines were redacted the
+way `076c895d` redacted record lines: `<tailnet-ip>` in place of the address, and a dated note after the paragraph or the
+code block (not inside either): `*(2026-11-16: an address was redacted here by the owner's ruling "Treat it as real;
+replace it everywhere".)*`. Nothing else in those records changed.
+
+* `docs/decisions/0004-PLAN-hardening-implementation.md:286`: `<tailnet-ip>:7531`, in the "Tests." paragraph that pins one
+  address and re-keys to a second. The second address in that sentence is a different example address that was not the
+  one ruled on, so it is left as written and the sentence keeps its meaning; the note follows the paragraph.
+* `docs/decisions/0015-MADR-mcrelay-transport-security.md:153` and `:336`: `<tailnet-ip>` inside the URL-encoded host
+  parameter of the two pair URI examples; each note follows its code block.
+
+**Tests and checks, after the last edit** (each to a scratch file; the exit status was taken before any filter):
+
+```text
+gofmt -l on the 11 changed Go files                         exit=0, no file listed (3 files were first reformatted by gofmt -w after the comments went in)
+make pre-add-check FILES="<the 11 files>"                   exit=0, "11 file(s) clean (gofmt, golint, govulncheck)"
+go test ./...  via run-on-host, the Linux machine           exit=0, no FAIL
+go test -count=1 on the six changed packages, this Mac      exit=0, six ok
+dart format --output=none --set-exit-if-changed (7 files)   exit=0, 0 changed
+flutter analyze, apps/mobile, via run-heavy, this Mac       exit=0, "No issues found!"
+flutter test, apps/mobile, via run-heavy, this Mac          exit=0, "+1544 ~3: All tests passed!"
+python3 -B scripts/check_records.py --check-all             exit=0, output empty
+make check-records                                          exit=0
+make markdownlint-docs                                      exit=0, "Summary: 0 issues in 0 files"
+python3 ~/.global-git-hooks/github-disclosure.py redact     exit=0, "would edit 0 file(s), 0 path(s) need a rename by hand"
+```
+
+No test needed more than a literal swap and the example comment. No race run was made or needed: no test logic changed.
+
+The scan on the final tree, over tracked files: 0 occurrences.
+
+**Not rewritten.** History is not rewritten. The old example address remains in earlier revisions and in every tag that
+contains it. The disclosure guard's deny list is the owner's to update; nothing under the global hooks was read or edited.
+
+**Files.** 24 files changed by the replacement: the 4 code files, the 3 docs, the 2 records, 6 Dart tests and 9 Go tests of
+the table above; this PLAN. Staged, not committed.

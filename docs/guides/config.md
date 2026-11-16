@@ -552,7 +552,7 @@ export MCREMOTE_LOG_LEVEL=debug
 export MCREMOTE_LOG_FORMAT=json
 export MCREMOTE_DATA_DIR=/var/lib/mcremote
 export MCREMOTE_CONFIG=/etc/mcremote/config.yaml
-export MCREMOTE_PAIR_ADVERTISE_HOST=100.64.0.1:7531   # pair QR host; selfsigned mode (== config pair.advertise_host)
+export MCREMOTE_PAIR_ADVERTISE_HOST=100.x.y.z:7531   # pair QR host; selfsigned mode (== config pair.advertise_host)
 
 # Let's Encrypt (DNS-01 via Route 53)
 export MCREMOTE_TLS_DOMAINS=devbox.ts.example.com

@@ -20,11 +20,12 @@ func TestBackoffResetSemantics(t *testing.T) {
 }
 
 func TestLoopbackAddr(t *testing.T) {
+	// 100.64.7.7 is an example address in the tailnet (CGNAT) range, not a real host.
 	cases := map[string]string{
 		"0.0.0.0:7531":   "127.0.0.1:7531",
 		"[::]:7531":      "127.0.0.1:7531",
 		"127.0.0.1:7531": "127.0.0.1:7531",
-		"100.64.0.1:9":   "100.64.0.1:9",
+		"100.64.7.7:9":   "100.64.7.7:9",
 	}
 	for in, want := range cases {
 		if got := loopbackAddr(in); got != want {

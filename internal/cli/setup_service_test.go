@@ -50,11 +50,12 @@ func TestSetupServiceFlagsToOptionsExplicitConfigPath(t *testing.T) {
 }
 
 func TestSetupServiceFlagsToOptionsCarriesAllFields(t *testing.T) {
+	// 100.64.7.7 is an example address in the tailnet (CGNAT) range, not a real host.
 	f := setupServiceFlags{
 		unitName:   "myapp",
 		binary:     "/usr/bin/mcremote",
 		dataDir:    "/var/lib/mcremote",
-		listenHost: "100.64.0.1",
+		listenHost: "100.64.7.7",
 		listenPort: 7531,
 		workingDir: "/home/user",
 		printOnly:  true,
