@@ -1,4 +1,4 @@
-# Magic CLI Remote (Android)
+# Magic CLI Remote (Android and iOS)
 
 Flutter companion app for the `mcremote` daemon. **Android is the product
 target**; a Linux desktop target is included for local development.
@@ -10,7 +10,8 @@ Documentation: [docs/README.md](docs/README.md).
 - Connect via **Enter code** (8-char, 5 min), QR scan, a pasted pair URI, or long-lived token. A self-signed
   daemon (the default) needs the QR or the pair URI, which carry its certificate fingerprint; a typed code
   or bare token works only with a publicly trusted certificate
-- Session list / create with provider picker (**grok**, **opencode**, **codex**, **kilo**, **fake** — as the daemon reports ready)
+- Session list / create with provider picker (what the daemon's `providers.list` returns: **gobble**, **grok**, **opencode**, **codex**,
+  **kilo**, and **fake** when enabled; providers that are not ready are listed disabled)
 - Model catalog, model-provider scope, thinking levels, and session modes (including auto-approve / dangerous modes when offered)
 - Live chat stream (thoughts, tools, assistant text, questions)
 - **In-session transcript** survives navigating away from chat, with daemon-history replay and a bounded best-effort phone cache
@@ -25,7 +26,7 @@ Documentation: [docs/README.md](docs/README.md).
   `.github/workflows/ci.yml`). Use exactly this version: CI fails when
   `flutter pub get` changes `pubspec.lock`.
 - One of:
-  - **Linux desktop** (easiest on this host — no Android emulator required)
+  - **Linux desktop** (no Android emulator required)
   - Android emulator / physical device on Headscale
 - Running `mcremote` daemon (see repo root)
 
@@ -45,7 +46,7 @@ cd apps/mobile
 flutter run -d linux
 ```
 
-In the app: **Enter code** / **Scan QR**, or host **`127.0.0.1:7531`** + long token under Advanced.
+In the app: **Enter code** / **Scan QR**, or **Paste URI / code / token** (host **`127.0.0.1:7531`** for a local daemon); the Settings token dialog also takes a long token.
 
 If `flutter run -d linux` fails with a display error on a headless machine, you need either:
 
@@ -113,8 +114,8 @@ TLS is required for Android pairing.
 ## Connection lifecycle
 
 - **Cold start:** if a host + device token are stored, the connect screen auto-connects once.
-- **App resume:** if the socket dropped while the app was backgrounded and you have not logged out, the client reconnects automatically.
-- **Logout (Disconnect):** stops auto-reconnect for this process; stored token remains for the next cold start unless you **Clear saved credentials**.
+- **App resume:** if the socket dropped while the app was backgrounded and you have not signed out, the client reconnects automatically.
+- **Sign out:** stops auto-reconnect for this process; stored token remains for the next cold start unless you **Clear saved credentials**.
 - **Invalid token:** storage token is cleared; host is kept so you can re-pair with a new code.
 
 The app rebuilds transcripts from the daemon's bounded history ring and keeps a
@@ -134,10 +135,15 @@ stopping can still lose an unflushed local tail.
 
 ```text
 lib/
-  data/protocol/   # envelope + event models
-  data/ws/         # McremoteClient
+  app_lifecycle.dart
+  data/chat/
+  data/diagnostics/
   data/local/      # secure settings
-  features/        # connect, sessions, chat, settings
+  data/notifications/
+  data/protocol/   # envelope + event models
+  data/update/
+  data/ws/         # McremoteClient
+  features/        # chat, connect, sessions, settings, widgets
   state/           # Riverpod providers
   theme/           # Celestial design system
 ```
@@ -154,8 +160,8 @@ Needs the Android SDK. On low-RAM machines use:
 
 Outputs:
 
-- `apps/mobile/build/app/outputs/flutter-apk/app-release.apk`
-- `dist/magic-cli-remote-latest-arm64.apk` (copy for sideload)
+- `apps/mobile/build/app/outputs/flutter-apk/app-release.apk` (both `make apk` and `./scripts/build-apk.sh`)
+- `dist/magic-cli-remote-latest-arm64.apk` and a time-stamped copy (`./scripts/build-apk.sh` only: the copy for sideload)
 
 A local build is signed with the debug key unless `android/key.properties` exists; tagged releases are signed
 with the upload key ([ops-android-signing.md](docs/guides/ops-android-signing.md)). A debug-signed APK cannot
@@ -181,7 +187,7 @@ make profile-apk              # arm64 profile APK only
 ```
 
 Then open DevTools (`dart devtools`) and paste the VM service URI from the run
-terminal. Full guide: [docs/guides/mobile-profiling.md](../../docs/guides/mobile-profiling.md).
+terminal. Full guide: [docs/guides/mobile-profiling.md](docs/guides/mobile-profiling.md).
 
 Chat-specific knobs: [docs/guides/chat-performance.md](../../docs/guides/chat-performance.md).
 

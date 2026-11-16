@@ -224,8 +224,9 @@ at logon rather than boot, and there is a durability caveat on NTFS.
 | `windows/amd64` | **2** | built and tested in CI, not exercised by the live provider suites |
 | `windows/arm64` | — | **not supported**; see below |
 
-**Tier 2** means the target is built, unit-tested and smoke-tested in CI on
-every push and tag, but is not covered by the live provider suites and ships
+**Tier 2** means the target is built and unit-tested in CI on every push (on a
+tag, the release build also runs each binary's `version` command on that
+platform's runner), but is not covered by the live provider suites and ships
 with a documented list of unsupported surfaces.
 
 `windows/arm64` is **not supported** — not built, not published. That is a
@@ -237,7 +238,7 @@ not select it for you.
 
 ---
 
-**Current product surface:** Grok Build ACP, OpenCode v2 (ACP),
+**Current product surface:** gobble (ACP), Grok Build ACP, OpenCode v2 (ACP),
 Codex, Kilo, and Fake providers; remote tool permissions; session modes / model
 catalogs / thinking levels; stream coalescing; protocol v2 reconnect/resume;
 native path layout per platform — XDG on Linux/macOS, Known Folders on
@@ -261,7 +262,8 @@ Module: `github.com/maccavelli/magic-cli-remote`
   │  HTTP: GET /healthz, GET /v1/hello, GET /v1/ws  │
   │  auth (device token + optional client TLS key)  │
   │  session manager + event bus + history ring     │
-  │  providers: grok, opencode, codex, kilo, fake   │
+  │  providers: gobble, grok, opencode, codex,      │
+  │             kilo, fake                          │
   │  admin.sock (local Unix, pair-revoke kick)      │
   └───────────┬─────────────┬───────────────────────┘
               │             │ optional outbound
@@ -270,7 +272,7 @@ Module: `github.com/maccavelli/magic-cli-remote`
               │        register / join / splice
               ▼
      agent engines (shared processes where applicable)
-       grok agent stdio · opencode acp (+ serve --stdio) · codex app-server · kilo serve
+       gobble acp · grok agent stdio · opencode acp (+ serve --stdio) · codex app-server · kilo serve
 ```
 
 Design spine: [docs/decisions/0001-MADR-architecture-mcremote.md](docs/decisions/0001-MADR-architecture-mcremote.md),
@@ -770,7 +772,8 @@ mcremote setup-service --binary ~/.local/bin/mcremote --force
 | `MCREMOTE_TLS_DOMAINS` | Comma-separated DNS names to request from the ACME CA |
 | `MCREMOTE_TLS_EMAIL` | ACME account email |
 | `MCREMOTE_TLS_ACME_DIRECTORY_URL` / `MCREMOTE_TLS_ACME_STAGING` / `MCREMOTE_TLS_ACME_CACHE_DIR` | ACME endpoint / cache |
-| `MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID` / `_REGION` / `_PROFILE` / `_MAX_RETRIES` | Route 53 DNS-01 solver |
+| `MCREMOTE_TLS_ROUTE53_HOSTED_ZONE_ID` / `_REGION` / `_PROFILE` | Route 53 DNS-01 solver |
+| `MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES` | Route 53 API attempts (`0` = the provider's default). No short `MCREMOTE_TLS_ROUTE53_*` alias exists; only this full name works |
 | `MCREMOTE_TLS_CERT_FILE` / `MCREMOTE_TLS_KEY_FILE` | Use an operator-managed certificate instead of the generated one |
 | `MCREMOTE_PAIR_ADVERTISE_HOST` / `MCREMOTE_PAIR_HOST` | Host shown in pair QR/code (e.g. tailnet IP). Ignored in `letsencrypt` mode |
 | `MCREMOTE_RELAY_URL` / `MCREMOTE_RELAY_HOST_ID` / `MCREMOTE_RELAY_SECRET` / `MCREMOTE_RELAY_INSECURE_SKIP_VERIFY` | mcrelay outbound relay config |
@@ -1463,7 +1466,7 @@ docs: [apps/mobile/README.md](apps/mobile/README.md).
 - Pairing: 8-char code, QR (`mcremote://pair…`), long-lived token
 - TLS modes: pin-only (self-signed), chain-or-pin (Let's Encrypt), cleartext
   rejected on Android
-- Provider picker: grok / opencode / codex / kilo / fake (as advertised ready)
+- Provider picker: what the daemon's `providers.list` returns (gobble, grok, opencode, codex, kilo, and fake when enabled); providers that are not ready are listed disabled
 - Model catalog + model-provider scope + thinking levels
 - Session modes (including dangerous/auto-approve where the daemon offers them)
 - Live chat: thoughts, tools, assistant text, permissions, questions
@@ -1609,7 +1612,7 @@ internal/
   ws/           # protocol v1/v2 WebSocket server
   protocol/     # wire types and version negotiation
   session/      # session manager
-  provider/     # grok, opencode, codex, kilo, fake, ACP helpers
+  provider/     # gobble, grok, opencode, codex, kilo, fake, ACP helpers
   auth/         # devices, pair codes, tokens
   certs/        # TLS: self-signed, ACME DNS-01
   receipt/      # signed permission-decision receipts

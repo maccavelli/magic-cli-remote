@@ -5,9 +5,9 @@ Encrypt certificates via the DNS-01 challenge. This is the source of truth for
 the policy; surrounding design and configuration live in the root
 [README TLS section](../../README.md#tls) and [config.md](config.md).
 
-Everything below assumes the worked example from
-[headscale.md](headscale.md): registered domain `example.com`, MagicDNS base
-domain `ts.example.com`, daemon name `devbox.ts.example.com`.
+Everything below assumes a worked example: registered domain `example.com`,
+MagicDNS base domain `ts.example.com` (as in [headscale.md](headscale.md)), and a
+daemon name such as `devbox.ts.example.com`.
 
 ---
 

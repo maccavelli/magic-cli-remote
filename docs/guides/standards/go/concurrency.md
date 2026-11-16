@@ -1,6 +1,6 @@
 ---
 title: "Go Concurrency and Lifecycle Standards"
-version: "1.26.5-v3"
+version: "1.27.4-v3"
 last_updated: "2026-07-28"
 component: "concurrency"
 ---

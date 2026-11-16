@@ -150,12 +150,12 @@ INSTALL_PATH := $(USER_BIN_DIR)/$(INSTALL_NAME)
 SERVICE_NAME ?= mcremote
 RELAY_SERVICE_NAME ?= mcrelay
 
-# Android profile targets (see docs/guides/mobile-profiling.md).
+# Android profile targets (see apps/mobile/docs/guides/mobile-profiling.md).
 # DEVICE=  Flutter device id from `flutter devices` / `make profile-devices`.
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-grok-discrimination live-grok-rest live-kilo live-gobble live-replacefirst live-supervisors race test-all preflight apk manifest-surface \
+.PHONY: build debug build-relay build-remote install install-relay codesign-maybe test live-opencode live-codex live-codex-contract live-codex-turn live-codex-review live-grok live-grok-discrimination live-grok-rest live-kilo live-gobble live-replacefirst live-supervisors race test-all preflight apk manifest-surface \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
 	pre-add-check vet vet-tags tidy clean check-host-target check-cgo-off check-records markdownlint-docs \
 	check-libs
@@ -567,7 +567,7 @@ apk:
 
 # ---------------------------------------------------------------------------
 # Flutter profile mode (runtime performance; not binary size).
-# Docs: docs/guides/mobile-profiling.md
+# Docs: apps/mobile/docs/guides/mobile-profiling.md
 # ---------------------------------------------------------------------------
 
 # List connected devices (pick an Android id for DEVICE=).

@@ -57,4 +57,6 @@ agree.
   enables a runtime capability.
 
 The previous pin, 0.166.0, is gone. `../0.149.1/` and `../0.147.0/` retain only fixtures that pin
-parsing behaviour rather than protocol surface.
+parsing behaviour rather than protocol surface. Recorded wire captures live under `../wire/`:
+`../wire/0.167.0/` for this pin, `../wire/0.166.0/` (replayed by `runtime_passthrough_test.go`) and
+`../wire/0.152.1/` (kept as history).

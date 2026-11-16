@@ -22,7 +22,7 @@ verbatim, so raw strings still appear inside agent transcripts.
 
 1. **Identity, not path.** Grants attach to the *responsible process's code
    identity*. Children inherit the daemon's responsibility, so one grant on
-   `mcremote` covers every spawned agent (codex, grok, kilo, opencode) —
+   `mcremote` covers every spawned agent (codex, gobble, grok, kilo, opencode) —
    and a grant on Terminal.app covers **nothing** for the LaunchAgent.
 2. **Headless means silent.** A LaunchAgent gets no reliable consent
    prompt; denial surfaces as `EPERM` ("operation not permitted"), which
@@ -37,8 +37,9 @@ verbatim, so raw strings still appear inside agent transcripts.
 
 `curl …/install.sh | sh` (and `make install`) place `~/.local/bin/mcremote`.
 Neither grants Full Disk Access — TCC has no programmatic grant API. The
-installer's last step, `mcremote setup-service --from-installer`, prints these
-steps with the binary's path and the LaunchAgent's label. Do this after the
+installer's `mcremote setup-service --from-installer` step prints these
+steps with the binary's path and the LaunchAgent's label (the mcrelay hook runs
+after it). Do this after the
 one-liner, then restart the LaunchAgent.
 
 1. System Settings → Privacy & Security → **Full Disk Access**.
@@ -86,8 +87,8 @@ requirement — the grant then survives rebuilds. To keep it across
 `mcremote update` too, set `MC_CODESIGN_IDENTITY` for the update, and in the
 service's environment for an agent-run update: it re-signs the verified binary
 with the same identifier before installing it. Without it, the update installs
-the release's ad-hoc-signed binary. `install-binary.sh` verifies the signature
-survived the swap. Unsigned builds keep working, but lose the grant on every
+the release's ad-hoc-signed binary. `make install` goes through `install-binary.sh`, which verifies the signature
+survived the swap; `update` installs through go-selfupdate-lib, not that script. Unsigned builds keep working, but lose the grant on every
 upgrade, usually without a prompt; re-add the binary.
 
 ## Recovery and diagnosis

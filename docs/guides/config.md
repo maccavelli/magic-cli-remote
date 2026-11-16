@@ -124,7 +124,7 @@ through the provider sections.
 | `providers.gobble.prewarm` | `false` — keep one spare `gobble acp` ready. Off so the first session pays the cold start (about half a second in the 0179 capture) instead of holding a process idle (MADR 0089 D5). Turn on from the phone or set `true` here |
 | `providers.gobble.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
 | `providers.gobble.fs_roots` | `[]` — has no effect: the daemon offers gobble no client files, and gobble reads and writes locally in the session's directory (MADR 0179 D2) |
-| `providers.gobble.auth_method_id` | *(empty — the first upstream with a stored credential, in gobble's order)* — pins the upstream the handshake authenticates. One of `gemini`, `openai`, `claude`, `grok`, `opencode-zen`, `opencode-go`, `huggingface`, `kilo`, `together`; any other value fails the load |
+| `providers.gobble.auth_method_id` | *(empty — the first upstream with a usable credential and no reason, in gobble's order)* — pins the upstream the handshake authenticates. One of `gemini`, `openai`, `claude`, `grok`, `opencode-zen`, `opencode-go`, `huggingface`, `kilo`, `together`; any other value fails the load |
 | `providers.gobble.mcp_servers` | `[]` — MCP servers advertised to each session (config-file only; not env/flags). gobble 0.4.0 advertises `http` only |
 | `providers.grok.enabled` | `true` |
 | `providers.grok.bin` | `grok` |
@@ -234,8 +234,8 @@ The daemon passes it no settings of its own: gobble reads its own `settings.yaml
 
 - **Credentials are gobble's.** The phone's provider sign-in writes gobble's store through gobble's own CLI, the key
   on standard input, never in a command line or a file this daemon writes. `gobble auth login <upstream>` on the host
-  works too, and the phone sees the result. A session authenticates the first upstream with a stored credential,
-  unless `auth_method_id` pins one.
+  works too, and the phone sees the result. A session authenticates the first upstream with a usable credential and no
+  reason, in gobble's order, unless `auth_method_id` pins one.
 - **`bypass` mode** appears only when gobble's own `permissions.allowBypass` is set, and the phone confirms it before
   switching.
 - **Version:** gobble 0.4.0 is the supported minimum. Another version starts, with a warning; an older gobble shows no

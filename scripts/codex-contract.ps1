@@ -144,7 +144,7 @@ $env:CODEX_CONTRACT_EXPERIMENTAL_SCHEMA = Composite $installedExpDir
 # on this host, so decompression uses Node's zlib.zstdDecompressSync, which needs
 # Node >= 23.8 (measured working on v24.14.0). The delta compares METHOD SETS, not
 # bytes, which matters because the blob and the binary's own export differ by four
-# trailing bytes while declaring an identical 164 methods.
+# trailing bytes while declaring identical method sets (at 0.167.0, 202 stable and 277 experimental).
 function Expand-SourceExports([string]$tree, [string]$which, [string]$dest) {
   $blob = Join-Path $tree "codex-rs/app-server-protocol/schema/precomputed/app-server-exports-$which.json.zst"
   if (-not (Test-Path $blob)) { Fail "missing $blob; -SourceTree must be a codex checkout" }

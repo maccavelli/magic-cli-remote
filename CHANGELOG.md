@@ -14,6 +14,45 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Example addresses in `--help` output, the phone's Host field hint and the guides were replaced with placeholders. See
   [0248-PLAN-bring-the-docs-current-and-keep-them-so.md](docs/decisions/0248-PLAN-bring-the-docs-current-and-keep-them-so.md).
 
+### Fixed
+
+- The README no longer lists `_MAX_RETRIES` among the short `MCREMOTE_TLS_ROUTE53_*` names. Only the full name
+  `MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES` works; the short spelling was silently ignored. See
+  [0248-PLAN-bring-the-docs-current-and-keep-them-so.md](docs/decisions/0248-PLAN-bring-the-docs-current-and-keep-them-so.md).
+- The mcrelay guide now says what the daemon does. A config file with any group or other permission bit is refused at
+  load, not only a world-readable one, and a symlinked config path is normally refused too. `tls.mode: off` on a
+  non-loopback bind is refused unless `--allow-plaintext` is given, instead of only warning. The hardware-validation
+  runbook now tells an operator to expect a suspended socket to linger at most `limits.ws_read_deadline_seconds`
+  (default 120 seconds), and sooner, about 45 seconds, when TCP keepalive sees the phone stop, not "within 60
+  seconds"; and `resumed` is a field of the auth reply the phone receives, so it is looked for in the phone's log, not
+  in the daemon's auth logs. See
+  [0248-PLAN-bring-the-docs-current-and-keep-them-so.md](docs/decisions/0248-PLAN-bring-the-docs-current-and-keep-them-so.md).
+- The protocol guide matches the daemon. `agent_sessions.list` is served by codex only: the ACP providers (grok, gobble,
+  OpenCode) answer `unsupported` and kilo answers `agent_sessions_list_failed`. No provider emits `diagnostics_changed`,
+  so a client must not wait for it. Kilo's live `session.diff` events are not turned into a notice; pull the diff with
+  `session.diff`. `session.fork`, `session.revert`, `session.unrevert` and `session.diff` are listed per provider (fork:
+  gobble, grok, codex, kilo; revert and unrevert: OpenCode, kilo, fake; diff: OpenCode, kilo, codex, fake), where the
+  guide called them OpenCode features. An oversize `name` on `session.create` is cut to 256 bytes, not rejected with
+  `bad_payload`, and the `aggregate` example no longer shows zero counts, which the daemon omits. See
+  [0248-PLAN-bring-the-docs-current-and-keep-them-so.md](docs/decisions/0248-PLAN-bring-the-docs-current-and-keep-them-so.md).
+- The configuration guide says how gobble picks its upstream. A session authenticates the first upstream, in gobble's
+  order, that `gobble auth status --json` reports as usable with no reason, unless `providers.gobble.auth_method_id`
+  pins one. A stored credential that carries a reason (gobble 0.5.0 gives one to an OAuth entry of an upstream with no
+  login) is skipped, where the guide said the first upstream with a stored credential. See
+  [0248-PLAN-bring-the-docs-current-and-keep-them-so.md](docs/decisions/0248-PLAN-bring-the-docs-current-and-keep-them-so.md).
+- The Headscale guide creates pre-auth keys with the numeric user ID (`--user <user-id>`, from `headscale users list`),
+  which v0.29 requires; the guide had passed a user name. See
+  [0248-PLAN-bring-the-docs-current-and-keep-them-so.md](docs/decisions/0248-PLAN-bring-the-docs-current-and-keep-them-so.md).
+- The phone app's README and architecture guide match the app. The profiling guide link resolves. The connect screen has
+  **Paste URI / code / token**, not a host and token "under Advanced". The button is **Sign out**, not "Logout
+  (Disconnect)". `make apk` writes only `app-release.apk`; `scripts/build-apk.sh` also copies it to `dist/`. Android and
+  iOS refuse cleartext `ws://` in every build mode, and the app does not call `GET /v1/hello`. The emulator guide uses
+  the key `listen.host: tailscale`, not `listen: tailscale`. See
+  [0248-PLAN-bring-the-docs-current-and-keep-them-so.md](docs/decisions/0248-PLAN-bring-the-docs-current-and-keep-them-so.md).
+- The CI build log for a release without Android signing secrets now prints the path
+  `apps/mobile/docs/guides/ops-android-signing.md`, which exists, in place of the old `docs/guides/` path. See
+  [0248-PLAN-bring-the-docs-current-and-keep-them-so.md](docs/decisions/0248-PLAN-bring-the-docs-current-and-keep-them-so.md).
+
 ## [v0.26.0] - 2026-11-12
 
 ### Added

@@ -20,7 +20,7 @@ to those roles; this is not a general microservice template.
 - Entrypoints are `cmd/mcremote/main.go` and `cmd/mcrelay/main.go`; application
   packages are private under `internal/`.
 - The Makefile builds with `CGO_ENABLED=0`, `-trimpath` and `-ldflags '-s -w'`,
-  plus `-tags netgo,osusergo` on Linux only; `make verify-build-metadata`
+  plus `-tags netgo,osusergo` on every target except Darwin and Windows; `make verify-build-metadata`
   checks them. The published release binaries come from go-selfupdate-lib's
   build workflow, cgo-free with no tags. These are this project's defaults, not
   a rule for every Go project.
@@ -52,7 +52,7 @@ this repository. `staticcheck` and `go vet` are part of `make preflight`.
 
 - [Core and build](core.md)
 - [CLI](cli.md)
-- [Configuration](../../config.md)
+- [Configuration](config.md)
 - [Networking](network.md)
 - [Sessions](session.md)
 - [Concurrency](concurrency.md)

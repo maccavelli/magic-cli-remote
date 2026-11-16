@@ -111,8 +111,9 @@ and the IPv6 `/64` prefix, so one dual-stack subscriber cannot mint a fresh
 window per ephemeral address.
 
 `trusted_proxies` rejects `0.0.0.0/0`, `::/0`, IPv4 masks wider than `/8`, and
-IPv6 masks wider than `/32`. A world-readable config file (`chmod` group/other)
-is refused at load (`chmod 0600`). Files-mode TLS PEMs are checked the same way
+IPv6 masks wider than `/32`. A config file with any group or other permission bit
+is refused at load (`chmod 0600`); the check reads the path's own mode without
+following a symlink, so a symlinked config path is normally refused as well. Files-mode TLS PEMs are checked the same way
 at `serve`.
 
 ### Limit ceilings (MADR 0017 D9)
@@ -133,9 +134,13 @@ Config load **rejects** values above:
 
 Process heap: mcrelay sets a 512 MiB soft `GOMEMLIMIT` unless the environment already has `GOMEMLIMIT` (see [ops-mcrelay.md](ops-mcrelay.md) §5). This is not a YAML key.
 
-## Environment variables (complete)
+## Environment variables
 
-All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
+All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores. The table
+lists the names the binary binds explicitly. Every other settable key also works
+under its derived name (the key's path in upper case with `_` for `.`, such as
+`MCRELAY_TLS_LETSENCRYPT_ROUTE53_REGION`), and a derived name is read before a
+bound one.
 
 | Variable | Maps to | Description |
 |----------|---------|-------------|
@@ -148,7 +153,7 @@ All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
 | `MCRELAY_TLS_MODE` | `tls.mode` | `letsencrypt` \| `files` \| `off` |
 | `MCRELAY_TLS_CERT_FILE` | `tls.cert_file` | Outer TLS certificate PEM (`files`) |
 | `MCRELAY_TLS_KEY_FILE` | `tls.key_file` | Outer TLS private key PEM (`files`) |
-| `MCRELAY_TLS_DOMAINS` | `tls.letsencrypt.domains` | Comma-separated DNS names (HTTP-01) |
+| `MCRELAY_TLS_DOMAINS` | `tls.letsencrypt.domains` | Comma-separated DNS names (served over HTTP-01 or DNS-01) |
 | `MCRELAY_TLS_EMAIL` | `tls.letsencrypt.email` | ACME account email |
 | `MCRELAY_TLS_ACME_DIRECTORY_URL` | `tls.letsencrypt.directory_url` | ACME directory URL |
 | `MCRELAY_TLS_ACME_STAGING` | `tls.letsencrypt.staging` | Use LE staging CA |
@@ -245,7 +250,7 @@ speak 1.3. Rollback of that floor is the Phase 6 commit of
 |------------|-----------|
 | `letsencrypt` | ACME via certmagic; challenge is `tls.letsencrypt.challenge` |
 | `files` | Use `tls.cert_file` + `tls.key_file` |
-| `off` | Plaintext HTTP/WS — **warns**; tests / loopback only |
+| `off` | Plaintext HTTP/WS. Refused on a non-loopback bind unless `--allow-plaintext`; on loopback it serves plaintext and logs a warning |
 | *(empty)* | Auto: domains+email → `letsencrypt`; cert files → `files`; else `off` |
 
 ### ACME challenge selection

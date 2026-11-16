@@ -1,7 +1,7 @@
 ---
 title: "Android Platform and Security Standards"
 version: "3.12.2-v3"
-last_updated: "2026-07-28"
+last_updated: "2026-11-16"
 component: "android"
 gradle_dsl: "Kotlin DSL"
 java_version: "17"
@@ -22,8 +22,9 @@ Flutter release sets `android.newDsl=true` (flutter/flutter#189236), since Flutt
 plugin fails under it. Until then, `app/build.gradle.kts` configures the app through
 `configure<com.android.build.api.dsl.ApplicationExtension> { }` rather than the deprecated
 `android { }` accessor. The JDK warns about a restricted method on every Gradle run unless
-`GRADLE_OPTS` carries `--enable-native-access=ALL-UNNAMED`. CI's APK job, the `Makefile`'s
-Android targets and `scripts/build-apk.sh` set it. For a bare `flutter build` or `flutter run`,
+`GRADLE_OPTS` carries `--enable-native-access=ALL-UNNAMED`. CI's APK job, `make apk`,
+`make profile-apk`, `make manifest-surface` and `scripts/build-apk.sh` set it;
+`make profile` does not. For a bare `flutter build` or `flutter run`,
 export it in the shell. See
 [0222-MADR-clear-the-android-build-warnings-this-repository-owns.md](../../../decisions/0222-MADR-clear-the-android-build-warnings-this-repository-owns.md). Release builds use a private
 keystore specified in `android/key.properties` when present. The debug-key fallback is for local

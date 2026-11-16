@@ -43,7 +43,7 @@ tls:
       hosted_zone_id: ""     # empty => discovered from the zone name
       region: ""             # empty => AWS_REGION
       profile: ""            # empty => AWS_PROFILE
-      max_retries: 0         # 0 => AWS SDK default
+      max_retries: 0         # 0 => the Route 53 provider's default (five attempts)
 
   # Operator-managed certificate instead of the generated one (both or
   # neither). selfsigned mode only.
@@ -334,7 +334,7 @@ providers:
     standalone_process_env_allowlist: []
   # Kilo CLI (kilo.ai, npm @kilocode/cli): an OpenCode fork with its own
   # Gateway, agents and model aliases, driven through one shared `kilo serve`
-  # engine (HTTP + SSE) (MADR 0075). Known-good CLI: kilo 7.4.22 (MADR 0088).
+  # engine (HTTP + SSE) (MADR 0075). Known-good CLI: kilo 7.8.18 (MADR 0088).
   kilo:
     # Register Kilo. Harmless when the binary is absent: it lists as not ready.
     enabled: true
@@ -394,8 +394,9 @@ limits:
     count: 4
 
 pair:
-  # host:port the pair QR/URI tells the phone to dial. Empty = auto-detect
-  # (Tailscale IPv4, else loopback). Set this to pin the advertised address —
+  # host:port the pair QR/URI tells the phone to dial. Empty = follows
+  # the bind (an explicit listen.host is advertised as is; an empty, `tailscale` or
+  # wildcard bind advertises the Tailscale IPv4, else loopback). Set this to pin the advertised address —
   # e.g. a stable MagicDNS name or LAN IP the phone can reach. A bare host
   # inherits listen.port. Ignored in tls.mode: letsencrypt, where the cert's
   # primary domain is advertised instead (only `mcremote pair --host` overrides

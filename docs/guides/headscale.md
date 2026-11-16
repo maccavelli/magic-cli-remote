@@ -176,11 +176,13 @@ sudo headscale preauthkeys create -u 1 --expiration 1h --tags tag:mcremote-host
 sudo headscale users create <user>
 # Single-use (no --reusable), short expiry, and tagged so the ACL above applies.
 # Issue one key per node, immediately before enrolling that node.
-sudo headscale preauthkeys create --user <user> --expiration 1h --tags tag:mcremote-host
-sudo headscale preauthkeys create --user <user> --expiration 1h --tags tag:mcremote-client
+sudo headscale users list    # the ID column is <user-id>
+sudo headscale preauthkeys create --user <user-id> --expiration 1h --tags tag:mcremote-host
+sudo headscale preauthkeys create --user <user-id> --expiration 1h --tags tag:mcremote-client
 ```
 
-Use the same `<user>` here as in the policy's `tagOwners`.
+Use the same user here as in the policy's `tagOwners`: `<user-id>` is the numeric ID
+of the `<user>` you created.
 
 A node that joins with an untagged key matches no ACL rule and cannot reach
 7531. If your Headscale version lacks `--tags`, set the tag on the node
@@ -285,7 +287,7 @@ Always keep `auth.require_device_token: true` in production.
 
 - Call the Headscale HTTP API from `mcremote`  
 - Install or manage `tailscaled` automatically  
-- Expose a public app relay when the phone is off-mesh (join the mesh instead)  
+- Reach a phone that is off-mesh. That is mcrelay's job ([ops-mcrelay.md](ops-mcrelay.md)); Phase 1 did not include it  
 - Reverse-proxy WebSocket traffic through Headscale port 443  
 
 ## Troubleshooting

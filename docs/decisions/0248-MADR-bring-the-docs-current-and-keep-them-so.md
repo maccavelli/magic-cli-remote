@@ -166,6 +166,9 @@ omits.)*
   as the phone's Host field hint, is an entry, and so are the guides' examples replaced with it. The sentence above is
   kept as written. The same day, the owner's ruling "A one-line Changed entry" made a changed error string of
   `mcremote update` an entry under the same reading, "can see".)*
+  *(2026-11-16, Phase B, the owner's ruling "No entry" on the example configs, relayed by the coordinator: the example
+  configs under `configs/` are not "what a release ships" for the changelog's purpose, and corrections to their
+  comments are not entries. The sentence above is kept as written.)*
 * **D4. No new checks** (the owner chose "Fix the docs, no new checks"). This repository's PLAN adds no gate, no CI job
   and no check script, and changes no `Makefile` target. *(2026-11-14, OQ7, the owner's own exception: "Put
   CHANGELOG.md in the Makefile's list of linted docs roots. It widens an existing gate by one file; the changelog can

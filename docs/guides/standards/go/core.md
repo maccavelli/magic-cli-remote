@@ -1,7 +1,7 @@
 ---
 title: "Go Core and Build Standards"
-version: "1.26.5-v3"
-last_updated: "2026-07-28"
+version: "1.27.4-v3"
+last_updated: "2026-11-16"
 component: "core"
 ---
 
@@ -25,11 +25,11 @@ component: "core"
 `make build`, `make build-remote`, and `make build-relay` produce local builds;
 the published release binaries come from go-selfupdate-lib's build workflow,
 cgo-free with no tags. The Makefile defaults to a pure-Go, static-oriented
-build, with the tags on Linux only:
+build, with the tags on every target except Darwin and Windows:
 
 ```make
 CGO_ENABLED=0
-GO_BUILDFLAGS=-trimpath -tags netgo,osusergo   # Linux; -trimpath alone elsewhere
+GO_BUILDFLAGS=-trimpath -tags netgo,osusergo   # not Darwin or Windows; -trimpath alone there
 GO_LDFLAGS=-s -w
 ```
 
@@ -45,7 +45,7 @@ compiler optimization.
 that genuinely needs cgo must document its portability, cross-compilation, DNS,
 and user-lookup consequences and update the build path deliberately.
 
-## Idiomatic Go (Go 1.22 – 1.26+)
+## Idiomatic Go (Go 1.22 – 1.27)
 
 - Let `gofmt` decide layout. Do not introduce a competing formatter rule.
 - Prefer clear error flow with early returns. Error strings are lower-case and

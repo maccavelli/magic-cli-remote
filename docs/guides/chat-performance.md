@@ -36,15 +36,15 @@ see [mobile-profiling.md](../../apps/mobile/docs/guides/mobile-profiling.md) (`m
 | One markdown engine | Stream and finalize both render `MarkdownBody`; there is no plain-text path for long replies ([mobile MADR 0056](../../apps/mobile/docs/decisions/0056-MADR-mcremote-android-protocol-stack-audit.md), M-9…M-12, Phase 7) |
 | Style sheet cache | Per-brightness `MarkdownStyleSheet` reused across re-renders |
 | Streaming marker buffer | `bufferStreamingMarkdown` **closes** unclosed `**` / `` ` `` / fences (show content, not hide) while streaming |
-| Host stream coalescing | Daemon holds assistant/thought text ~**80 ms** (`stream_coalesce_ms` on grok, codex and kilo; fixed for OpenCode) so the phone receives ~12 updates/s instead of one frame per token; first chunk and end-of-turn tail are never delayed ([MADR 0024](../decisions/0024-MADR-stream-coalescing.md)) |
-| Host dedup | `usage_update` only on change; `session_status: running` only on transition — both bypass the 32 ms window client-side, so repeats used to force a commit each |
+| Host stream coalescing | Daemon holds assistant/thought text ~**80 ms** (configurable with `stream_coalesce_ms` on grok, codex and kilo; fixed at 80 ms for OpenCode and gobble) so the phone receives ~12 updates/s instead of one frame per token; first chunk and end-of-turn tail are never delayed ([MADR 0024](../decisions/0024-MADR-stream-coalescing.md)) |
+| Host dedup | Only kilo suppresses an unchanged `usage_update`; acpagent (grok, gobble, OpenCode) and codex forward every report, and the phone batches `usage_update` in the 32 ms window below. `session_status: running` is sent once per turn and bypasses that window, so a repeat would force a commit |
 | Notifier batching | `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `usage_update`, `plan`, `available_commands`, `remote_commands` coalesce to **32 ms** windows; discrete events flush immediately. `tool_call` joined the set in MADR 0042 D2 — it gates no affordance, and excluding it cost one synchronous commit per tool on OpenCode's parallel fan-out (5 tools = 6 commits, now 1) |
 | Chunk fold | `_foldChunks` merges adjacent same-type text in a window into one apply, so `_appendChunk`'s whole-reply copy runs once per run, not once per chunk (`debugAppendChunkCount` bounds it). It also collapses consecutive `tool_call_update`s for one tool id to the latest — replace-semantics, so only the last state is observable — never across a `tool_call`, never for an id-less update, and always keeping the last so a terminal status cannot be folded away |
 | Streaming list | Growable list ownership within a batch: last-index replace without full `List.from` per chunk |
 | Selectable text | Off while streaming; on when the turn finalizes (long-press copy always available) |
 | List element reuse | `findChildIndexCallback` maps `ValueKey(seq)` / group keys under `reverse: true`. The index is maintained **incrementally**: an append adds its own key rather than rebuilding the map, and the memo reports which happened. Reporting "keys unchanged" while adding a key left the index stale and remounted every row appended since the last full rebuild — re-parse cost grew 1, 2, 3, … per append (audit 0041 H1) |
 | History hydrate | `session.history` with `limit: 200` (`kHistoryFetchLimit`); **auto-page** while `truncated`, at most `kHistoryMaxPages` (32) pages per walk; apply in batches of 40 events (`kHistoryApplyBatchSize`) with frame yields |
-| Local cache | Last 150 items / 12 sessions in SharedPreferences (process-death polish; host still wins) |
+| Local cache | Last 150 items / 12 sessions, one file per session with the LRU index in SharedPreferences (process-death polish; host still wins) |
 | Streaming caret | Blinking edge pulse on live assistant bubble |
 | Show more | Finalized assistant replies &gt; 6k chars clamp with expand control |
 
@@ -81,10 +81,9 @@ lookahead, and asking for 800 made the host re-encode a shrinking slice many tim
 - Antigravity / second-provider chat work.
 - Replacing `flutter_markdown_plus` unless profiling after Phase B still pins it (MADR 0018 D11).
 - Host-side million-message archives.
-- FCM / background push (see `0178-REPORT-mobile-ux-assessment.md`).
+- FCM / background push (E6; see `0178-REPORT-mobile-ux-assessment.md`).
 - Full phone-side archive (only last-N cache; host remains source of truth).
 - Markdown engine swap (E5 — re-evaluate only if profiles pin parse cost).
-- FCM / remote push (E6 — see `0178-REPORT-mobile-ux-assessment.md`).
 
 ## Profiling checklist (physical device, profile mode)
 

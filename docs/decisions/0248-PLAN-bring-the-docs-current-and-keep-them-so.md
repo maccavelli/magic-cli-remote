@@ -320,6 +320,10 @@ Acceptance:
   * `.opencode/rules.md:36` and `.kilo/agent/madr-and-plan-skill.md:41` (the record path becomes `docs/decisions/`),
     and `AGENTS.md:51` (name every `live-*` target, or point to the README's Development table). These are factual
     fixes only. No rule text changes.
+  * *(2026-11-16, the coordinator's application of MADR D3, not an owner ruling: `CHANGELOG.md` joins this phase's files. D3 says the
+    changelog is "updated in the same phase as the change it records" and that a correction to a user doc is an entry when acting on
+    the old text would have gone wrong. The list above was written before Phase E existed. The acceptance line "no staged file is
+    outside the REPORT's rows, this PLAN and the MADR" has this one named addition. The text above is kept as written.)*
 
 Steps:
 
@@ -341,6 +345,13 @@ go test -count=1 ./internal/protocol/ > "$T/b-proto.out" 2>&1; echo "exit=$?"   
 go test -count=1 -run '^TestTrackedFilesUseOnlyPlaceholderHomes$' ./internal/ > "$T/b-home.out" 2>&1; echo "exit=$?"   # exit=0
 git diff --cached --name-only > "$T/b-staged.out"; echo "exit=$?"                           # only files named by B rows, the REPORT, this PLAN
 ```
+
+*(2026-11-16, on the second line of the block above, `grep -n '_MAX_RETRIES` |' README.md` with "exit=1, the short alias is gone": the
+pattern also matches the row Phase B's own first bullet asks for, `MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES` followed by
+` |`, so the two cannot both hold. The check is the narrower `grep -n '`_MAX_RETRIES`' README.md`, exit=1, which finds only the short
+alias. The owner's ruling "Keep the row; amend the plan's check", relayed by the coordinator. The executor had chosen this
+resolution before it was put to the owner; see "Phase B — the owner's rulings and the coordinator's additions, 2026-11-16".
+The line above is kept as written.)*
 
 Acceptance: every "wrong" row whose destination is B is fixed, or carried with the owner's reason; and no file outside
 those rows is staged.
@@ -1425,3 +1436,415 @@ python3 ~/.global-git-hooks/github-disclosure.py redact exit=0, would edit 0 fil
 ```
 
 **Files.** `CHANGELOG.md`; the MADR (D3's dated note); this PLAN. Staged, not committed.
+
+### Phase B — 2026-11-16
+
+Run by a mainstream model at medium effort, as the phase prices it, on the coordinator's brief, from `master` at
+`a5d0db45`. The owner approved the plan on 2026-11-15 one phase at a time, and on 2026-11-16 said, in their own words:
+"Proceed with magic-cli-remote phase b". That is the owner's word, relayed by the coordinator. It approves Phase B
+only. No identifier value is quoted in this entry.
+
+**Start state (C1).** Branch `master`, `HEAD` `a5d0db45`, level with `origin/master`, tree clean.
+`git log --oneline 0fbed31b..HEAD` is six commits: `a5d0db45`, `1109a42a`, `076c895d`, `6cf3115a`, `e1922f35`,
+`4e085b86`. Every cited line was re-read at `HEAD` before it was edited. Each sits where the REPORT cites it and holds
+what the row describes, except as listed: `headscale.md` R38 `:162` is `:163` and `:178-179` is `:179-180`, R39 `:285`
+is `:288` (the earlier identifier edit, as the plan notes); `README.md` rows after `:1643` (Phase E's row) are not
+Phase B's. Two rows did not hold, and are stopped (below): R37 and R56.
+
+**Step order.** R147 first, with its scratch-clone proof; the edits row by row; the comment-only and named-exception
+edits; the diff check seen failing; the scratch Go test seen failing; the REPORT marks; the checks; the stage.
+
+**R147, seen failing first (C2).** A scratch clone of `HEAD` (`git clone --no-hardlinks`, since removed), with a planted
+broken relative link appended to the clone's `apps/mobile/README.md`:
+
+```text
+unchanged script, planted copy:      python3 -B scripts/check_records.py --check-all   exit=0, output empty
+extended script, planted copy:       exit=1
+  broken relative link: apps/mobile/README.md:184: ../../docs/guides/mobile-profiling.md
+  broken relative link: apps/mobile/README.md:194: docs/guides/no-such-planted-file.md
+  2 broken relative link(s)
+extended script, the real tree before the R103 fix:   exit=1
+  broken relative link: apps/mobile/README.md:184: ../../docs/guides/mobile-profiling.md
+  1 broken relative link(s)
+```
+
+The change is two lines in `unnumbered_docs()`: `elif rel == "apps/mobile/README.md": out.append(p)`. After R103 was fixed
+the real tree gave `exit=0` with `apps/mobile/README.md` in the checked set. MADR D4 already carries the dated exception
+for R147 (its 2026-11-15 note), so the MADR is not amended.
+
+**The work table.** "Now at" is the line at `HEAD` when it differs from the REPORT. The ruling column: **text** = the
+Phase B text and the REPORT's own row; **docs-follow-code** = "Docs follow the code, all three"; **FR** = "Fix R130
+and R147 here; drop the unused rules"; **CP** = "Comments into this plan; the rest get records"; **3x** = "Yes, all
+three, by amendment"; **P** = "Fix the code first; guide waits". The fact was read against the code at `HEAD` before it
+was written; the code evidence is in the last column.
+
+| Row | File, where | What changed | Ruling | Code evidence at `HEAD` |
+| :--- | :--- | :--- | :--- | :--- |
+| R01 | `README.md:773` | the three-name row loses `_MAX_RETRIES`; `MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES` has its own row, with "no short alias" | text | `internal/config/load.go:68-70`, `:304-306` |
+| R02, R03, R04, R06 | `README.md:241`, `:264-265` (the box is rewrapped to two lines, same width), `:273`, `:1614` | gobble added (product surface, diagram, engine list, layout) | text | `internal/provider/registered/registered.go:21`; `internal/provider/gobble/doc.go:1` |
+| R05 | `README.md:1466` | picker = what `providers.list` returns, fake when enabled, not-ready listed disabled | text | `apps/mobile/lib/data/ws/mcremote_client.dart:3625-3640`; `sessions_screen.dart:808-822` |
+| R17, R18 | `docs/architecture.md:37-38`, `:46`, `:81-84`, `:111` | gobble in the box, engine list and "Providers"; Linux services name runit, s6 and OpenRC | text | `registered.go:21`; `internal/cli/service/detect.go:19-31` |
+| R21 | `docs/guides/config.md:127`, `:237` | "first upstream with a usable credential and no reason, in gobble's order" | text | `internal/provider/gobble/auth.go:259-261` |
+| R28 | `docs/guides/config-mcrelay.md:138` | heading no longer "(complete)"; derived names also work and are read before bound ones | text | `internal/relay/fileconfig.go:228-230`; viper v1.21.0 `viper.go:1227-1243` (auto-env before bound) |
+| R29 | `config-mcrelay.md:113-115` | any group or other bit refused; the check does not follow a symlink | text | `internal/appdirs/owneronly_unix.go:14-26` (`Lstat`, `&0o077`) |
+| R30 | `config-mcrelay.md:151` | domains served over HTTP-01 or DNS-01 | text | `internal/relay/tls.go:86-87` |
+| R31 | `config-mcrelay.md:248` | `off`: refused off loopback unless `--allow-plaintext`; on loopback served with a warning | text | `internal/relay/server.go:202-211`, `:266` |
+| R37 | `docs/guides/ops-mcrelay.md:387` | not changed: refuted, the method exists (ruling 2 below) | text | `internal/relay/hub.go:385` |
+| R38 | `headscale.md:163`, `:179-180` | `--user <user-id>` (numeric ID, `users list`) in the key commands | text | the guide's own `-u 1` at `:170` |
+| R39 | `headscale.md:288` | off-mesh access is mcrelay; Phase 1 did not include it | text | `internal/config/load.go:71-73` |
+| R41 | `iam-route53-acme.md:8-10` | "a daemon name such as `devbox.ts.example.com`"; `headscale.md` still cited for the domains | text | `headscale.md:28`, `:93` (no `devbox`) |
+| R42 | `receipts.md:74` | "walking backward from the last line" is now "walking forward from line 1". The truncation and audit-script sentences are untouched | P | `internal/receipt/store.go:287-296` |
+| R45 | `protocol-v2.md:104-106` | ids are the running engine's negotiated set, the installed manifest's before any engine has negotiated | text | `internal/ws/liveness.go:176-190` |
+| R47 | `chat-performance.md:39` | configurable on grok, codex and kilo; fixed at 80 ms for OpenCode and gobble | text | `acpagent/config.go:116-122`, `acpagent/session.go:35`; no `stream_coalesce_ms` key on opencode or gobble |
+| R48 | `chat-performance.md:40` | only kilo suppresses an unchanged `usage_update`; acpagent and codex forward every report | docs-follow-code | `internal/provider/kilo/usage.go:74-90`; `acpagent/session.go:2121-2144`; `codex/session.go:1695-1714` |
+| R50 | `chat-performance.md:47` | per-session files, LRU index in SharedPreferences | text | `apps/mobile/lib/data/chat/transcript_cache.dart:131-143`; `chat_models.dart:86` (150) |
+| R51 | `chat-performance.md:84`, `:87` | one FCM row (E6) | text | the guide |
+| R52 | `protocol-v1.md:1915-1917` | the test checks the list paragraph, not a section per type | text | `internal/protocol/doc_coverage_test.go:44-72` |
+| R53 | `protocol-v1.md:498-500`, `:507`, `:515` | only codex serves `agent_sessions.list`; ACP providers answer `unsupported`; kilo `agent_sessions_list_failed`; the example is codex | docs-follow-code | `internal/ws/server.go:3113-3119`; `acpagent/sessioncaps.go:54-58` (on the session); `codex/threads.go:868`; `httpagent/provider.go:315-323` |
+| R54 | `protocol-v1.md:1663-1668` | no provider emits `diagnostics_changed`; the hook has no implementation | docs-follow-code | `httpagent/httpagent.go:542`, `httpagent/provider.go:833-837`; no implementer of `EngineEventNeedsDiagnostics` outside `httpagent` |
+| R55 | `protocol-v1.md:774-775` | kilo's live `session.diff` events are deliberately not rendered | text | `internal/provider/kilo/command.go:175-179` (the REPORT cites `session.go:542`, where the dispatch is) |
+| R56 | `protocol-v1.md:763`, `:767`, `:772` | per-provider table and a new lead sentence (ruling 1 below) | "Write the matrix from the code" | the evidence table below |
+| R57, R58 | `protocol-v1.md:375`, `:419`, `:1072` | gobble added; "outside the five agents: gobble, grok, opencode, codex, kilo" | text | `internal/config/prewarm_write.go:28` |
+| R59 | `protocol-v1.md:983` | the busy queue is on every provider, max 4 | text | `acpagent/session.go:348-372`; `codex/session.go:27`, `:700` |
+| R60 | `protocol-v1.md:386-391` | `thinking_level` in `_meta` for the ACP providers, gobble included | text | `gobble/doc.go:7` (the standard ACP paths acpagent drives) |
+| R65 | `protocol-v1.md:1015` | the oversize list is corrected; `session.create` truncates `name` to 256 bytes, rename rejects | text | `internal/ws/server.go:1574-1591`, `:3504-3505` |
+| R77 | `protocol-v1.md:541-552` | the `aggregate` example drops its zero counts; a note says zero counts are omitted | text | `internal/provider/provider.go:1377-1383` (`omitempty`, `CostUSD *float64`) |
+| R78 | `protocol-v1.md:1537-1539`, `:1827-1833` | no provider sets `replace`; the contract stands | text | `internal/event/event.go:893-902`; no non-test setter |
+| R79 | `protocol-v1.md:1642` | no provider fills `lsp` or `formatters` today; the table is kept | text | `internal/provider/provider.go:631-637`; no non-test setter |
+| R83 | `protocol-v1.md:1570` | 8,000-byte limit | text | `internal/provider/output/output.go:19-26` |
+| R88 | `ops-linux-install.md:87-88` | refused with exit 1 before anything is installed | text | go-selfupdate-lib v1.26.2 `install.sh` template `:347-357`, `:484-489` |
+| R89, R90 | `ops-windows-install.md:10`, `:447` | built and unit-tested on every push; on a tag the release build runs the identity command on a Windows runner; the drift row is "release identity job (tag only)". The same sentence at `README.md:227` is corrected too (the docs step) | text | `.github/workflows/ci.yml:196`, `:739-757` |
+| R92, R94, R95 | `ops-macos-tcc.md:25`, `:40-41`, `:89-90` | gobble in the grant list; the `--from-installer` step runs before the mcrelay hook; `install-binary.sh` belongs to `make install`, `update` goes through the library | text | `internal/updateclient/selfupdate-release.json` (hooks, mcremote first); `Makefile:317-323`; `scripts/install-binary.sh:241-246` |
+| R97, R98 | `ops-hardware-validation.md:347` | the lingering socket is bounded by `limits.ws_read_deadline_seconds` (default 120 s), about 45 s with TCP keepalive; `resumed` is a field of the auth reply | text | `internal/config/config.go:566-568`; `internal/ws/server.go:1206-1216` |
+| R99, R100 | `ops-codex-contract.md:151-153`, `:157-158` | identical method sets (202 stable, 277 experimental at 0.167.0); every experimental notification (24) | text | `internal/provider/codex/testdata/0.167.0/manifest.json` (106+86+10, 180+86+11, 24 counted) |
+| R101 | `internal/provider/codex/testdata/0.167.0/README.md:59` | names `../wire/` captures: `0.167.0`, `0.166.0` (replayed by `runtime_passthrough_test.go`), `0.152.1` (history) | CP | `runtime_passthrough_test.go:21`; `internal/provider/codex/version.go:14-16`. The REPORT says tests replay both; only 0.166.0 is replayed, so 0.152.1 is described as the code comment describes it |
+| R102 | `apps/mobile/README.md:13` | as R05 | text | as R05 |
+| R103 | `apps/mobile/README.md:184` | link `docs/guides/mobile-profiling.md` | text | the target exists under `apps/mobile/docs/guides/` |
+| R104, R105, R107, R108 | `apps/mobile/README.md:48`, `:117` (and `:116`), `:28`, `:1` | Paste URI / code / token; Sign out (and "signed out" at `:116`); "no Android emulator required"; title "(Android and iOS)" | text | `connect_screen.dart:1488-1505`; `sessions_screen.dart:1186-1204`; `README.md:130` |
+| R106 | `apps/mobile/README.md:150-158` | `make apk` and `build-apk.sh` write `app-release.apk`; only the script copies to `dist/` | text | `scripts/build-apk.sh:53-58`; `Makefile:549-567` |
+| R109 | `apps/mobile/README.md:136-143` | the `lib/` layout lists the directories that exist and `app_lifecycle.dart` | text | `ls apps/mobile/lib` |
+| R110, R111, R112, R113 | `apps/mobile/docs/architecture.md:28-29`, `:34-35`, `:59` | no `/v1/hello`; `/healthz` probe; Android and iOS refuse `ws://` in every mode; gobble; JDK 25, Java 17 bytecode | text | `settings_store.dart:1286`; `connect_screen.dart:1165-1190`; `ci.yml:486` |
+| R114, R115 | `ops-android-emulator.md:22-28`, `:63` | JDK 25 (`openjdk@25`), Gradle 9.3.1 with the JDK 26 point marked unverified; `listen.host: tailscale` | text | `gradle-wrapper.properties`; `internal/config/config.go:190` |
+| R117 | `ops-android-signing.md:105-107` | an update preserves pairing; E1 and E2 passed 2026-08-03 | text | `ops-hardware-validation.md:302-303` |
+| R118 | `standards/mobile/android.md:25-26` | `make apk`, `profile-apk`, `manifest-surface` set `GRADLE_OPTS`; `make profile` does not | text | `Makefile:513`; `scripts/build-apk.sh:14` |
+| R119 | `standards/mobile/networking.md:34-36` | the `/healthz` probe is unauthenticated and drives path selection | text | `transport_probes.dart:69-90` |
+| R120 | `standards/mobile/architecture.md:16-24` | `app_lifecycle.dart` in the tree | text | `apps/mobile/lib/app_lifecycle.dart` |
+| R121 | `standards/mobile/*.md` front matter | `last_updated` = the date of the last content change: 2026-11-16 for the four files this phase edits, 2026-08-04 for `README.md` (`ee3a09d1`; the later commits are renames and link rewrites). `flutter.md` and `ios.md` were already right | text | `git log --follow` per file |
+| R122 | `standards/mobile/architecture.md:36-45`, `dart.md:23-25` | the `AsyncNotifier` / `AsyncValue.guard()` bullet with its code block, and the extension-types bullet, are dropped. Searched first: no other doc or index names either rule | FR | no `AsyncNotifier`, `AsyncValue`, `extension type` in `apps/mobile/lib` or `test` |
+| R123 | `standards/go/{cli,concurrency,config,core,logging,network,session,testing}.md:3` | `version` is `1.27.4-vN` (N kept). `last_updated`: `core.md` and `testing.md` are edited today (2026-11-16); `cli.md` and `config.md` 2026-11-08 (their last content change); the other four stay 2026-07-28 (a version-only edit is not a content change) | text | `go.mod:3`; `standards/go/README.md:3` |
+| R124 | `standards/go/core.md:48` | "Go 1.22 – 1.27" | text | `go.mod:3` |
+| R125 | `standards/go/README.md:55` | `[Configuration](config.md)` | text | the link target |
+| R126 | `standards/go/README.md:22-23`, `core.md:32` | the tags apply to every target except Darwin and Windows | text | `Makefile:92-110` |
+| R127 | `standards/go/testing.md:28-31` | `live_gobble` and `make live-gobble` | text | `Makefile:402-403`; `gobble/live_gobble_test.go:1` |
+| R128 | `AGENTS.md:51` | all twelve live targets named | text | `Makefile:158-161`, `:348-419` |
+| R129 | `.opencode/rules.md:36`, `.kilo/agent/madr-and-plan-skill.md:41` | `docs/decisions/NNNN-MADR-*` / `PLAN-*` | text | `AGENTS.md:75`, `:110` |
+| R130 | `AGENTS.md:63`, `:83` | five rule files named | FR | `.claude/rules/`, `.codex/rules/`, `.grok/rules/`, `.kilo/agent/`, `.opencode/rules.md` all exist |
+| R139, R140 | `configs/config.example.yaml:46`, `:337`; `config.prod.example.yaml:48`, `:334`; `config.mesh-grok.yaml:50`, `:342` | comments: Route 53 default is five attempts; kilo 7.8.18 | CP | `libdns/route53 v1.6.2` `client.go:142-153` (per the REPORT, not re-read); `internal/provider/kilo/version.go:25` |
+| R141 | the same three files, the `pair.advertise_host` comment | follows the bind | CP | `internal/cli/pair.go:615-633` |
+| R142 | `configs/mcrelay.example.yaml:76` | one line: `max_conns: 1024`, comment `MCRELAY_LIMITS_MAX_CONNS`. The 1024 was read from `DefaultLimits()` (`internal/relay/config.go:59`), and `fileconfig.go:504` sets the key from it | 3x | see the scratch Go test |
+| R144 | `.markdownlint-cli2.jsonc:2` | "for this repository's Markdown docs" | CP | the file |
+| R145 | `Makefile:153`, `:570`; `.github/workflows/ci.yml:510`, `:541`, `:546` | the paths now say `apps/mobile/docs/guides/…` (three comments; two printed paths) | CP, 3x | the guides' location |
+| R146 | `Makefile:158-161` | `live-codex-turn`, `live-codex-review`, `codesign-maybe` joined `.PHONY` | 3x | `Makefile:204`, `:362`, `:366`; `make -n` resolves each |
+| R147 | `scripts/check_records.py:171-174` | see above | FR | the function |
+| R148 | `scripts/codex-contract.ps1:147` | as R99 | CP | the manifest |
+
+Totals: rows in Phase B 85 (the REPORT's B count). Fixed 83. Stopped 2 (R37, R56) *(2026-11-16: superseded by the rulings below: 84 fixed, R37 refuted, none stopped)*. R42 is fixed for its B part only.
+R40 and R116 closed earlier; the REPORT's other rows are Phase C, D, F or queued.
+
+**Left wrong on purpose** (the plan names them; nothing was fixed, softened or annotated in the docs):
+
+- `docs/guides/receipts.md:74-76`: "A tampered or truncated file is detected" and "safe to use in an audit script". Both are
+  false until queued record 4 lands. The "walks backward" part is the only part this phase changed.
+  `receipts.md:183` still says "the chain's backward walk"; it is about the hash link to the previous line, not verify's
+  walk, and was left (it is the same file's text, outside R42's one sentence).
+- `docs/guides/ops-credential-recovery.md:73-75` (R96): exit codes 2 and 3, false until queued record 1 lands. Not touched.
+- R34, R35's unit part, R143 and the seed copies of R139 to R141: queued records 2 and 3. Not touched.
+
+**The diff check (C2).** `diffcheck.py`, in the scratch folder, reads `git diff --cached` and applies the per-file
+allowances of the plan: comment lines only, trailing comments ignored, for `.markdownlint-cli2.jsonc`,
+`scripts/codex-contract.ps1` and the three example configs; `mcrelay.example.yaml`, no removed line and exactly one added
+line `max_conns: <n>` with the `MCRELAY_LIMITS_MAX_CONNS` comment, `<n>` read from `internal/relay/config.go`; `Makefile`,
+non-comment lines outside `.PHONY` unchanged and the `.PHONY` set differs by exactly the three names; `ci.yml`, exactly two
+removed and two added non-comment lines, each added line its removed line with the one path replaced; `check_records.py`,
+exactly the two R147 lines; any other staged non-Markdown file fails. Seen failing first, on a scratch clone with the
+working diff applied (`<TMP>` is the clone):
+
+| Plant | Result |
+| :--- | :--- |
+| clean staged diff in the clone | `exit=0`, "ok: 10 non-Markdown files checked, 0 failures" |
+| 1. an added line in `mcrelay.example.yaml` for another key | `exit=1`: "expected exactly one added line, got 2: ['  max_hosts_extra: 5 …', '  max_conns: 1024 …']" |
+| 2. a fourth name in `.PHONY` | `exit=1`: ".PHONY names added are ['bogus-target', 'codesign-maybe', 'live-codex-review', 'live-codex-turn'], expected exactly [...]" |
+| 3. an added `ci.yml` line that also changes another word | `exit=1`: "added line is not its removed line with the one path replaced: '… see docs/guides/ops-android-signing.md."' -> '… To sign your builds, see apps/mobile/docs/…'" |
+| 4. a non-comment line elsewhere in the `Makefile` | `exit=1`: "a non-comment line outside .PHONY changed: ['RELAY_SERVICE_NAME ?= mcrelayx', 'RELAY_SERVICE_NAME ?= mcrelay']" |
+| 5. (extra) a code line in `codex-contract.ps1` | `exit=1`: "non-comment change: removed code [], added code ['Write-Host planted']" |
+
+On the real staged diff (before this PLAN entry was staged): `exit=0`, "ok: 10 non-Markdown files checked, 0 failures".
+The non-comment lines changed, verbatim, in the files with an allowance:
+
+```text
+-              echo "keystore; see docs/guides/ops-android-signing.md for setup." >&2
++              echo "keystore; see apps/mobile/docs/guides/ops-android-signing.md for setup." >&2
+-            echo "To sign your own builds, see docs/guides/ops-android-signing.md."
++            echo "To sign your own builds, see apps/mobile/docs/guides/ops-android-signing.md."
+-.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-grok-discrimination live-grok-rest live-kilo live-gobble live-replacefirst live-supervisors race test-all preflight apk manifest-surface \
++.PHONY: build debug build-relay build-remote install install-relay codesign-maybe test live-opencode live-codex live-codex-contract live-codex-turn live-codex-review live-grok live-grok-discrimination live-grok-rest live-kilo live-gobble live-replacefirst live-supervisors race test-all preflight apk manifest-surface \
++  max_conns: 1024                      # MCRELAY_LIMITS_MAX_CONNS
++        elif rel == "apps/mobile/README.md":
++            out.append(p)
+```
+
+The three example configs' remaining changes are comment text, and some are trailing comments on a live line
+(`max_retries: 0 # …`); the check compares the code part of those lines and finds it equal.
+
+**The scratch Go test (the example config loads).** `zz_scratch_test.go`, package `relay`, copied into a scratch clone
+only. It copies the example to a `0600` file (`Load` refuses a config with group or other bits, and git stores the file
+`0644`), clears `MCRELAY_*`, calls `Load(LoadOptions{ConfigFile: …})` then `FileConfig.Validate()`, and asserts
+`Limits.MaxConns == DefaultsFile().Limits.MaxConns`.
+
+```text
+a copy with max_conns: 99999 (above the ceiling, internal/relay/fileconfig.go:679):
+  --- FAIL: TestScratchMcrelayExampleLoads   zz_scratch_test.go:41: Load: limits.max_conns 99999 exceeds maximum 8192   exit=1
+the real example:
+  PASS  Limits.MaxConns = 1024, default read from DefaultsFile() = 1024   exit=0
+```
+
+The default was read from the code (`internal/relay/config.go`, `DefaultLimits()`), not from this record, and the diff
+check reads it from the same place. A second scratch test parses each example before and after with `go.yaml.in/yaml/v3`
+and compares: the three `mcremote` examples are identical, and `mcrelay.example.yaml` differs only by `limits.max_conns`.
+Seen failing first on a copy where `config.example.yaml`'s `max_retries` was changed (`exit=1`, "config.example.yaml: parsed
+content differs before and after"). `go test -count=1 ./internal/relay/` `exit=0`. `make -n live-codex-turn`,
+`live-codex-review` and `codesign-maybe`: `exit=0`.
+
+**Verification**, after the last edit (each to a scratch file, the status taken before any filter):
+
+```text
+grep -n 'MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES' README.md   exit=0, one line (:776)
+grep -n '_MAX_RETRIES` |' README.md                                exit=0 (see Deviations: the plan's pattern matches the new row)
+grep -n '`_MAX_RETRIES`' README.md                                 exit=1, the short alias is gone
+grep -c -i gobble README.md docs/architecture.md apps/mobile/README.md   exit=0, 5, 4 and 1
+python3 -B scripts/check_records.py --check-all                    exit=0, output empty, apps/mobile/README.md checked
+make markdownlint-docs                                             exit=0, "Linting: 62 files", "Summary: 0 issues in 0 files"
+go test -count=1 ./internal/protocol/                              exit=0
+go test -count=1 -run '^TestTrackedFilesUseOnlyPlaceholderHomes$' ./internal/   exit=0
+go test -count=1 ./internal/relay/                                 exit=0
+python3 ~/.global-git-hooks/github-disclosure.py redact            exit=0, "would edit 0 file(s), 0 path(s) need a rename by hand"
+git diff --cached --name-only                                      exit=0, 48 paths: the REPORT's rows' files, the REPORT, this PLAN
+```
+
+The first lint run failed once, at `apps/mobile/README.md:13` (MD013, 223 characters); the line was wrapped and the run
+repeated. No file other than a row's file, the REPORT or this PLAN is staged; the MADR is not.
+
+**Deviations (C7).**
+
+1. *The plan's second Verification line.* `grep -n '_MAX_RETRIES` |' README.md` is to exit 1, "the short alias is gone". The
+   plan also says to give the variable its own row "as `config.md:468` does", and that row, `…ROUTE53_MAX_RETRIES` followed
+   by ` |`, matches the pattern. Both cannot hold. The doc follows the plan's R01 text; the check's intent (no short alias
+   in the combined row) is met by `grep -n '`_MAX_RETRIES`' README.md`, exit 1. The executor chose this resolution before putting it to anyone, which is the wrong order:
+   a deviation stops the item first. The owner ruled afterwards (ruling 4 below) and chose the same. Reformatting the row to dodge the pattern was
+   rejected as a workaround.
+2. *R37 and R56 stopped* (below).
+
+**Stopped rows, for the owner** *(2026-11-16: answered by rulings 1 and 2 below)*.
+
+- **R37**, `docs/guides/ops-mcrelay.md:387`. The REPORT says the guide's "`hub.phoneGone`" is wrong and should read
+  `pendingJoin.phoneGone`. At `HEAD` both exist: the field `pendingJoin.phoneGone` (`internal/relay/hub.go:53-55`, set at
+  `:397`) and the method `hub.phoneGone` (`:385`), whose comment says it "resolves the race with claimTunnel /
+  publishTunnel under one lock (0115 F1)". The guide's sentence ("resolved under one lock (`hub.phoneGone`)") describes the
+  method, and its next sentence names `abandonTunnel` then `phoneGone` as calls. The sentence is accurate. Options:
+  (a) leave the guide and mark the row refuted (recommended; cost: none); (b) reword to name both the method and the
+  field (cost: a small edit, no defect fixed); (c) carry the row to a later phase. If nothing is done, the guide is
+  already correct.
+- **R56**, `protocol-v1.md:763`, `:767`, `:772`. The REPORT's replacement fact is "fork: grok, gobble, codex;
+  revert, unrevert, diff: OpenCode's control plane; others `session_*_failed`". At `HEAD` that is incomplete. Fork is set
+  by grok (`grok.go:177`), gobble (`gobble.go:95`), codex (`codex/session.go:983`) and kilo
+  (`kilo/session_ops.go:109`); revert and unrevert by kilo (`session_ops.go:130`, `:145`) and OpenCode
+  (`opencode/acp.go:145-146`); diff by kilo (`session_ops.go:227`), codex (`codex/diff.go:38`) and OpenCode
+  (`acp.go:142`). The heading "OpenCode session-tree polish" is stale, but the REPORT's fix would be wrong too. Options:
+  (a) the executor writes the matrix above into the guide (recommended; cost: a short edit, from code read at `HEAD`,
+  which the REPORT does not state, so the owner confirms it); (b) send the row back to Phase A's REPORT to be restated,
+  then fix it; (c) carry it. If nothing is done, the section keeps calling these OpenCode features.
+
+**Not done.** R37 and R56 (above). R42's truncation part (queued record 4). Phase E's open row, `README.md` "Upgrading
+later" and the changelog, is Phase F's and was left.
+
+**Leads found, not rows.** `protocol-v1.md:1649-1650` says OpenCode v2's `mcp` diagnostics come "from the session's own MCP
+servers"; `internal/provider/opencode/acp_surfaces.go:30-32` says MCP state is not read. Not verified further; not in the
+REPORT. `protocol-v1.md:2151` and `:2177` list Grok, OpenCode and Kilo for plan-as-mode and may omit gobble (R63's rows are
+Phase C).
+
+**Docs step (cross-check).** After the last edit the docs were searched for the old version of each corrected fact
+(provider lists, `JDK 21`, `164 methods`, `≤60`, `Linux only`, the moved guide paths, the short `MAX_RETRIES` alias, "Logout",
+"stored credential", `diagnostics_changed`, `usage_update`, "backward", `docs/NNNN`, "smoke-tested"). One second occurrence
+in a file the phase edits was fixed: `README.md:227` (R89's sentence). Open rows are in the coordinator's return.
+
+**Not verified.** No suite and no `-race` run was made. R29's symlink behaviour rests on reading `Lstat`, not on a run. R113's "dev hosts" half rests on MADR 0169 (CI's `java-version: "25"` is read; `scripts/build-apk.sh:11`
+defaults `JAVA_HOME` to a Java 17 path when it is unset). R139's "five attempts" is the REPORT's reading of the libdns
+source, not re-read. R114's Gradle 9.3.1 on JDK 26 is marked unverified in the guide.
+
+**Files.** 46 files the rows above name, the REPORT (its row marks) and this
+PLAN: 48 staged. The MADR is unchanged. Staged, not committed; the coordinator commits and pushes after the disclosure guard (C5's
+annotation); the plan pauses until the owner says to continue.
+
+#### Phase B — the owner's rulings and the coordinator's additions, 2026-11-16
+
+Applied by the same mainstream model at medium effort, on the coordinator's relay, the same day, to the staged Phase B
+change. Each ruling is a label the owner chose from options the coordinator put; this entry quotes only the label, as
+the owner's ruling, relayed by the coordinator. The entry above is kept as written, except where it names a row's
+state or the first deviation; those lines were corrected in place, since nothing was committed.
+
+**A correction of process.** The first deviation above (the plan's check against R01's row) was resolved by the
+executor, who changed the check and kept the row, and the choice was made before it was put to the owner. A deviation
+stops the item first. The owner ruled afterwards (ruling 4, below), and the ruling matches the choice made.
+
+| # | The owner's ruling, relayed by the coordinator | Recorded in |
+| :--- | :--- | :--- |
+| 1 | R56: "Write the matrix from the code" | `docs/guides/protocol-v1.md` (the `session.fork` / `session.revert` / `session.unrevert` / `session.diff` section, lead sentence and table); REPORT row R56; the evidence table below |
+| 2 | R37: "Leave the guide; mark the row refuted" | REPORT row R37 (mark replaced in place); no doc change |
+| 3 | R113: "Say what the code does; list the script" | `apps/mobile/docs/architecture.md` (the JDK paragraph); REPORT rows R113 and R149 |
+| 4 | The plan's Verification line for R01: "Keep the row; amend the plan's check" | the dated note after Phase B's Verification block; this entry |
+
+**Ruling 1, the R56 table.** The guide's table lists, for every registered provider, whether each operation is served.
+The manager refuses an operation the session does not offer with a plain error, which `writeSessionErr` maps to the
+operation's own code (`internal/session/manager.go:3280`, `:3338`, `:3358`, `:3379`;
+`internal/ws/server.go:2134`, and the fallback codes at `:3438`, `:3453`, `:3468`, `:3484`): `session_fork_failed`,
+`session_revert_failed`, `session_unrevert_failed`, `session_diff_failed`. A session that is not live answers
+`session_not_live` (`manager.go:2696`). The capability gate is `sess.Capabilities().Has(...)` plus the interface.
+
+| Provider | fork | revert and unrevert | diff |
+| :--- | :--- | :--- | :--- |
+| `fake` | no: no `Fork` method (`fake/fake.go`), `CapFork` absent from `Capabilities` (`fake.go:473-477`) | yes: `Revert` `fake.go:331`, `Unrevert` `:337`, `CapRevert` `:475` | yes: `fake.go:458`, `CapDiff` `:475` |
+| `gobble` | yes: `Ops.Fork` `gobble/gobble.go:95`; `CapFork` from `s.ops.Fork != nil`, `acpagent/sessioncaps.go:209` | no: no `Ops.Revert`/`Unrevert` in `gobble.go:93-96`; `revertOffered` needs both (`acpagent/host.go:150`) | no: no `Ops.Diff`; `CapDiff` is `s.ops.Diff != nil`, `sessioncaps.go:219` |
+| `grok` | yes: `Ops.Fork` `grok/grok.go:177`, `forkSession` `grok/ops.go:31` | no: `Ops` at `grok.go:176-` sets no revert | no: no `Ops.Diff` |
+| `opencode` | no: no `Ops.Fork` in `opencode/acp.go:138-148` | yes: `Ops.Revert` `acp.go:145`, `Ops.Unrevert` `:146` | yes: `Ops.Diff` `acp.go:142` |
+| `codex` | yes: `session.Fork` `codex/session.go:983`, `CapFork` `:1059` | no: no `Revert`/`Unrevert` method, no `CapRevert` (`session.go:1057-1062`) | yes: `codex/diff.go:38`, `CapDiff` `session.go:1059` |
+| `kilo` | yes: `httpSession.Fork` `kilo/session_ops.go:109`; `CapFork` from the dialect interface `httpagent/session.go:688`, `dialectFork` `:153` | yes: `Revert` `session_ops.go:130`, `Unrevert` `:145`; `CapRevert` `httpagent/session.go:689`, `dialectRevert` `:158` | yes: `session_ops.go:227`; `CapDiff` `httpagent/session.go:690`, `dialectDiff` `:164` |
+
+Every cell was settled from the code; none was stopped. The lead sentence, "OpenCode session-tree polish", is replaced by
+"Session-tree operations (MADR 0020 Sprint 5)". Docs cross-check: `README.md:999` says "provider-native ops where
+available", which is true; no other doc states the OpenCode-only version. `go test -count=1 ./internal/protocol/`:
+`exit=0`.
+
+**Ruling 3, the R113 sentence**, verbatim in `apps/mobile/docs/architecture.md`: "CI builds the Android APK with JDK 25
+(`actions/setup-java`, Temurin). `scripts/build-apk.sh` uses `JAVA_HOME` when it is set and otherwise defaults to the
+Linux path `/usr/lib/jvm/java-17-openjdk-amd64`; `make apk` sets no `JAVA_HOME` of its own. The bytecode stays Java 17
+(0168), set in `android/app/build.gradle.kts`." Read again: `.github/workflows/ci.yml:482-486` (`java-version: "25"`),
+`scripts/build-apk.sh:11` (`export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"`), no `JAVA_HOME` in the
+`Makefile`'s `apk` recipe (`Makefile:549-567`), and `sourceCompatibility`/`targetCompatibility` `VERSION_17` and
+`jvmTarget JVM_17` (`apps/mobile/android/app/build.gradle.kts:53-54`, `:110`), which is the check that the Java 17 clause
+may stay. New REPORT row R149 asks whether the script's default should be 25 under record 0169; its destination is its
+own record.
+
+**R114.** The unverifiable clause is removed. `apps/mobile/docs/guides/ops-android-emulator.md` now says Gradle invoked
+directly needs the JDK CI uses, 25, and that on 2026-08-13 Gradle 9.1 rejected the host's default JDK 26 during its own
+`jlink` step (the guide's own date). The question whether Gradle 9.3.1 rejects JDK 26 was not settled from anything
+readable here (no Gradle documentation is in the module cache or the repository), and no Android build was run. New
+REPORT row R151, "not verified: needs a build with JDK 26", destination "open for the owner".
+
+**The coordinator's additions to the REPORT** (the plan's own process: older gaps found later are added to the
+REPORT; these are the coordinator's application of it, not the owner's rulings): the lead
+`protocol-v1.md:1649-1650` is refuted (the guide's "`mcp` from the session's own MCP servers" and the code comment that
+MCP state is not read from the control plane both hold: `acpagent/host.go:134-136`, `acpagent/session.go:1199-1202`), so it
+is a leads-table row with destination none. R150, `protocol-v1.md:2166` and `:2192` (lists of providers whose `plan` id
+is a `session_mode`): whether gobble belongs is not settled by the code, since grok and OpenCode carry `StaticModes`
+with a `plan` id and gobble sets none, so its modes come from what gobble advertises; destination C beside R63. R149 and
+R151 as above. The three rows are in the REPORT's new section "Found in Phase B".
+
+**Read and left.** `docs/guides/receipts.md:183`, "the chain's backward walk": read as the hash link of each entry to
+the previous one, which is a backward link; it is not the sentence about verification's walk, so it was left. The
+coordinator read it the same way.
+
+**Where my wording differs from the REPORT's**, row by row, so the difference is seen to be deliberate:
+
+- *R101.* The REPORT said the fixture README omits `../wire/0.152.1/` and `../wire/0.166.0/`, "which tests replay". I
+  wrote that `../wire/0.166.0/` is replayed by `runtime_passthrough_test.go` and that `../wire/0.152.1/` is kept as
+  history. Evidence: only `runtime_passthrough_test.go:21` opens `testdata/wire/0.166.0/frames.jsonl`; no test opens
+  `wire/0.152.1`, whose only mention in a test is a comment (`tool_lane_baseline_test.go:116`); and
+  `internal/provider/codex/version.go:14-16` says "the 0.152.1 and 0.166.0 captures remain as history".
+- *R121.* The REPORT said the date of each file's last content change, "`git log -1` per file". I used the last commit
+  that changed content: `git log -1` gives 2026-10-03 for five of the seven files, but that commit (`a1bee687`) and
+  `ed21e326` are renames and link rewrites (`R100`, `R098`, `R095` in `git log --follow -M --name-status`). So
+  `README.md` is 2026-08-04 (`ee3a09d1`), `flutter.md` and `ios.md` were already right, and the four files edited in this
+  phase are 2026-11-16.
+- *R123.* The REPORT said `1.27.4-vN` and "update `last_updated`" for all eight files. I set `version` in all eight and
+  kept N, and set `last_updated` to the last content change: 2026-11-16 for `core.md` and `testing.md` (edited here),
+  2026-11-08 for `cli.md` and `config.md` (`d493b32a`, a content change), and left 2026-07-28 for `concurrency.md`,
+  `logging.md`, `network.md` and `session.md`, whose only later commit is the `R100` rename `ed21e326`. A version-only
+  edit was not counted as a content change.
+
+**The dated note on the Verification line** is at Phase B's Verification block. The first deviation above stands as
+reported.
+
+**Checks, after these changes** (each to a scratch file, the status taken before any filter):
+
+```text
+grep -n 'MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES' README.md      exit=0, one line
+grep -n '`_MAX_RETRIES`' README.md                                    exit=1 (the narrower check, as ruled)
+grep -c -i gobble README.md docs/architecture.md apps/mobile/README.md   exit=0, 5, 4 and 1
+go test -count=1 ./internal/protocol/                                 exit=0
+go test -count=1 -run '^TestTrackedFilesUseOnlyPlaceholderHomes$' ./internal/   exit=0
+diffcheck.py on the staged diff                                       exit=0, 10 non-Markdown files, 0 failures
+python3 ~/.global-git-hooks/github-disclosure.py redact               exit=0, would edit 0 file(s)
+```
+
+`check_records.py --check-all` and `make markdownlint-docs` are re-run after this PLAN is staged; their statuses are in
+the coordinator's return.
+
+Totals now: 85 rows were Phase B's; 83 fixed in the first pass, R56 fixed by ruling 1 (84), R37 refuted by ruling 2,
+none stopped. REPORT rows added: R149, R150, R151 and one leads-table row.
+
+#### Phase B — the changelog, 2026-11-16
+
+The coordinator's application of MADR D3, not an owner ruling; the owner is to be told. `CHANGELOG.md` joins the phase's
+files (the dated note at Phase B's Files bullet) and the acceptance line has this one named addition. D3's test: "A
+correction to a user doc is an entry only when acting on the old text would have gone wrong." Read strictly, an entry
+needs a concrete wrong outcome: a setting ignored, a request refused or answered differently from the guide, a command,
+path or UI element that does not exist, or a build step that fails. A corrected count, name, date, list or internal
+detail is not one.
+
+| Rows | Old text, and what a reader acting on it would have done | What went wrong | Entry |
+| :--- | :--- | :--- | :--- |
+| R01 | the README gave `_MAX_RETRIES` as a short `MCREMOTE_TLS_ROUTE53_*` name; a reader sets that variable | the setting is silently ignored | yes, Fixed |
+| R29, R31 | the mcrelay guide said only a world-readable config is refused, and `tls.mode: off` "warns"; a reader uses mode 0640, or binds `off` off loopback | the config is refused at load; the bind is refused | yes, Fixed |
+| R97, R98 *(2026-11-16, the owner's ruling "Fold it into the mcrelay entry")* | the F6 row expected a suspended socket gone within 60 seconds and `resumed` in the daemon's auth logs | the test step looks for a line that is not there and waits too short a time | yes, one sentence in the mcrelay entry |
+| R21 *(2026-11-16, the owner's ruling "Fold it into a config-guide entry")* | the config guide said gobble authenticates the first upstream with a stored credential | a session uses a different upstream than the guide implied | yes, its own config-guide entry |
+| R53, R54, R55, R56, R65, R77 | the protocol guide said ACP providers serve `agent_sessions.list`, kilo emits `diagnostics_changed`, live diff becomes a notice, fork/revert/diff are OpenCode features, an oversize name is `bad_payload`, `aggregate` shows zero counts; a client written from it | `unsupported` or `agent_sessions_list_failed` instead of a list; an event that never comes; OpenCode answers `session_fork_failed` to the fork the guide said it serves; a name that is cut, not rejected; fields that are absent | yes, Fixed |
+| R38 | `headscale preauthkeys create --user <user>` on v0.29, which takes the ID | the command fails | yes, Fixed |
+| R103, R104, R105, R106, R110, R111, R115 | a dead link; "under Advanced" and "Logout (Disconnect)" in an app that has neither; `make apk` said to leave a `dist/` copy; debug builds said to allow `ws://`; `listen: tailscale` | a link, UI element and file that do not exist; a connection refused; a key that is ignored | yes, Fixed |
+| R145 (the two printed paths) | the CI log pointed a fork owner at `docs/guides/ops-android-signing.md` | a path that does not exist | yes, Fixed |
+| R02 to R06, R17, R57, R58, R92, R102, R112, R18, R47, R59, R60 | provider and service-backend lists without gobble, runit, s6 or OpenRC; the busy-queue and thinking-level provider lists | nothing breaks: a list lacked a name | no |
+| R28, R30, R39, R41, R45, R50, R51, R52, R78, R79, R83, R88, R89, R90, R94, R95, R99, R100, R101, R107, R108, R109, R114, R117, R118, R119, R120 | counts, names, dates, descriptions of CI or a test, an unverified Gradle note, link and layout wording | nothing: wording or internal detail | no |
+| R48 *(2026-11-16, the owner's ruling "No entry")* | the `usage_update` dedup description | repeated identical reports cause no wrong outcome | no |
+| R42 | "walks backward from the last line" | nothing: wording only (the false truncation claims are queued record 4) | no |
+| R113 | "JDK 21 builds the APK" | not shown to fail: a build with JDK 21 is not known to break, and the new sentence says what CI and the script do | no |
+| R121, R122, R123, R124, R125, R126, R127, R128, R129, R130 | standards front matter, dropped unused rules, standards and agent-process text | nothing: process text or standards for contributors | no |
+| R139, R140, R141, R142, R144, R146, R147, R148 | example-config comments and one key, a lint-config header, `.PHONY`, a check script, a script comment | nothing a user sees; example configs are not what a release ships *(2026-11-16, the owner's ruling "No entry")* | no |
+| R145 (the three comments), R37 | comments; a refuted row | nothing | no |
+
+Totals: 85 Phase B rows considered, plus the R145 echoed paths counted as their own line above. Entries for 17 fixed rows
+(R01, R29, R31, R38, R53, R54, R55, R56, R65, R77, R103, R104, R105, R106, R110, R111, R115) and the two echoed paths of R145,
+in six `### Fixed` entries under `## [Unreleased]`. The existing `### Changed` entry is untouched.
+
+**Left out meanwhile, as questions** *(2026-11-16: all four are answered by the owner's rulings below)*: the example
+configs (R139 to R142), R48, R97 and R98, and R21.
+
+Checks are in the coordinator's return.
+
+**The owner's four rulings on the changelog, 2026-11-16.** Each is a label the owner chose from options the coordinator
+put; this entry quotes only the label, as the owner's ruling, relayed by the coordinator.
+
+| # | Rows | The owner's ruling, relayed by the coordinator | Recorded in |
+| :--- | :--- | :--- | :--- |
+| 1 | R139 to R142 | "No entry" | the D3 table above; MADR D3 (a dated note: the example configs under `configs/` are not "what a release ships" for the changelog) |
+| 2 | R48 | "No entry" | the D3 table above |
+| 3 | R97, R98 | "Fold it into the mcrelay entry" | `CHANGELOG.md`, the mcrelay-guide entry under `[Unreleased]` `### Fixed`; the D3 table above |
+| 4 | R21 | "Fold it into a config-guide entry" | `CHANGELOG.md`, a new `### Fixed` entry for the configuration guide; the D3 table above |
+
+Evidence for the new sentences. R97, R98: `internal/ws/liveness.go:50-56` and `:121-128` (a v2 connection is reaped at
+the read deadline), `internal/config/config.go:566-568` (`ws_read_deadline_seconds` 120, and the comment that TCP
+keepalive, 25 + 4 x 5, about 45 seconds, reaps a silent peer first), `internal/ws/server.go:1206-1216` (`Resumed` is set
+on the auth payload sent to the phone). R21: `internal/provider/gobble/auth.go:94` (`ready()` is `Usable && Reason == ""`),
+`:260-274` (`readyUpstreams` lists the ready upstreams in acpext's order), `gobble.go:73` (`AuthPreferenceFunc`).
+
+Other config-guide rows looked at again: none meets the test, and none is as close as R21. `docs/guides/config.md` has no
+other corrected row; the next nearest is R28 (`config-mcrelay.md`, derived variable names also work), an omission, not a
+wrong outcome. Nothing is listed for the coordinator.

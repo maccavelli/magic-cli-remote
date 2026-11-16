@@ -48,7 +48,7 @@ Agents load hook config at session start. There is nothing to bypass: fix the fi
 
 **Run `make` on Windows from Git Bash, or from PowerShell with `C:\Program Files\Git\usr\bin` on `PATH`.** GNU make needs `sh.exe`. Check: `make -n ci-windows` must show `[ "windows" != "windows" ]`. In PowerShell, `bash` is WSL, not Git Bash.
 
-`make test`, and `make race` / `go test -race ./...` before a commit. Live-tagged tests spend real tokens; run them at acceptance: `make live-grok`, `make live-opencode`, `make live-kilo`, `make live-codex`.
+`make test`, and `make race` / `go test -race ./...` before a commit. Live-tagged tests spend real tokens; run them at acceptance. The live targets are `make live-grok` (its two parts also run alone as `live-grok-discrimination` and `live-grok-rest`), `live-opencode`, `live-kilo`, `live-codex`, `live-codex-turn`, `live-codex-review`, `live-codex-contract`, `live-gobble`, `live-replacefirst` and `live-supervisors`.
 
 ## Commit messages
 
@@ -60,7 +60,7 @@ After a failed `webfetch` tool result, immediately use `curl`. Do not retry `web
 
 ## MADR and PLAN before mutating work
 
-Rationale: [docs/decisions/0105-MADR-mutating-work-requires-madr-and-plan.md](docs/decisions/0105-MADR-mutating-work-requires-madr-and-plan.md). Per-agent pointers: `.claude/rules/madr-and-plan-skill.md`, `.grok/rules/madr-plan-before-mutating-work.md`, `.opencode/rules.md`.
+Rationale: [docs/decisions/0105-MADR-mutating-work-requires-madr-and-plan.md](docs/decisions/0105-MADR-mutating-work-requires-madr-and-plan.md). Per-agent pointers: `.claude/rules/madr-and-plan-skill.md`, `.codex/rules/madr-plan-before-mutating-work.md`, `.grok/rules/madr-plan-before-mutating-work.md`, `.kilo/agent/madr-and-plan-skill.md`, `.opencode/rules.md`.
 
 **This file is the normative copy of the gate.** Those pointers carry the skill name and the gate, and point here. Do not restate this section in them.
 
@@ -80,7 +80,7 @@ Order: (1) investigate (2) write or amend the MADR (`status: proposed` unless al
 
 Same topic: amend that number. Greenfield: next unused `NNNN`, new pair, same slug.
 
-Bootstrap exception: authoring `docs/decisions/NNNN-MADR-*`, `docs/decisions/NNNN-PLAN-*`, this section, and the per-agent process rules under `.claude/rules/`, `.grok/rules/` and `.opencode/rules.md` does not require a *prior* pair. Putting source, tests, CI, or product config in that same commit is a violation.
+Bootstrap exception: authoring `docs/decisions/NNNN-MADR-*`, `docs/decisions/NNNN-PLAN-*`, this section, and the per-agent process rules under `.claude/rules/`, `.codex/rules/`, `.grok/rules/`, `.kilo/agent/` and `.opencode/rules.md` does not require a *prior* pair. Putting source, tests, CI, or product config in that same commit is a violation.
 
 `git push` and tags still need an explicit ask in the same turn.
 

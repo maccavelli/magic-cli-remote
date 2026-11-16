@@ -1,5 +1,5 @@
 {
-  // markdownlint-cli2 configuration for the MagicTools MCP fleet READMEs.
+  // markdownlint-cli2 configuration for this repository's Markdown docs.
   // Optimized for human-readable technical documentation: tables, code
   // blocks, inline code spans, fenced shell snippets, and selective inline
   // HTML (e.g. <details>/<summary>, <br>, <kbd>) are all first-class.

@@ -1,7 +1,7 @@
 ---
 title: "Mobile Standards"
 version: "3.12.2-v3"
-last_updated: "2026-07-28"
+last_updated: "2026-08-04"
 status: "active"
 applies_to: ["apps/mobile"]
 dart_sdk: "^3.12.2"

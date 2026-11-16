@@ -7,8 +7,10 @@ Decisions behind this page: [0116-MADR-windows-and-linux-arm64-build-targets.md]
 
 ## Support tier
 
-Windows is **Tier 2**: built, unit-tested and smoke-tested in CI on every push
-and tag, but not exercised by the live provider suites. Linux and macOS are
+Windows is **Tier 2**: built and unit-tested in CI on every push (the
+`go-native` windows/amd64 leg), and on a tag the release build also runs each
+binary's `version` command on a Windows runner, but not exercised by the live
+provider suites. Linux and macOS are
 Tier 1.
 
 `windows/arm64` is **not supported** — not built, not published. This is a
@@ -444,7 +446,7 @@ Script: `scripts/ci-windows-local.ps1`. Decisions:
 | go-native build/vet/test, CGO=0, `MC_REQUIRE_SYMLINK=1` | mirrored on Windows |
 | go-native retry-once (0143) | omitted (optional `-RetryOnce`) |
 | `-race` / flutter `preflight` | omitted |
-| smoke-native GH artifact download | omitted; light local smoke builds `dist/*-windows-amd64.exe` |
+| release identity job (tag only) | omitted; light local smoke builds `dist/*-windows-amd64.exe` |
 | Run on macOS/Linux | skip + exit 0 |
 
 ## Codex's Windows sandbox, and the ACLs it leaves behind

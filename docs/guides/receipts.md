@@ -71,8 +71,8 @@ $ mcremote receipts verify --device <device_id>
 OK: device <device_id> chain intact.
 ```
 
-A tampered or truncated file is detected by walking backward from the last
-line: `mcremote receipts verify` reports the exact 1-indexed line the first
+A tampered or truncated file is detected by walking forward from line 1:
+`mcremote receipts verify` reports the exact 1-indexed line the first
 break occurs at, and exits non-zero — safe to use in an audit script.
 
 ## What the daemon enforces before appending

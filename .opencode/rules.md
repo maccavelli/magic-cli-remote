@@ -33,7 +33,7 @@ The filesystem still outranks this paragraph. Verify:
 ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
 ```
 
-**Mutating work needs an approved `docs/NNNN-MADR-*` / `docs/NNNN-PLAN-*` pair
+**Mutating work needs an approved `docs/decisions/NNNN-MADR-*` / `docs/decisions/NNNN-PLAN-*` pair
 first**; read-only investigation does not. The normative text — what counts as
 mutating, the approval order, the bootstrap exception — is in `AGENTS.md`. Read
 it there rather than trusting a summary; this file deliberately does not restate

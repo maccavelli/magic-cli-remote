@@ -85,7 +85,7 @@ binary until you restart it.
 
 **Installing an older release.** `--version` installs another release with
 this installer's steps. A release whose assets this installer cannot find in
-its `SHA256SUMS` is refused with exit `1` before anything is downloaded, and the
+its `SHA256SUMS` is refused with exit `1` before anything is installed, and the
 message names that release's own installer. One whose binaries report their
 version in an older form is put back after the check, with exit `2`. Install
 such a release with its own installer, from

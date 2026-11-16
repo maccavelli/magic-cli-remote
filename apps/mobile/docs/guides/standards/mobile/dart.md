@@ -1,7 +1,7 @@
 ---
 title: "Dart Standards"
 version: "3.12.2-v3"
-last_updated: "2026-07-28"
+last_updated: "2026-11-16"
 component: "dart"
 sdk_constraint: "^3.12.2"
 ---
@@ -20,9 +20,6 @@ sdk_constraint: "^3.12.2"
 
 ## Code idioms and modern features
 
-- **Extension Types**: Use zero-cost extension types (`extension type Token(String value)`)
-  for strongly-typed domain primitives (e.g. device IDs, session tokens, fingerprints)
-  to prevent parameter misuse at compile time without allocation overhead.
 - **Sealed Types & Class Modifiers**: Represent domain hierarchies (events, states,
   errors) using `sealed class` or `final class` modifiers to guarantee exhaustive
   pattern matching in `switch` expressions.

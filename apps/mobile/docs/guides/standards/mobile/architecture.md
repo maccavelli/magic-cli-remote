@@ -1,7 +1,7 @@
 ---
 title: "Mobile Architecture and State Standards"
 version: "3.12.2-v3"
-last_updated: "2026-07-28"
+last_updated: "2026-11-16"
 component: "architecture"
 state_management: "flutter_riverpod ^3.3.2"
 router: "go_router ^18.0.0"
@@ -20,6 +20,7 @@ lib/
 ├── features/   # Screens and feature-specific widgets
 ├── theme/      # Celestial design system and shared visual behavior
 ├── app.dart    # Router and application composition
+├── app_lifecycle.dart  # App-resume and connectivity handling
 └── main.dart   # Entrypoint
 ```
 
@@ -33,17 +34,6 @@ concrete data source, test seam, or shared business rule clearer.
   owns the client lifecycle; callers must not instantiate competing clients.
 - Use `ref.watch` for reactive UI dependencies and `ref.read` for event-driven
   commands.
-- **Async State & Error Boundaries**: Use `Notifier` / `AsyncNotifier` patterns with
-  `AsyncValue.guard()` for async state transitions to handle loading, data, and error
-  states cleanly without uncaught exceptions:
-
-```dart
-Future<void> performAction() async {
-  state = const AsyncValue.loading();
-  state = await AsyncValue.guard(() => repository.executeAction());
-}
-```
-
 - Keep state transitions immutable and independently testable, as the transcript
   reducer does.
 - `goRouterProvider` is the routing authority. Preserve its pairing-aware

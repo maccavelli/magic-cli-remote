@@ -372,7 +372,7 @@ denies transport access rather than merely a bearer secret.
 }
 ```
 
-- `provider`: `fake`, `grok`, `opencode`, `kilo`, or `codex` (see
+- `provider`: `fake`, `gobble`, `grok`, `opencode`, `kilo`, or `codex` (see
   `providers.list` for what the host actually offers — registration does not
   imply the binary is installed)
 - `model`: optional agent model for this session. Grok takes a model name
@@ -385,9 +385,9 @@ denies transport access rather than merely a bearer secret.
 - `thinking_level`: optional reasoning/thinking effort for this session (e.g.
   `low`, `high`). Empty means the provider default. Codex sends it as
   `turn/start.effort` and can change it mid-session via `/thinking`. The ACP
-  providers (grok, OpenCode) send it in `session/new` `_meta` and record what
-  the agent applied (MADR 0106); both change it mid-session via `/thinking`,
-  OpenCode only while the current model has variants. Prefer values from each
+  providers (grok, gobble, OpenCode) send it in `session/new` `_meta` and record
+  what the agent applied (MADR 0106); they change it mid-session via
+  `/thinking`, OpenCode only while the current model has variants. Prefer values from each
   model's `thinking_levels` on `models.list` (MADR 0052).
 - `agent`: optional Kilo agent name (e.g. `build`, `plan`), validated against
   the engine's agents and sent with each prompt. Empty uses the engine
@@ -416,7 +416,7 @@ multi-select schema-ready).
 
 | Request field | Meaning |
 |---|---|
-| `provider` | Required. A registered **agent** provider id (grok, opencode, kilo, codex, fake) |
+| `provider` | Required. A registered **agent** provider id (gobble, grok, opencode, kilo, codex, fake) |
 | `scope` | `models` (default) or `providers`. With `providers` the reply enumerates **model** providers (anthropic, openai, …) instead of models — a different axis from `providers.list`, which lists agent CLIs |
 | `model_provider` | Narrows a `models` request to one model provider id. Empty means the provider's default set |
 | `session_id` | Scopes the catalog to a live session: the models of the provider that session is using, with its current model as `default_ids`. The requesting device must own the session |
@@ -496,25 +496,27 @@ Error codes: `bad_payload` (missing `provider`, or an unrecognised `scope`),
 ### `agent_sessions.list` (provider-native resume discovery)
 
 Returns a bounded, metadata-only page of resumable sessions from a provider
-that explicitly supports discovery (currently ACP providers advertising
-`sessionCapabilities.list`). It does not create a daemon session, copy a
+that supports discovery. Only codex serves it today. The ACP providers (grok,
+gobble, OpenCode) answer `unsupported`, because their lister is on the ACP
+session and not on the provider, and kilo answers `agent_sessions_list_failed`.
+It does not create a daemon session, copy a
 transcript, or change ownership. A client imports a chosen entry only by
 sending its `id` as `session.create.agent_session_id`.
 
 **Request:**
 
 ```json
-{ "provider": "grok" }
+{ "provider": "codex" }
 ```
 
 **Reply** `agent_sessions.list_result`:
 
 ```json
 {
-  "provider": "grok",
+  "provider": "codex",
   "sessions": [
     {
-      "id": "20260726_30",
+      "id": "<native session id>",
       "cwd": "/absolute/path",
       "title": "Optional agent title",
       "updated_at": "2026-07-26T20:52:14Z"
@@ -539,12 +541,14 @@ per-turn figure carried by `usage_update`:
 ```json
 {
   "aggregate": {
-    "input": 1200, "output": 340, "reasoning": 0,
-    "cache_read": 800, "cache_write": 0,
+    "input": 1200, "output": 340,
+    "cache_read": 800,
     "cost_usd": 0.0
   }
 }
 ```
+
+A count of zero is omitted from the object; only `cost_usd` can appear as `0`.
 
 An absent `aggregate` means the agent reported no accounting. A present one
 whose fields are zero means a known-free or empty session — clients must render
@@ -760,7 +764,8 @@ How each provider implements a mode (MADR 0022):
 
 ### `session.fork` / `session.revert` / `session.unrevert` / `session.diff`
 
-OpenCode session-tree polish (MADR 0020 Sprint 5):
+Session-tree operations (MADR 0020 Sprint 5). Which provider serves which is in the table below the
+message table.
 
 | Type | Payload | Reply |
 |------|---------|-------|
@@ -769,10 +774,24 @@ OpenCode session-tree polish (MADR 0020 Sprint 5):
 | `session.unrevert` | `{ "session_id" }` | `ok` + notice |
 | `session.diff` | `{ "session_id", "message_id?" }` | `session.diff_result` `{ "session_id", "summary" }` (+ notice) |
 
-Unsupported providers return a typed error (`session_fork_failed`, etc.).
+Served per provider (revert and unrevert are one capability, offered together):
 
-Live SSE `session.diff` events are also mapped to a multi-line `notice` (paths
-and +/− counts) without a client pull.
+| Provider | `session.fork` | `session.revert` / `session.unrevert` | `session.diff` |
+|---|---|---|---|
+| `fake` | no | yes | yes |
+| `gobble` | yes | no | no |
+| `grok` | yes | no | no |
+| `opencode` | no | yes | yes |
+| `codex` | yes | no | yes |
+| `kilo` | yes | yes | yes |
+
+A provider that does not serve an operation answers with that operation's own error code,
+`session_fork_failed`, `session_revert_failed`, `session_unrevert_failed` or `session_diff_failed`, with the
+message "session … does not support …"; it is not `unsupported`. A session id that is not live
+answers `session_not_live`, and one the device does not own `session_forbidden`.
+
+Kilo's live SSE `session.diff` events are deliberately not rendered; a client
+pulls the diff with `session.diff`.
 
 ### `session.rename` and `session.diagnostics`
 
@@ -976,7 +995,7 @@ In addition to `bad_payload` / `session_forbidden` / `session_not_live` /
 
 | code | When |
 |---|---|
-| `turn_busy` | Queue full or session cannot accept another prompt (`provider.ErrTurnBusy`). On both the httpagent (kilo) and ACP (`acpagent`: grok, opencode) paths, a second prompt while busy is **queued** (FIFO, max 4) and returns `ok` with a notice; `turn_busy` only on overflow. Cancel/close clear the queue. Never auto-dequeues while a permission is pending. |
+| `turn_busy` | Queue full or session cannot accept another prompt (`provider.ErrTurnBusy`). On every provider (httpagent: kilo; ACP, `acpagent`: grok, opencode, gobble; and codex), a second prompt while busy is **queued** (FIFO, max 4) and returns `ok` with a notice; `turn_busy` only on overflow. Cancel/close clear the queue. Never auto-dequeues while a permission is pending. |
 
 ### Error code reference
 
@@ -1012,7 +1031,7 @@ Codes that belong to one operation are described with it rather than here:
 | `bad_version` | Envelope `v` is not the supported protocol version. |
 | `unauthorized` | Any request other than `auth` / `pair.claim` before the socket authenticated. |
 | `unknown_type` | Envelope `type` the daemon does not handle. |
-| `bad_payload` | Undecodable payload, a missing required id, or an oversize field (`cwd`, `model`, `agent`, `agent_session_id`, `name`). |
+| `bad_payload` | Undecodable payload, a missing required id, or an oversize field (`cwd`, `model`, `thinking_level`, `permission_profile_id`, `approvals_reviewer`, `agent`, `agent_session_id`, or a `name` on rename). `session.create` truncates an oversize `name` to 256 bytes instead. |
 | `rate_limited` | Transient throttle — too many failed auth/pair attempts, or too many concurrent async requests on this connection. Back off and retry. |
 | `deadline_exceeded` | An async handler hit its per-op server deadline (MADR 0056 H-2a). The client may retry mutating ops **with the same request id**. |
 | `retry_no_result` | A retry carrying an already-seen request id matched a completed idempotency entry that captured no response frame, so the daemon cannot replay the original answer (MADR 0095 D6). The operation is **not** known to have failed: reconcile via `session.list` / history rather than assuming either outcome. |
@@ -1065,7 +1084,7 @@ timed out, exceeded its bound, or returned no valid schema-v1 report.
 
 **Pre-warm control** — `providers.set_prewarm` (MADR 0089 D7). Also emits
 `unsupported` (the daemon has no pre-warm controller) and `unknown_provider`
-(an id outside the four agents):
+(an id outside the five agents: gobble, grok, opencode, codex, kilo):
 
 | code | When |
 |---|---|
@@ -1536,7 +1555,8 @@ replace the card detail with non-empty incoming text snapshots.
   keep the previous append-only behaviour and are never matched by identity.
 - `replace`: `true` marks an authoritative full snapshot of the identified
   part — discard what you hold for that identity and take this instead. `false`
-  (or absent) is an append delta.
+  (or absent) is an append delta. No provider sets it today; the contract
+  stands.
 
 ### Direct shell
 
@@ -1567,7 +1587,7 @@ does not pretend to.
 v2's engine sends no update for the command (0214 gate G5), so the daemon reads
 the shell's message back through the control plane and shows it as one `bash`
 tool call. There is exactly one transcript representation, capped by the
-ordinary 8,000-character tool-output limit.
+ordinary 8,000-byte tool-output limit.
 
 **Nothing is ever retried** — not on timeout, not on disconnect. A timed-out
 command may still be running, and re-submitting would start a second one.
@@ -1639,7 +1659,8 @@ is synchronized to OpenCode's service and readable by anyone with the link.
 ### Skills and diagnostics
 
 `session.diagnostics` reports what the engine can draw on. Beyond the existing
-VCS and MCP fields it carries `skills`, `lsp` and `formatters` (MADR 0112 A6).
+VCS and MCP fields it carries `skills`, `lsp` and `formatters` (MADR 0112 A6);
+no provider fills `lsp` or `formatters` today.
 
 Everything in it is **metadata only**, bounded and sorted:
 
@@ -1660,12 +1681,11 @@ unrecognized becomes `unknown`. That mapping is total on purpose: two upstream
 states carry a required `error` string containing URLs and bearer tokens, and a
 pass-through default would be how such a value escaped.
 
-A `diagnostics_changed` event tells a client its cached report is stale. It
+A `diagnostics_changed` event would tell a client its cached report is stale. It
 carries **no payload**, for the same reason: the engine's global events name
-servers and include errors. It is emitted at most once per 500 ms per session.
-Only kilo's HTTP engine emits it, and only for the two canonical events that
-invalidate the report (`mcp.tools.changed`, `lsp.updated`). Every other section,
-and every section on OpenCode v2, refreshes on open or explicitly.
+servers and include errors. The HTTP engines' hook that sends it, at most once
+per 500 ms per session, has no implementation, kilo's included, so no provider
+emits it today. Every section refreshes on open or explicitly.
 
 #### Authoring a skill
 
@@ -1825,8 +1845,8 @@ An agent can restate or retract content it already streamed. Two mechanisms
 carry that, both keyed on native identity (MADR 0112 A3):
 
 **Replacement.** A live `message.part.delta` is an append; a full
-`message.part.updated` frame and every replayed part are snapshots and arrive
-with `replace: true`. A client reduces non-user rows by
+`message.part.updated` frame and every replayed part are snapshots, which the contract marks
+`replace: true` (no provider sets it today). A client reduces non-user rows by
 `(provider, session_id, native_message_id, native_part_id)` and replaces rather
 than appends when `replace` is set. Without this, resuming a session appends
 the whole conversation a second time, because replay re-delivers text that was
@@ -1912,9 +1932,10 @@ Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`
 `session_capabilities`, `session_title`, `artifact`, `diagnostics_changed`, `transcript_remove`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`,
 `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
 
-Every type in that list has a section or a field entry in this document, and a
-test enforces it (`TestEventTypesAreDocumented`): a new event type fails the
-build until it is added here.
+Every type the daemon emits appears in that list, and a test enforces it
+(`TestEventTypesAreDocumented`): a new event type fails the build until it is
+added to the list. The test checks the list, not that each type has a section
+or a field entry.
 
 ### `session_capabilities` event (negotiated ACP support)
 

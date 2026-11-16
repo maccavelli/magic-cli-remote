@@ -1,7 +1,7 @@
 ---
 title: "Mobile Networking and TLS Standards"
 version: "3.12.2-v2"
-last_updated: "2026-07-28"
+last_updated: "2026-11-16"
 component: "networking"
 ---
 
@@ -32,8 +32,9 @@ relay. Do not open raw `web_socket_channel` connections from screens.
   them securely, and presents them through the same `SecurityContext` used for
   server verification. The daemon authorizes the client's SPKI fingerprint.
 - Never set `badCertificateCallback` to accept all certificates in a production
-  connection. The health probe that temporarily does so is diagnostic only; do
-  not copy that exception into authenticated or WebSocket paths.
+  connection. The `/healthz` reachability probe temporarily does so. It is
+  unauthenticated and drives path selection; do not copy that exception into
+  authenticated or WebSocket paths.
 
 Changes to pairing, certificate acceptance, relay bridging, or reconnect policy
 require tests for rejection, cleanup, and a successful direct and relay path.

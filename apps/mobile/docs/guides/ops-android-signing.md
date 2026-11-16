@@ -102,9 +102,9 @@ Local development is unaffected: without `key.properties`, local builds
 keep using the machine's debug key, and `flutter install` over a dev-key
 install keeps working.
 
-Post-incident notes (MADR 0066, 2026-08-02): an in-place update is
-expected to **preserve pairing** from the first post-0066 release onward
-(hardware rows E1/E2 in
+Post-incident notes (MADR 0066, 2026-08-02): an in-place update **preserves
+pairing** from the first post-0066 release onward (hardware rows E1 and E2
+passed on 2026-08-03, in
 [ops-hardware-validation.md](../../../../docs/guides/ops-hardware-validation.md)). If Android's
 keystore still resets the secret store across an update, the app now shows
 one "Stored credentials were reset" banner and recovers with a re-pair —

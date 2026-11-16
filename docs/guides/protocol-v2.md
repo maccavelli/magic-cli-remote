@@ -102,8 +102,9 @@ built from the same specification the server enforces with
   daemon runs without a session store. Clients that see it change drop
   every cached seq.
 - `codex_surface` — present only when the authenticated v2 device advertised
-  Codex surface version 1. Capability ids are bytewise sorted from the pinned
-  installed manifest; experimental ids remain separately labeled. The three
+  Codex surface version 1. Capability ids are bytewise sorted: the ids the running engine
+  negotiated, or the installed manifest's before any engine has negotiated;
+  experimental ids remain separately labeled. The three
   numeric limits are enforced response/request bounds, not hints.
 
 Clients must tolerate unknown keys in `caps` (additive evolution).

@@ -170,6 +170,8 @@ def unnumbered_docs() -> list[Path]:
         rel = p.relative_to(REPO).as_posix()
         if rel == "README.md" or rel in ("docs/README.md", "docs/architecture.md"):
             out.append(p)
+        elif rel == "apps/mobile/README.md":
+            out.append(p)
         elif rel.startswith("docs/guides/"):
             out.append(p)
         elif rel in ("apps/mobile/docs/README.md",

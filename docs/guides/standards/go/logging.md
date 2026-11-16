@@ -1,6 +1,6 @@
 ---
 title: "Go Logging and Error Standards"
-version: "1.26.5-v2"
+version: "1.27.4-v2"
 last_updated: "2026-07-28"
 component: "logging"
 ---

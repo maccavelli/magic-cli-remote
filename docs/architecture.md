@@ -34,7 +34,8 @@ Pairing QR encodes `mcremote://pair?host=…&code=…&fp=…&mode=…`. After cl
   │  HTTP: GET /healthz, GET /v1/hello, GET /v1/ws  │
   │  auth (device token + optional client TLS key)  │
   │  session manager + event bus + history ring     │
-  │  providers: grok, opencode, codex, kilo, fake   │
+  │  providers: gobble, grok, opencode, codex,      │
+  │             kilo, fake                          │
   │  admin.sock (local Unix, pair-revoke kick)      │
   └───────────┬─────────────┬───────────────────────┘
               │             │ optional outbound
@@ -43,7 +44,7 @@ Pairing QR encodes `mcremote://pair?host=…&code=…&fp=…&mode=…`. After cl
               │        register / join / splice
               ▼
      agent engines (shared processes where applicable)
-       grok agent stdio · opencode acp (+ serve --stdio) · codex app-server · kilo serve
+       gobble acp · grok agent stdio · opencode acp (+ serve --stdio) · codex app-server · kilo serve
 ```
 
 HTTP surface:
@@ -78,9 +79,9 @@ Sessions are owned by the device that created them. Handoff is `session.release`
 
 ## Providers
 
-Registered adapters: **grok**, **opencode**, **codex**, **kilo**, and **fake**
+Registered adapters: **gobble**, **grok**, **opencode**, **codex**, **kilo**, and **fake**
 (tests). Each talks to a host-side engine process: an ACP agent over stdio
-per session (grok, and OpenCode's `opencode acp`), `codex app-server`, or
+per session (gobble's `gobble acp`, grok, and OpenCode's `opencode acp`), `codex app-server`, or
 `kilo serve`. OpenCode adds a control plane, `opencode serve --stdio`, for what
 ACP lacks. Missing binaries for enabled providers mark those engines not ready;
 the daemon still starts.
@@ -110,7 +111,7 @@ Guides: [config.md](guides/config.md), [config-mcrelay.md](guides/config-mcrelay
 
 `mcremote setup-service` and `mcrelay setup-service` install a user unit:
 
-- Linux: systemd `--user` (optional lingering so the daemon survives logout)
+- Linux: systemd `--user` (optional lingering so the daemon survives logout), or a runit, s6 or OpenRC service where the host has no systemd
 - macOS: LaunchAgent for the login session
 - Windows: Task Scheduler at-logon task, LeastPrivilege
 

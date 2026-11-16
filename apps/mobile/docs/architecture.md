@@ -25,14 +25,15 @@ The phone selects the path (mesh, relay, or LAN). Pairing is an 8-character
 code (five minutes), a QR (`mcremote://pair?…`), or a stored `mcr_…` token.
 Invalid or revoked tokens clear and prompt re-pair.
 
-The control plane is `GET /v1/ws` after `GET /v1/hello`. Debug builds may use
-cleartext `ws://`. Foreground resume reconnects when credentials are still
-active.
+The control plane is `GET /v1/ws`. The app probes `GET /healthz` to choose the
+path, and never calls `GET /v1/hello`. Android and iOS refuse cleartext `ws://`
+in every build mode; only the Linux desktop target may use it. Foreground
+resume reconnects when credentials are still active.
 
 ## What the app drives
 
 - Session list and create, with the providers the daemon reports ready
-  (grok, opencode, codex, kilo, fake)
+  (gobble, grok, opencode, codex, kilo, fake)
 - Model catalog, thinking levels, session modes (including auto-approve when
   offered)
 - Live chat: thoughts, tools, assistant text, questions
@@ -56,4 +57,7 @@ apps/mobile/
   docs/          this tree
 ```
 
-JDK 21 builds the Android APK in CI and on every dev host (0168).
+CI builds the Android APK with JDK 25 (`actions/setup-java`, Temurin). `scripts/build-apk.sh`
+uses `JAVA_HOME` when it is set and otherwise defaults to the Linux path
+`/usr/lib/jvm/java-17-openjdk-amd64`; `make apk` sets no `JAVA_HOME` of its own. The bytecode
+stays Java 17 (0168), set in `android/app/build.gradle.kts`.

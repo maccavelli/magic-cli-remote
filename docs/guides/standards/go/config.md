@@ -1,7 +1,7 @@
 ---
 title: "Go Configuration Standards"
-version: "1.26.5-v2"
-last_updated: "2026-07-28"
+version: "1.27.4-v2"
+last_updated: "2026-11-08"
 component: "config"
 ---
 

@@ -19,12 +19,12 @@ adb emu screenrecord screenshot <output-dir>/     # writes Screenshot_*.png
 the scratchpad as `shot.sh` (rm stale files → `adb emu screenrecord
 screenshot` → rename newest).
 
-**2. Gradle invoked directly needs JDK 21.**
-`./gradlew` bypasses `flutter config --jdk-dir`, and Gradle 9.1 rejects this
+**2. Gradle invoked directly needs the JDK CI uses, 25.**
+`./gradlew` bypasses `flutter config --jdk-dir`. On 2026-08-13 Gradle 9.1 rejected this
 host's default JDK 26 during its own `jlink` step. Prefix with:
 
 ```sh
-JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew …
+JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home ./gradlew …
 ```
 
 Also note `android/gradlew` is **gitignored** by the Flutter template, so a
@@ -60,7 +60,7 @@ Verified end to end 2026-08-13: the emulator paired and reached
 
 Two constraints shape this, and neither is a bug:
 
-- The daemon binds **only to its tailnet IPv4** (`listen: tailscale`), so
+- The daemon binds **only to its tailnet IPv4** (`listen.host: tailscale`), so
   `10.0.2.2` — the emulator's alias for the host loopback — cannot reach it.
   Use the tailnet address; the emulator's NAT routes to it fine.
 - A **typed pair code cannot complete pairing**: it carries no certificate
