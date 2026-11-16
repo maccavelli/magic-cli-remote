@@ -41,11 +41,12 @@ Optional (not required for control plane): records under MagicDNS base are manag
 
 Wait until the name resolves from the public internet (phone LTE DNS or an external checker) to **exactly** this host’s public IP.
 
-**Split-horizon / VPC DNS:** On this AWS host, the VPC resolver (`10.10.0.2`) serves a private view of `example.com` that may **not** include `headscale` even when public DNS does. That does **not**
+**Split-horizon / VPC DNS:** On an AWS host, the VPC resolver (`<resolver>`, the DNS address your VPC hands the host) serves a private view of
+`example.com` that may **not** include `headscale` even when public DNS does. That does **not**
 block Let’s Encrypt (validators use public DNS). For same-host tools (`curl`, `tailscale up`), either:
 
 ```bash
-# one-line local override (already used on the utility box)
+# one-line local override
 echo '127.0.0.1 headscale.example.com' | sudo tee -a /etc/hosts
 ```
 
@@ -65,7 +66,7 @@ Do **not** open **7531** publicly if clients are on the mesh.
 
 Outbound: allow normal HTTPS (ACME, DERP map, updates).
 
-Local host firewall is currently inactive on the utility box; if you enable `ufw` later, mirror the same ports.
+If the host runs a local firewall (for example `ufw`), mirror the same ports there.
 
 ### 3. Headscale TLS (built-in Let’s Encrypt)
 
@@ -121,15 +122,15 @@ client reaching the daemon port on a daemon host.
 
 **v0.29 caveat:** Headscale v0.29 rejects `autogroup:admin` as a `tagOwners`
 value. Name the real user(s) who may advertise each tag (`user:` prefix, the
-usernames from `headscale users list`). Substitute `mac` below for yours.
+usernames from `headscale users list`). Replace `<user>` below with yours.
 
 ```hujson
 {
   // Who is allowed to advertise each tag. Untagged nodes match no rule below
   // and therefore cannot reach 7531 at all.
   "tagOwners": {
-    "tag:mcremote-host":   ["user:mac"],
-    "tag:mcremote-client": ["user:mac"],
+    "tag:mcremote-host":   ["user:<user>"],
+    "tag:mcremote-client": ["user:<user>"],
   },
 
   "acls": [
@@ -147,7 +148,7 @@ Everything else — client→client, host→client, any other port on the host, 
 untagged node → anything — is denied because no rule accepts it.
 
 If you need SSH or another admin path to the host, add an explicit narrow rule
-for it (e.g. `"src": ["user:mac"], "dst": ["tag:mcremote-host:22"]`) rather than
+for it (e.g. `"src": ["user:<user>"], "dst": ["tag:mcremote-host:22"]`) rather than
 relaxing the rule above.
 
 Reload after edits (`systemctl reload headscale` or restart), then verify: a
@@ -172,12 +173,14 @@ sudo headscale preauthkeys create -u 1 --expiration 1h --tags tag:mcremote-host
 ### 5. User + preauth keys
 
 ```bash
-sudo headscale users create mac
+sudo headscale users create <user>
 # Single-use (no --reusable), short expiry, and tagged so the ACL above applies.
 # Issue one key per node, immediately before enrolling that node.
-sudo headscale preauthkeys create --user mac --expiration 1h --tags tag:mcremote-host
-sudo headscale preauthkeys create --user mac --expiration 1h --tags tag:mcremote-client
+sudo headscale preauthkeys create --user <user> --expiration 1h --tags tag:mcremote-host
+sudo headscale preauthkeys create --user <user> --expiration 1h --tags tag:mcremote-client
 ```
+
+Use the same `<user>` here as in the policy's `tagOwners`.
 
 A node that joins with an untagged key matches no ACL rule and cannot reach
 7531. If your Headscale version lacks `--tags`, set the tag on the node
@@ -203,7 +206,7 @@ documented local socket/CLI paths).
 
 ```bash
 tailscale status
-tailscale ip -4    # e.g. 100.64.0.1 — phone will use this for mcremote
+tailscale ip -4    # e.g. 100.x.y.z — phone will use this for mcremote
 ```
 
 ### 7. Join the **phone**

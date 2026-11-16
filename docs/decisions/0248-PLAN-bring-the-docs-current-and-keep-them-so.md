@@ -737,3 +737,79 @@ On the coordinator's review, the same executor closed the rows Phase A had left 
 Re-run after the last edit: `check_records.py --check-all` exit 0, `make check-records` exit 0, `make
 markdownlint-docs` exit 0, the redact preview exit 0 with no file to edit, the citation checker exit 0. The earlier run
 recorded above (exit 1, one bad citation) stands as the record of that run.
+
+### Identifiers in two published guides — 2026-11-15
+
+Run by a mainstream model at medium effort, on the coordinator's brief, from `master` at `e1922f35` (clean). No value
+is quoted here; each is named by kind and place.
+
+**Deviation from the plan's order (C7).** Phase A listed R40 and R116 with destination "owner", ahead of Phase B. The
+owner ruled on 2026-11-15, relayed by the coordinator, by choosing "Placeholders now, own commit": the values are
+replaced with placeholders in the two guides now, as their own commit ahead of Phase B; history is not rewritten; the
+owner adds the values to the disclosure guard's deny list. This entry records that ruling as the resolution. No
+decision or asserted fact in the MADR changes, so the MADR is not amended. The two guides are inside the Scope
+(`docs/guides/**`, `apps/mobile/docs/**`); only the order differs.
+
+**Replaced** (line numbers are those of `e1922f35`, before the edit):
+
+* `docs/guides/headscale.md`, split-horizon paragraph (line 44): the private VPC resolver address became
+  `<resolver>`, with the words "the DNS address your VPC hands the host", and the opening that placed the sentence on
+  one particular AWS host became "On an AWS host", so the reader knows what to substitute and the sentence no longer
+  reports one host.
+* `headscale.md:48`: the comment saying the override was already in use on a named host was removed from the
+  `/etc/hosts` example.
+* `headscale.md:68`: the sentence reporting a named host's firewall state became an instruction: "If the host runs a
+  local firewall (for example `ufw`), mirror the same ports there."
+* `headscale.md:124`, `:131-132`, `:150`, `:175`, `:178-179`: the Headscale user name
+  became `<user>` in the `tagOwners` block, the SSH-rule example and the `users create` and `preauthkeys create`
+  commands. Line 124's instruction to substitute the user name below became "Replace `<user>` below with yours", and a sentence
+  after the section 5 command block now says to use the same `<user>` as in `tagOwners`.
+* `headscale.md` (the `tailscale ip -4` comment): an example tailnet address, probably generic, became `100.x.y.z`,
+  the form line 11 already uses. This was done on the rule "if unsure, treat it as real".
+* `apps/mobile/docs/guides/ops-android-emulator.md:59` and `:87`: the observed tailnet address became
+  `<tailnet-ip>`. Line 59 now says it is the daemon's tailnet IPv4; the line 87 command carries the comment
+  "`<tailnet-ip>`: `tailscale ip -4` on the daemon host".
+* Not changed, judged not real: the documentation-range public address, `example.com` names (including the
+  `relay-host` MagicDNS example, which 0232 already made an alias), and the heading "this project's AWS utility box",
+  which names a role and not a host. The report's `:22` is the Target-names heading and the table; nothing in it is a
+  real value.
+
+The edit added one line after line 44 and two after the section 5 command block, so Phase B's rows on `headscale.md`
+move: R38's `:162` is now `:163` and its `:178-179` is now `:179-180`; R39's `:285` is now `:288`. No row on the
+other guide moves.
+
+**Wider search (read-only; the check script below, over each repository's tracked files).** In this repository, after
+the edit, no unnumbered doc carries any value. Remaining occurrences, none edited: the tailnet address, as a kind, in
+four records (`docs/decisions/0072-MADR-*` 2 lines, `0138-MADR-*` 3, `0138-PLAN-*` 2,
+`apps/mobile/docs/decisions/0126-PLAN-*` 1), in test fixtures (`apps/mobile/test/connect_screen_test.dart` 7 lines,
+`internal/cli/pair_advertise_test.go` 2, `internal/cli/pair_test.go` 1) and in one Go comment
+(`internal/cli/pair.go:617`). The resolver address, the user name and the host-state sentences occur nowhere else.
+`gobble-cli`, `go-llmprovider-sdk`, `go-tui-lib`, `acp-go-sdk2` and `dotfiles`: 0 occurrences each, nothing edited. No
+`*.devops.*.json` file is tracked in any of them; none was read. These remaining occurrences are for the owner: the
+records and the code comment are history or code, outside this change.
+
+**Introducing commits** (found by pickaxe over the guides' paths before and after their moves): the resolver address,
+the host-state sentences and the user name in `headscale.md`: `be10760d` (2026-07-19, "feat(mobile): improve endpoint
+parsing and add mesh deployment support"); the user name's later forms: `d99a9358` (2026-07-20, "feat(mobile): pin
+identity rather than network address"). The tailnet address in `ops-android-emulator.md`: `6a4d8a86` (2026-08-13,
+"docs: add guide for running android emulator for testing"). Every tag contains them (319 tags in all; `be10760d` is in
+319, `d99a9358` in 312, `6a4d8a86` in 92). History is not rewritten: the values remain in earlier revisions and in
+those tags. The deny list is the owner's to update; nothing under the global hooks was read or edited.
+
+**Checks.** The scratch check script takes the values from a scratch file and prints path, line and kind only. Run on a
+scratch copy of the two guides as at `e1922f35`, it reported 13 line-kind hits (7 more from a noisy bare-word pattern, not counted) (the resolver address, the tailnet
+address, the user name and the host-state sentences, on the lines above); on the tree after the edit it reported none
+in any unnumbered doc, only the records, fixtures and code comment listed above. The values file and the scratch
+copies were deleted afterwards. After the last edit:
+
+```text
+python3 -B scripts/check_records.py --check-all   exit=0
+make check-records                                exit=0
+make markdownlint-docs                            exit=0
+python3 ~/.global-git-hooks/github-disclosure.py redact   exit=0, would edit 0 file(s)
+```
+
+**Files.** `docs/guides/headscale.md`; `apps/mobile/docs/guides/ops-android-emulator.md`; this PLAN; the REPORT
+(R40, R116 and the owner-findings row, dated annotations).
+
+Staged, not committed; the coordinator commits and pushes after the disclosure guard (C5's annotation).

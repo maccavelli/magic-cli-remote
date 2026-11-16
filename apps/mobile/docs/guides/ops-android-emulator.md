@@ -56,7 +56,7 @@ addresses.
 ## Pairing the emulator with a local daemon — working recipe
 
 Verified end to end 2026-08-13: the emulator paired and reached
-`Connected to 100.64.0.3 over Mesh`.
+`Connected to <tailnet-ip> over Mesh` (the daemon's tailnet IPv4).
 
 Two constraints shape this, and neither is a bug:
 
@@ -84,8 +84,8 @@ sed -i '' 's/hw.camera.back=emulated/hw.camera.back=virtualscene/' \
     ~/.android/avd/mcremote_test.avd/config.ini
 
 # 2. Mint a code and render its URI as a QR. -t PNG32 is REQUIRED (see below).
-URI=$(mcremote pair code --name emulator --ttl 20m --host 100.64.0.3:7531 \
-      | sed -n 's/.*Pair URI: *//p')
+URI=$(mcremote pair code --name emulator --ttl 20m --host <tailnet-ip>:7531 \
+      | sed -n 's/.*Pair URI: *//p')   # <tailnet-ip>: `tailscale ip -4` on the daemon host
 qrencode -t PNG32 -o "$S/qr.png" -s 16 -m 4 -l L "$URI"
 sips -z 1024 1024 "$S/qr.png" --out "$S/qr1024.png"   # match the stock poster
 
