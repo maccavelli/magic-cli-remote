@@ -880,3 +880,126 @@ looked for a file where codex does not work.
   last.
 * **Decision.** P2 enables `nolintlint` at 0 and removes none. P7 carries them: see the amendment under P7's step. P2's count
   is therefore 89 findings, not about 100.
+
+### P2, close-out, 2026-11-18
+
+P2 passed the coordinator's gate on the corrected tree (`make lint`, the record check, `make pre-add-check` with the vulnerability
+check, `make preflight`) and is committed and pushed: the record as `29bb92e0`, then the change as `08e9e7ef`, on `master`. CI on
+`08e9e7ef` is green: CI, Docs and the flake ledger. The independent review's verdict on P2: every judged site is behaviour-preserving
+except the two `logout.go` path joins, which were then fixed, with a test.
+
+Correction of the P2 entry above, by annotation: it says the `go test -race ./...` run on a clean copy went to the Windows laptop. The
+`run-on-host` output of that run names a `linux/amd64` target. The suite passed on a Linux host (50 packages `ok`), and the Windows
+host ran `make ci-windows` and, after the follow-up, the logout tests.
+
+### P3. `staticcheck` inside golangci-lint, 2026-11-18
+
+Run by a mainstream-tier agent at high effort, on the coordinator's brief, from `master` at `08e9e7ef` (clean at the start). The phase
+was interrupted once by the owner's usage limit, with edits in the working tree and nothing staged. On resuming, the 20 modified files
+were reviewed one by one against their diffs: all 20 were finished edits (the 18 Go files and `.golangci.yml` are the edits below as
+applied by checked scripts, and `scripts/check_staticcheck_ignored.py` is its extension, verified by the planted runs), and none was
+redone. No heavy run was executing or queued at the stop; the plant experiment that was cut short was run again in full, and every
+gate below was run after the resume. The changes are in the working tree, unstaged, for the coordinator to commit after its own gate.
+
+**Re-measured first**, on a scratch copy of `HEAD` with `staticcheck` switched on, four passes (darwin, linux, windows, linux with every
+opt-in tag), limits raised: 50, 50, 50 and 51, **51 in the union**, all `staticcheck`: `SA1019` 35, `QF1011` 6, `QF1001` 5, `QF1002` 2,
+`QF1003` 1, `QF1008` 1, `SA9003` 1. After the phase: 0 on all four passes with the tree's own `.golangci.yml`.
+
+**The 35 `SA1019` findings, and the owner's pairing (Q5 A).** Every one is an `acp-go-sdk2` name deprecated only because it comes from
+the unstable ACP schema, and every one is covered today by an existing, already-justified directive; none is uncovered, so there was
+nothing to stop on. The pairing is nine directives: seven line-level and two file-level.
+
+| File | Covers | Existing directive (line) and its reason | Findings it covers |
+| :--- | :--- | :--- | ---: |
+| `internal/provider/acpagent/acpagent.go` | line 1404 | `//lint:ignore SA1019` at line 1403: advertises the unstable ACP schema's plan capability (MADR 0192); 0207 amendment H | 1 |
+| `internal/provider/acpagent/advertise_test.go` | line 69 | `//lint:ignore SA1019` at line 68: the unstable ACP schema's subagent capability, as an example (MADR 0195); 0207 amendment H | 1 |
+| `internal/provider/acpagent/plans.go` | file | `//lint:file-ignore SA1019` at line 3: identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H | 11 |
+| `internal/provider/acpagent/plans_test.go` | file | `//lint:file-ignore SA1019` at line 3: identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H | 17 |
+| `internal/provider/acpagent/session.go` | line 2113 | `//lint:ignore SA1019` at line 2112: identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H | 1 |
+| `internal/provider/acpagent/session.go` | line 2115 | `//lint:ignore SA1019` at line 2114: identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H | 1 |
+| `internal/provider/acpagent/session.go` | line 2117 | `//lint:ignore SA1019` at line 2116: identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H | 1 |
+| `internal/provider/acpagent/session.go` | line 2120 | `//lint:ignore SA1019` at line 2119: identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H | 1 |
+| `internal/provider/acpagent/turnusage.go` | line 27 | `//lint:ignore SA1019` at line 26: the unstable ACP schema's turn usage (MADR 0207 D25); 0207 amendment H | 1 |
+
+* **Line level (7 findings, 7 directives).** The form is `gobble-cli`'s: the `//lint:ignore` stays on the line above, and
+  `//nolint:staticcheck // as the lint:ignore above` ends the line it covers. Each reason, with its record, stays on the
+  `//lint:ignore`; the `//nolint` points at it rather than repeating it, so the reason is stated once.
+* **File level (28 findings, 2 directives).** `golangci-lint` reads a `//nolint:staticcheck` placed on the line above the `package`
+  clause for the whole file, which was tested on a scratch copy before use (11 findings suppressed in `plans.go`, none in the rest,
+  and `nolintlint` took it as used). So each file-wide `//lint:file-ignore` is paired with one
+  `//nolint:staticcheck // as the lint:file-ignore below` above `package`. That is two comments, not 28, and no `exclusions` entry in
+  `.golangci.yml`: no stop was needed.
+* `nolintlint` is already on: it takes the nine as used, and flags one that silences nothing (planted, below).
+
+**The bound script, `scripts/check_staticcheck_ignored.py`.**
+
+* **Before:** it held that every `//lint:ignore` and `//lint:file-ignore` names `SA1019` and cites "0207 amendment H", and that
+  `staticcheck -show-ignored` reports nothing ignored but `SA1019` on an `acp-go-sdk2` unstable-schema name. It had no count: it
+  printed "56 ignored finding(s)" on each GOOS.
+* **After:** those two rules, plus pairing both ways (each `//lint:ignore` is followed by a line ending in the `//nolint` form, each
+  `//lint:file-ignore` has the file-level `//nolint` above `package`, and no `//nolint:` naming `staticcheck` stands without its
+  `//lint:ignore`/`//lint:file-ignore`), plus two recorded bounds: `BOUND_NOLINT = 9` and `BOUND_IGNORED = 56`. It prints "56 ignored
+  finding(s) ...; 9 //nolint:staticcheck directive(s), each paired" on each GOOS; a count below the bound passes with "lower it".
+* **Tests.** The script has none, and none was added: its evidence is the planted runs below, on scratch copies of the tree.
+
+| Planted | Result |
+| :--- | :--- |
+| the tree as it is | exit 0, 9 directives, 56 ignored |
+| a new `//nolint:staticcheck` with no `//lint:ignore` above | exit 1, "with no //lint:ignore on the line above" |
+| a paired `//lint:ignore` removed | exit 1, the `//nolint` is unpaired |
+| a `//nolint` removed from a covered line | exit 1, "does not end in `//nolint:staticcheck // as the lint:ignore above`" |
+| the file-level `//nolint` removed above `package` | exit 1, the `//lint:file-ignore` has none |
+| a file-level `//nolint` with no `//lint:file-ignore` | exit 1, "with no //lint:file-ignore in the file" |
+| a tenth directive (a new, paired deprecated use) | exit 1, "10 ... over the recorded bound of 9" |
+
+**The other 16 staticcheck findings, fixed by class, none changing behaviour.**
+
+* `QF1001` De Morgan (5: `auth/token_test.go`, `codex/runtime.go`, `fake/fake_test.go`, `opencode/control/control.go`,
+  `ws/receipt_e2e_test.go`): the negation pushed inside the boolean; the operands are comparisons and plain booleans, so there is no
+  side effect to reorder, and short-circuiting is unchanged.
+* `QF1002` and `QF1003` tagged switch (3: `cli/service/supervisor.go`, `acpagent/version_test.go`, `kilo/live_tool_stream_test.go`):
+  `switch { case c == x }` to `switch c { case x }`, with `' '` and `'\t'` as one case, and an if/else-if on one value to a switch
+  on it. Each case is a comparison of the same value, in the same order, with the same `default`.
+* `QF1008` (1, `grok/methods.go`): `c.Provider.ClearCredential(...)` to `c.ClearCredential(...)`. `CoordinatedProvider` declares no
+  `ClearCredential` of its own (its methods are `ClearCredentialMethod`, `clearOAuthSession`, ...), so the promoted method is the
+  embedded provider's, and the `c.Provider == nil` guard above is unchanged.
+* `QF1011` (6): `var started int = -1` to `started := -1` (an untyped constant, so `int` either way). Five in
+  `kilo/session_ops_test.go` were `_ func(...) error = s.Compact`: signature assertions, where the declared type is the check, and
+  dropping it would have made them vacuous. They became `hasSignature[func(...) error](s.Compact)`, a one-line generic helper whose
+  type argument is the same assertion and fails to compile in the same way. That keeps the guard intact; dropping the types, or a
+  `//nolint`, would not have.
+* `SA9003` (1, `certs/acme_http_test.go`): an `if errors.Is(...) { /* comment */ }` whose body is a comment checks nothing and has no
+  side effect; it is removed, the comment kept as the explanation, and the unused `errors` import dropped. No assertion existed to lose.
+
+**Configuration.** `.golangci.yml` enables `staticcheck`. Still disabled, each with its phase: `goconst` P4, `errcheck` P5, `errorlint`
+and `nilerr` P6, `gosec` P7, `bodyclose`, `gocognit`, `gocyclo`, `unparam` and `confusing-naming` P8.
+
+**Seen to fail, both ways, on scratch copies.** A new deprecated use with no directive fails `make lint`'s own command (exit 1, `SA1019`)
+and the standalone `staticcheck` (exit 1, `SA1019`). The same use with the pair passes (0 issues). A planted
+`//nolint:staticcheck // silences nothing` fails (exit 1, `nolintlint`: "directive ... is unused for linter "staticcheck""). A planted
+`errcheck`, `gosec` and `goconst` finding together passes (exit 0), the linters still disabled.
+
+**Tests and host.** The suite is unchanged and no assertion changed; test files touched are the expression-only edits above
+(`token_test.go`, `acme_http_test.go`, `fake_test.go`, `receipt_e2e_test.go`, `version_test.go`, `live_tool_stream_test.go`,
+`methodid_test.go`, `session_ops_test.go`) and the two pairing comments in `advertise_test.go` and `plans_test.go`. `go test -race ./...`
+on a clean copy through `run-on-host --race`: on the Windows laptop, exit 0, 49 packages `ok`; on the Linux host, exit 0, 50
+packages `ok`. The macOS race run is the one inside `make preflight`. No `_windows.go` file changed, so `make ci-windows` was not run.
+
+**Gates** (start, end, exit status, each recorded before any filter):
+
+| Gate | Start | End | Exit |
+| :--- | :--- | :--- | ---: |
+| `make pre-add-check` on the 18 changed Go files, with the vulnerability check, through `run-heavy` | 17:10:49 | 17:10:58 | 0 |
+| `lint` | 17:09:37 | 17:09:55 | 0 |
+| `make staticcheck` (with `scripts/check_staticcheck_ignored.py`, three GOOS) | 17:09:56 | 17:10:12 | 0 |
+| `vet` | 17:10:12 | 17:10:14 | 0 |
+| `vet-tags` | 17:10:14 | 17:10:37 | 0 |
+| `tidy` | 17:10:37 | 17:10:38 | 0 |
+| gofmt over `cmd`, `internal`, `scripts`, `test` | 17:10:38 | 17:10:38 | 0 |
+| `make markdownlint-docs` (offline, from the npx cache) | 17:10:38 | 17:10:41 | 0 |
+| `check-records` | 17:10:41 | 17:10:43 | 0 |
+| `make preflight` through `run-heavy` | 17:10:58 | 17:14:15 | 0 |
+
+**Not done.** The other P4 and later linters are not enabled; `.golangci.yml` still lists them disabled. The three directive forms in
+this phase follow `gobble-cli`; `golangci-lint`'s handling of a trailing `//nolint` on a `case` line was not examined beyond the lint
+passing, and the standalone `staticcheck`, kept by the owner's ruling, remains the exact check of each site.
