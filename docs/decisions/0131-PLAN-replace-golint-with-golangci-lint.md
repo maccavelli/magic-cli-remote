@@ -529,6 +529,10 @@ The prices follow the house form: the class and effort of the agent that does th
 * **Findings fixed:** 101 in 49 files, apart from those the report sends to the owner. The per-site REPORT is put to
   the owner before any of these fixes are built, and each verdict that is not clear-cut comes with three options.
 * **Configuration at the end:** `gosec` with `excludes: [G104]`, as the fleet has it.
+* **Amended 2026-11-18 (Deviation 1 and 2 at the end of this file):** the 13 `//nolint:gosec` directives are removed in this
+  phase, as `nolintlint` reports them once `gosec` is on: eight in test files (permanently unused: the fleet excludes tests
+  from `gosec`) and five in production code, each removal proven by a run. Should `gosec` report a finding on one of the five
+  lines once it is on, the finding goes to the per-site REPORT instead, and the directive stays until the owner chooses.
 
 #### P8. `bodyclose`, `unparam`, `revive` `confusing-naming`, `gocognit`, `gocyclo`
 
@@ -654,3 +658,225 @@ beyond the module proxy. The version-agreement check the brief asked about does 
 no check of tool pins (`check_libs.json` and `make check-libs` cover library module pins and need the network). The pin's one
 source is `scripts/lint.py`, and `make lint` refuses a binary that differs from it. `make ci-windows` was not run: no
 `_windows.go` file changed.
+
+### P1, close-out, 2026-11-18
+
+P1 passed the coordinator's own gate (`make lint`; `make check-records`; `make pre-add-check` with the vulnerability check,
+over all 1038 Go files, clean; `make preflight` through `run-heavy`, passed) and is committed and pushed: the records as
+`ef1364de`, then the change as `a6300dab`, on `master`. CI on `a6300dab` is green: CI, Docs and the flake ledger.
+
+The two departures from the plan's letter that P1 recorded (the one `scripts/lint.py` entry point, and the pin
+single-sourced through `--pin`) are accepted by the coordinator as within the phase's purpose. A departure from a plan's
+letter is reported before it is built, not after, from P2 on.
+
+Correction of a count above, by annotation: P1's record says the other 22 fleet `revive` rules are listed as comments. The
+fleet's rules number 26; with `exported`, `package-comments` and `var-naming` on, the other 23 were listed, `confusing-naming`
+among them. P2 turns 22 of the 23 on.
+
+### P2. Mechanical classes, 2026-11-18
+
+Run by a mainstream-tier agent at high effort, on the coordinator's brief, from `master` at `a6300dab` (clean at the start).
+The changes are in the working tree, unstaged, for the coordinator to commit after its own gate. No stop was needed: no
+finding's mechanical fix changed behaviour, a wire value, an exported name's meaning or a public constant.
+
+**Re-measured first**, on `HEAD`, with the P2 linters, 22 of the 23 listed `revive` rules (all but `confusing-naming`, P8)
+and the `goimports` formatter switched on in a scratch copy, limits raised, `CGO_ENABLED=0`:
+
+| Pass | Findings |
+| :--- | ---: |
+| darwin | 87 |
+| linux | 87 |
+| windows | 85 |
+| linux with every opt-in tag | 88 |
+| **union of the four, the work list** | **89** |
+
+By linter: `revive` 39 (`redefines-builtin-id` 36, `time-naming` 1, `empty-block` 1, `if-return` 1), `gocritic` 34
+(`importShadow` 8, `httpNoBody` 8, `nestingReduce` 3, `preferFilepathJoin` 3, `emptyStringTest` 2, and one each of
+`regexpSimplify`, `filepathJoin`, `rangeExprCopy`, `deferInLoop`, `appendAssign`, `preferStringWriter`,
+`tooManyResultsChecker`, `typeDefFirst`, `assignOp`, `unlambda`), `unconvert` 7, `goimports` 3, `govet` 3 (the `inline`
+analyzer), `ineffassign` 1, `makezero` 1, `whitespace` 1, `nolintlint` 0 (see below). **After: 0 on all four passes**, and
+`make lint` with the new `.golangci.yml` exits 0. The full list and the after-run are kept in the scratch folder.
+
+**Each class, its fix, and why it cannot change behaviour.**
+
+* `redefines-builtin-id` (36 findings, 32 declarations: `max`, `min`, `real`, `cap`). Every one is an unexported local, a
+  parameter, or an unexported package-level constant. Each declaration was renamed with `gopls rename`, which renames its
+  references and nothing else (`maxLen`, `maxBytes`, `limit`, `minSel`, `maxSel`, `highest`, `ceiling`, `resolved`).
+  None is a struct field, a tag, a JSON key or a flag name; a struct key that spelled `Cap: cap` became `Cap: limit`, its
+  key unchanged. No string literal changed. The doc comments that named the parameter by its old name were changed in step
+  (13 comment lines). `output.Clip` and `output.Line` are exported, but only their parameter names changed, which no caller
+  can see.
+* `time-naming`: `agenterr.LongBackoffMin` is now `agenterr.LongBackoffThreshold`, same type and value. Its users are all in
+  this module: `agenterr.go` itself (two), `provider/kilo/lifecycle.go` and `provider/opencode/acp_extensions.go`, and
+  `internal/` allows no importer outside it. `0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md`
+  names the old identifier in prose; it is a record and is left as written.
+* `empty-block`: `if promote(); err == nil { /* fall through */ } else { cleanup }` became `if promote(); err != nil { cleanup }`
+  with the comment kept. `if-return`: `if err := v(); err != nil { return err }; return nil` became `return v()`; `validate`
+  returns `error`. `ineffassign`: `chain := "-"` became `var chain string`; the next statement assigns it on every path.
+  `makezero`: `append(chunk, tail...)` became `slices.Concat(chunk, tail)`, the same bytes in a new slice.
+  `whitespace`: one blank line deleted (a live-tagged test). `unconvert`: seven conversions of a value to its own type
+  removed (four `json.RawMessage(request.ID)`-style in one test file, one `string(res.UnitBody)`, one `int64(...)` on an
+  `int64`, and `json.RawMessage(value)` on a `json.RawMessage` in `codex/conn.go`).
+* `gocritic`, by checker. Safe and local: `importShadow` (8 renames by `gopls`: `providerID`, `line`, `flags`, `tlsCfg`,
+  `authn`), `httpNoBody` (8 GET requests, `nil` to `http.NoBody`: neither sends a body), `emptyStringTest` (2: `len(s) > 0`
+  on a string to `s != ""`), `assignOp` (`name = name + x` to `name += x`), `preferStringWriter` (`f.Write([]byte(s))` on an
+  `*os.File` to `f.WriteString(s)`), `unlambda` (`var execCommand = procutil.Command`, the same signature),
+  `regexpSimplify` (`[^0-9]` to `\D`, identical in RE2), `filepathJoin` (`fmt.Sprintf("/run/user/%d", uid)` in a unix-only
+  file), `rangeExprCopy` (an index loop that only reads, under the lock). Judged per site: `preferFilepathJoin` (3: the two in
+  `codex/logout.go` join a `os.MkdirTemp` result, already clean and absolute; the one in `providerauth/transaction.go` joins
+  `txnHome`, already a `filepath.Join`, with `CandidateName()`, which is `"auth.json"` in both adapters, so the path is
+  byte for byte the same); `nestingReduce` (3: the `if` is inverted to `continue`, and nothing followed the `if` in any of
+  the three loop bodies, so the same statements run in the same order); `appendAssign` (`env = append(env, ...)`, then
+  `cmd.Env = env`, so the append no longer assigns elsewhere); `deferInLoop` (`return func() error { defer a.restart(...);
+  return a.adopt(...) }()`, which keeps the defer's timing exactly, even on a panic, and takes it out of the loop);
+  `tooManyResultsChecker` (`sessionRelaunchInfo` returns a `relaunchInfo` struct and `ok`; the three callers unpack it into
+  the same locals); `typeDefFirst` (`type Manager struct` moved, unchanged, above its first method).
+* `govet` `inline` (3, in one test file): the `//go:fix inline` helper `ptr` wraps the builtin `new`, and the analyzer cannot
+  inline a generic call. The three calls are now `new(...)`, and the helper, which nothing else used, is removed.
+* `goimports` (3): `diagnostics.go`, `managed_daemon.go`, `tailnet.go`: the module import moved into its own group by
+  `goimports`. `core.md`'s sentence is amended as the owner ruled (Q4 A): `gofmt` decides layout and `goimports` orders the
+  imports; `gofumpt` stays refused.
+* `nolintlint`: **0 findings now, and no directive removed.** With `gosec` off, `nolintlint` cannot see a `//nolint:gosec` as
+  unused, so it reports none. The 13 directives it reported in the full-fleet measurement are all `//nolint:gosec`: eight in
+  test files (`certs`, `daemon`, `provider/codex`, `provider/grok`, `providerauth`, `relay`, and two in `updateclient`), which
+  the fleet's own exclusion keeps out of `gosec` for good, and five in production code (`provider/codex/adapter.go`,
+  `provider/codex/logout.go` twice, `provider/codex/store_reality.go`, `providerauth/cli.go`), where `gosec` reports nothing on
+  a call to `procutil.Command`. `gosec` is enabled in P7, so all 13 wait for P7, where `nolintlint` will name each and the run
+  will prove the removal. The three `//nolint:nilerr` directives were not reported unused in that measurement and stay.
+
+**Configuration.** `.golangci.yml` now enables `gocritic`, `govet`, `ineffassign`, `makezero`, `nolintlint`, `unconvert`,
+`whitespace` and the `goimports` formatter, and lists 22 `revive` rules as on. Still disabled, each with its phase:
+`goconst` P4; `staticcheck` P3; `errcheck` P5; `errorlint` and `nilerr` P6; `gosec` P7; `bodyclose`, `gocognit`, `gocyclo`,
+`unparam` P8; and the `revive` rule `confusing-naming` P8. `scripts/lint.py` is unchanged.
+
+**Seen to fail, on scratch copies** (`HEAD` plus the changes): each planted finding failed `scripts/lint.py`, exit 1, naming
+its rule: `gocritic` `httpNoBody`; `govet` `printf`; `ineffassign`; `makezero`; `nolintlint` (an unused `//nolint:misspell`);
+`unconvert`; `whitespace`; `revive` `redefines-builtin-id`, `time-naming`, `if-return`, `empty-block`, `error-strings`,
+`indent-error-flow`; and the `goimports` formatter (a module import inside the standard-library group, which `gofmt` accepts).
+A planted `errcheck`, `gosec`, `goconst`, `staticcheck` (a De Morgan form) and `confusing-naming` finding each passed, exit
+0, and the clean tree passed. Three plants were corrected first because they tripped a different, enabled rule (an error
+variable not named `errFoo`; an unsorted import block that `gofmt` itself refuses; `errors.New(fmt.Sprintf(...))`, which
+`revive` `errorf` refuses).
+
+**Tests.** The suite is unchanged, and no assertion changed. Five test files were touched, for expressions only:
+`internal/cli/service/setup_test.go` (a redundant `string(...)`), `internal/provider/codex/provider_test.go` (four redundant
+`json.RawMessage(...)`), `internal/relayhost/bridge_default_test.go` (a redundant `int64(...)`),
+`internal/provider/acpagent/elicitation_test.go` (three `ptr(x)` calls to `new(x)`, and the helper removed) and
+`internal/provider/codex/live_device_auth_test.go` (a blank line). `go test -race ./...`, on a clean copy of the tree through
+`run-on-host --race`, on the Windows laptop `pick-host` chose: exit 0, 50 packages `ok`. `make ci-windows` on
+that Windows host: exit 0 ("ALL SELECTED CHECKS PASSED"), because `sockpath_windows.go` changed. The macOS race run is
+the one inside `make preflight` below.
+
+**Gates** (start, end, exit status, each recorded before any filter):
+
+| Gate | Start | End | Exit |
+| :--- | :--- | :--- | ---: |
+| `pre-add-check` | 12:49:43 | 13:00:52 | 0 |
+| `lint` | 12:43:02 | 12:43:25 | 0 |
+| `staticcheck` | 12:49:10 | 12:49:37 | 0 |
+| `vet` | 12:48:31 | 12:48:34 | 0 |
+| `vet-tags` | 12:48:34 | 12:49:04 | 0 |
+| `tidy` | 12:49:04 | 12:49:05 | 0 |
+| `check-records` | 12:49:05 | 12:49:08 | 0 |
+| `markdownlint-docs` | 12:49:08 | 12:49:10 | 0 |
+| `actionlint` | 12:49:37 | 12:49:37 | 0 |
+| `gofmt-goimports` | 12:49:37 | 12:49:37 | 0 |
+| `make preflight` through `run-heavy` | 12:57:52 | 13:04:09 | 0 |
+
+`make pre-add-check` ran with the vulnerability check, over the 55 changed Go files, through `run-heavy`.
+
+**Not done.** `confusing-naming` and the other P8 and later linters are not enabled; the 13 `//nolint:gosec` directives wait for
+P7; nothing outside this phase's list was touched.
+
+### P2, review follow-up, 2026-11-18
+
+An independent review of P2's judged sites (a scratch copy byte-identical to the tree) found every one behaviour-preserving
+except one class, and two record gaps. It is recorded here; nothing was committed yet.
+
+**`preferFilepathJoin` in `internal/provider/codex/logout.go`, two sites: a behaviour change in an edge case.** The earlier
+note that an `os.MkdirTemp` result is "already clean" was wrong. `os.MkdirTemp` joins `$TMPDIR` and the new name by text and
+does not clean the result. With `TMPDIR=<base>/link/..` (`link` a symlink to a deeper directory), the old concatenation named
+the directory that was created, because the filesystem follows `link`; `filepath.Join` folds `link/..` by text and names another
+directory. `copyLiveForRevoke` then failed (`open ...: no such file or directory`) and `verifyLogoutOnClone` would have
+looked for a file where codex does not work.
+
+* **The test, written first.** `TestIsolatedHomesAreFoundWhereTheyAreCreated` (`internal/provider/codex/logout_test.go`; a new
+  test, no existing line changed) builds the fixtures from the clean temporary directory, then sets `TMPDIR` (and `TMP` and
+  `TEMP`) to `<base>/link/..`, with `link` a symlink to `<base>/a/b`, and runs `CoordinatedLogout` in both modes: the revoking
+  one (`copyLiveForRevoke`) and the non-revoking one (`verifyLogoutOnClone`). Its fake `codex` journals whether
+  `$CODEX_HOME/auth.json` exists, which the child resolves through the filesystem, and the test asserts `found:` and no
+  `missing:`. It skips where symlinks need a privilege that is not held (`testexec.SkipIfNoSymlink`, which fails instead under
+  `MC_REQUIRE_SYMLINK`, as CI sets) and where there is no POSIX shell for the fixture.
+  * Red on the tree as it stood, both subtests: `logout under an uncleaned temporary directory: open
+    <tmp>/mcremote-codex-revoke-N/auth.json: no such file or directory`, and the same for `mcremote-codex-logout-N`.
+  * Green on a scratch copy of `a6300dab` (the original concatenation): both subtests pass, so the test is a guard that the
+    original behaviour holds.
+  * Green on the fixed tree, under `-race`.
+* **The fix.** One helper in `logout.go`, `mkdirTempResolved(pattern)`: `os.MkdirTemp("", pattern)`, then `filepath.EvalSymlinks`
+  of the result, removing the directory again if it cannot be resolved. Both isolated homes are created through it, so a later
+  `filepath.Join` over the path is exact. No `//nolint` and no concatenation.
+* **Why the resolved path is safe at every use.** The variable is read in `copyLiveForRevoke` (`os.Chmod`, `os.WriteFile`,
+  `os.RemoveAll` in `fail`, the return value), by `CoordinatedLogout` (`defer os.RemoveAll(tmp)`, `p.runLogoutIn(ctx, tmp)`), in
+  `verifyLogoutOnClone` (`os.Chmod`, `os.WriteFile`, `os.Stat`, `os.RemoveAll`, `p.runLogoutIn`), and in `runLogoutIn`, which
+  passes it as `CODEX_HOME=<home>` to the child. Every one hands the path to the filesystem or to a child that does, and the
+  resolved path names the same directory (`os.SameFile` confirmed). None compares it with another path, stores it, or logs it;
+  the only place it can surface as text is the child's own output in an error string, where a resolved form is no less true.
+  On macOS the text differs: `os.MkdirTemp` returns `/var/folders/.../T/probe-N` and `EvalSymlinks` returns
+  `/private/var/folders/.../T/probe-N`, the same directory. On Windows, run on the Windows host, `EvalSymlinks` returned the
+  path unchanged and `os.SameFile` was true. `logout.go` has no build constraint and builds for every GOOS. On Windows the
+  uncleaned shape cannot arise as it does on unix (the Win32 path APIs fold `..` by text before the filesystem sees it), and
+  the new test's subtests skip there for want of a shell the fixture can run.
+* **The third site, `providerauth/transaction.go`.** Preserved: `txnHome` is already a `filepath.Join`, and `CandidateName()` is
+  the constant `"auth.json"` in the codex adapter, the grok adapter and the test fake. The doc comment of the interface method
+  `providerauth.Adapter.CandidateName` now says it returns a bare file name, with no path separator and no `.` or `..` element,
+  because the coordinator joins it onto the home's path. No code change.
+
+**Gates after the follow-up** (start, end, exit status, each recorded before any filter). The measurement with this tree's own
+`.golangci.yml`, JSON counted, limits raised: darwin 0, linux 0, windows 0, linux with every opt-in tag 0.
+
+| Gate | Start | End | Exit |
+| :--- | :--- | :--- | ---: |
+| `make pre-add-check` on the 57 changed Go files, with the vulnerability check, through `run-heavy` | 13:30:31 | 13:41:17 | 0 |
+| `lint` | 13:28:50 | 13:29:17 | 0 |
+| `vet` | 13:29:17 | 13:29:20 | 0 |
+| `vet-tags` | 13:29:20 | 13:29:46 | 0 |
+| `tidy` | 13:29:46 | 13:29:47 | 0 |
+| `staticcheck` | 13:29:47 | 13:30:10 | 0 |
+| gofmt over `cmd`, `internal`, `scripts`, `test` | 13:30:10 | 13:30:10 | 0 |
+| `go test -race` on `TestIsolatedHomes` and the logout tests, `codex` and `providerauth` | 13:30:10 | 13:30:18 | 0 |
+| `check-records` | 13:35:28 | 13:35:31 | 0 |
+| `markdownlint-docs` | 13:35:26 | 13:35:28 | 0 |
+
+### Deviations
+
+#### Deviation 1, 2026-11-18: P2 switched on 22 `revive` rules, not the four the plan names
+
+* **What the plan says.** P2's text enables the `revive` rules `redefines-builtin-id`, `time-naming`, `if-return` and
+  `empty-block`.
+* **What was done.** `.golangci.yml` enables 22 rules: those four, and 18 more: `atomic`, `blank-imports`,
+  `constant-logical-expr`, `context-as-argument`, `context-keys-type`, `dot-imports`, `error-naming`, `error-return`,
+  `error-strings`, `errorf`, `increment-decrement`, `indent-error-flow`, `range`, `receiver-naming`, `superfluous-else`,
+  `unexported-return`, `unreachable-code`, `var-declaration`.
+* **Why it is within the phase's purpose.** The owner's Q1 A ruling is that each phase turns on only linters already at zero.
+  These 18 were at zero, P1's configuration had left them commented with the label "P2", and the fleet file carries all of
+  them. Leaving them off would have kept zero-finding rules out of the gate until a later phase for no cost saved, and no
+  code was changed for them. Nothing is suppressed. It should have been reported before it was built, not after: the
+  coordinator's rule for the phases that follow.
+* **The measurement, repeated for this entry.** On a scratch copy of `HEAD` (`a6300dab`), with P1's `.golangci.yml` and only
+  those 18 rules uncommented, `golangci-lint` v2.15.0, limits raised, `CGO_ENABLED=0`: darwin 0 (exit 0), linux 0 (exit 0),
+  windows 0 (exit 0), linux with every opt-in tag 0 (exit 0): 0 findings in all. Because a zero is meaningful only if the
+  rule is on, the same configuration on a copy with one planted violation of each of the 18 in one file reported each rule
+  by name (`atomic`, `blank-imports`, ..., `var-declaration`: all 18 fired).
+
+#### Deviation 2, 2026-11-18: the 13 `nolintlint` findings are not fixed in P2; they move to P7
+
+* **What the plan says.** P2's finding list counted `nolintlint` 13 among the mechanical classes ("delete a directive that
+  suppresses nothing").
+* **What was found.** All 13 are `//nolint:gosec`. With `gosec` off, `nolintlint` cannot see a `//nolint:gosec` as unused, so
+  it reports 0 in P2 and there is nothing for the phase to fix. Eight are in test files, which the fleet's own exclusion keeps
+  out of `gosec` for good; five are in production code (`provider/codex/adapter.go`, `provider/codex/logout.go` twice,
+  `provider/codex/store_reality.go`, `providerauth/cli.go`), where `gosec` v2.15.0 reports nothing on a call to
+  `procutil.Command`. Removing them in P2 would be unprovable by a run, which is the reason the plan enables `nolintlint`
+  last.
+* **Decision.** P2 enables `nolintlint` at 0 and removes none. P7 carries them: see the amendment under P7's step. P2's count
+  is therefore 89 findings, not about 100.
