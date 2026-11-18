@@ -357,13 +357,13 @@ func IsLimit(msg string, now time.Time) bool {
 	return cls.Kind == KindQuota || cls.Kind == KindRateLimit
 }
 
-// LongBackoffMin is the shortest silent retry delay that should end a turn
+// LongBackoffThreshold is the shortest silent retry delay that should end a turn
 // rather than leave the phone on "running". Matches the 3600s backoff of MADR 0073 and
 // OpenCode session.status next delays of a minute or more.
-const LongBackoffMin = 60 * time.Second
+const LongBackoffThreshold = 60 * time.Second
 
 // LooksLikeLongBackoff reports whether line describes a provider retry sleep
-// of at least LongBackoffMin. Covers provider retry-sleep prose ("Backing off for 3600s")
+// of at least LongBackoffThreshold. Covers provider retry-sleep prose ("Backing off for 3600s")
 // and Debug forms ("retry_delay: Some(3600s)").
 func LooksLikeLongBackoff(line string) bool {
 	for _, re := range []*regexp.Regexp{reBackoffSecs, reRetryDelaySome} {
@@ -372,7 +372,7 @@ func LooksLikeLongBackoff(line string) bool {
 			continue
 		}
 		sec, err := strconv.ParseFloat(m[1], 64)
-		if err == nil && sec >= LongBackoffMin.Seconds() {
+		if err == nil && sec >= LongBackoffThreshold.Seconds() {
 			return true
 		}
 	}
@@ -746,10 +746,10 @@ func cleanRaw(raw string) string {
 	// Collapse whitespace.
 	s = strings.Join(strings.Fields(s), " ")
 	// Cap length (rune-safe enough for ASCII-heavy provider text).
-	const max = 400
-	if len(s) > max {
+	const maxLen = 400
+	if len(s) > maxLen {
 		// Walk back to a rune start.
-		cut := max
+		cut := maxLen
 		for cut > 0 && s[cut]&0xc0 == 0x80 {
 			cut--
 		}
@@ -806,7 +806,7 @@ var (
 	// interpreted as the next such wall-clock instant (local time).
 	reClock = regexp.MustCompile(`(?i)resets?\s*(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b`)
 	// 10-digit unix timestamp near a reset word.
-	reUnix = regexp.MustCompile(`(?i)reset[^0-9]{0,20}\b(1[5-9]\d{8})\b`)
+	reUnix = regexp.MustCompile(`(?i)reset\D{0,20}\b(1[5-9]\d{8})\b`)
 	// "retry-after 1h33m21s", "retry-after 2h9m59.87321s", "retry-after
 	// 250ms": a Go duration with at least one unit, each component a number
 	// and a unit (go-llmprovider-sdk APIError.Error).

@@ -293,7 +293,7 @@ func smokeHTTPClient(plaintext bool, fingerprint, clientCert, clientKey string) 
 }
 
 func checkHealthz(ctx context.Context, client *http.Client, url string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return err
 	}
@@ -315,7 +315,7 @@ func checkHealthz(ctx context.Context, client *http.Client, url string) error {
 
 // checkHello asserts that /v1/hello 401s without a token and 200s with one.
 func checkHello(ctx context.Context, client *http.Client, url, token string) error {
-	anon, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	anon, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return err
 	}
@@ -328,7 +328,7 @@ func checkHello(ctx context.Context, client *http.Client, url, token string) err
 		return fmt.Errorf("unauthenticated GET returned HTTP %d, want 401", res.StatusCode)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return err
 	}

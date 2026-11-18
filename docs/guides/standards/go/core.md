@@ -1,7 +1,7 @@
 ---
 title: "Go Core and Build Standards"
 version: "1.27.4-v3"
-last_updated: "2026-11-16"
+last_updated: "2026-11-18"
 component: "core"
 ---
 
@@ -47,7 +47,8 @@ and user-lookup consequences and update the build path deliberately.
 
 ## Idiomatic Go (Go 1.22 – 1.27)
 
-- Let `gofmt` decide layout. Do not introduce a competing formatter rule.
+- Let `gofmt` decide layout, and `goimports` (the fleet's formatter, which `make lint` runs) order the
+  imports. Do not introduce another formatter rule, such as `gofumpt`.
 - Prefer clear error flow with early returns. Error strings are lower-case and
   have no trailing punctuation because callers add context.
 - Use `errors.Is` / `errors.As` with wrapping when callers need to classify an

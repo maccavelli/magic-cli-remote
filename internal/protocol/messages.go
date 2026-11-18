@@ -1045,10 +1045,10 @@ type ModelsResultPayload struct {
 }
 
 // ModelsResultFromCatalog builds a models.list_result body.
-func ModelsResultFromCatalog(provider string, cat picker.Catalog) ModelsResultPayload {
+func ModelsResultFromCatalog(providerID string, cat picker.Catalog) ModelsResultPayload {
 	cat = cat.Normalize()
 	return ModelsResultPayload{
-		Provider:    provider,
+		Provider:    providerID,
 		Kind:        string(cat.Kind),
 		Source:      string(cat.Source),
 		Options:     cat.Options,
@@ -1073,8 +1073,8 @@ type AgentsListPayload struct {
 type AgentsResultPayload = ModelsResultPayload
 
 // AgentsResultFromCatalog builds an agents.list_result body.
-func AgentsResultFromCatalog(provider string, cat picker.Catalog) AgentsResultPayload {
-	return ModelsResultFromCatalog(provider, cat)
+func AgentsResultFromCatalog(providerID string, cat picker.Catalog) AgentsResultPayload {
+	return ModelsResultFromCatalog(providerID, cat)
 }
 
 // AgentSessionsListPayload requests bounded provider-native session discovery.
@@ -1210,8 +1210,8 @@ type CommandsListPayload struct {
 type CommandsResultPayload = ModelsResultPayload
 
 // CommandsResultFromCatalog builds a commands.list_result body.
-func CommandsResultFromCatalog(provider string, cat picker.Catalog) CommandsResultPayload {
-	return ModelsResultFromCatalog(provider, cat)
+func CommandsResultFromCatalog(providerID string, cat picker.Catalog) CommandsResultPayload {
+	return ModelsResultFromCatalog(providerID, cat)
 }
 
 // SessionForkPayload forks a session (OpenCode POST …/fork).

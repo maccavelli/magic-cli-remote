@@ -78,7 +78,7 @@ func runAppServerHelper() {
 				continue
 			}
 			response := map[string]any{
-				"id": json.RawMessage(request.ID),
+				"id": request.ID,
 				"result": map[string]string{
 					"codexHome": "/tmp/codex", "userAgent": "codex-test/0.149.1",
 					"platformFamily": "unix", "platformOs": "linux",
@@ -108,7 +108,7 @@ func runAppServerHelper() {
 				})
 			case "malformed":
 				response := map[string]any{
-					"id": json.RawMessage(request.ID),
+					"id": request.ID,
 					"result": map[string]any{
 						"data": []map[string]any{{"name": "Default", "mode": "default"}},
 					},
@@ -118,7 +118,7 @@ func runAppServerHelper() {
 				}
 			default:
 				response := map[string]any{
-					"id": json.RawMessage(request.ID),
+					"id": request.ID,
 					"result": map[string]any{
 						"data": []map[string]any{
 							{"name": "Plan", "mode": "plan", "model": nil, "reasoning_effort": "medium"},
@@ -168,7 +168,7 @@ func writeRPCError(id json.RawMessage, code int, message string, data any) {
 		errBody["data"] = data
 	}
 	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
-		"id":    json.RawMessage(id),
+		"id":    id,
 		"error": errBody,
 	})
 }

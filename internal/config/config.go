@@ -790,10 +790,7 @@ func (c Config) Validate() error {
 	if err := c.Relay.validate(); err != nil {
 		return err
 	}
-	if err := c.Pair.validate(); err != nil {
-		return err
-	}
-	return nil
+	return c.Pair.validate()
 }
 
 func (p PairConfig) validate() error {

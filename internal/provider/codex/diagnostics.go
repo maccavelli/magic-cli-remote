@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
 // MaxDoctorOutputBytes is the maximum combined output accepted from codex doctor.

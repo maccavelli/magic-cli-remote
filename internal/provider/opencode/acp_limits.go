@@ -187,7 +187,7 @@ func validShellCommand(cmd string) error {
 
 // clip is the one-line form of s, for an id, a title, a branch or a header
 // (output.Line).
-func clip(s string, max int) string { return output.Line(s, max) }
+func clip(s string, limit int) string { return output.Line(s, limit) }
 
 // firstNonEmpty is the first of vals that is not blank, or "".
 func firstNonEmpty(vals ...string) string {

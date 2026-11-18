@@ -141,14 +141,16 @@ func renderPlistWith(opts Options, penv *renderEnv) (string, error) {
 	b.WriteString("  <key>EnvironmentVariables</key>\n  <dict>\n")
 	// Stable key order for goldens and diffs.
 	for _, k := range []string{"HOME", "USER", "LOGNAME", "PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"} {
-		if v, ok := env[k]; ok {
-			b.WriteString("    <key>")
-			b.WriteString(xmlEscape(k))
-			b.WriteString("</key>\n    <string>")
-			b.WriteString(xmlEscape(v))
-			b.WriteString("</string>\n")
-			delete(env, k)
+		v, ok := env[k]
+		if !ok {
+			continue
 		}
+		b.WriteString("    <key>")
+		b.WriteString(xmlEscape(k))
+		b.WriteString("</key>\n    <string>")
+		b.WriteString(xmlEscape(v))
+		b.WriteString("</string>\n")
+		delete(env, k)
 	}
 	// Remaining ExtraEnviron keys (sorted for stability).
 	if len(env) > 0 {

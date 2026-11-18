@@ -5,10 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"io"
 	"path/filepath"
 	"strings"
+
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
 type daemonLifecycleStatus string

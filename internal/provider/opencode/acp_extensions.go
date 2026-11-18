@@ -94,7 +94,7 @@ func handleRetry(_ context.Context, h acpagent.Host, from acpagent.MetaSource, v
 		wait = m.NextRetryAt.Sub(now)
 	}
 	cls := agenterr.Present(msg, now)
-	if cls.Kind == agenterr.KindQuota || wait >= agenterr.LongBackoffMin || agenterr.LooksLikeLongBackoff(msg) {
+	if cls.Kind == agenterr.KindQuota || wait >= agenterr.LongBackoffThreshold || agenterr.LooksLikeLongBackoff(msg) {
 		retryAt := cls.ResetAt
 		if retryAt.IsZero() && wait > 0 {
 			retryAt = now.Add(wait)

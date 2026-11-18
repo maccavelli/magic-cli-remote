@@ -475,6 +475,105 @@ func (e *entry) indexReplayLocked(i int) {
 	e.replayIndex[k] = append(e.replayIndex[k], i)
 }
 
+// Manager tracks sessions created via providers.
+type Manager struct {
+	reg     *provider.Registry
+	store   *Store
+	log     *slog.Logger
+	onEvent EventHandler
+	// maxLive caps concurrent live sessions (0 = unlimited).
+	maxLive int
+	// epoch identifies this seq-counter lineage (MADR 0068 P3). Minted
+	// fresh whenever the previous run did not shut down cleanly — seq may
+	// have regressed by up to persistDebounce of events — and kept across
+	// clean restarts. Empty when the manager has no store (tests).
+	epoch string
+	// silent holds the silent-command marks, in the store's data directory
+	// (MADR 0208 D10). Nil when the manager has no store.
+	silent *silentMarks
+
+	// createMu guards createLocks. Creates are serialized per session id (not
+	// globally): close-and-replace for one id must not race another Create for
+	// that id, but a slow agent launch (up to startTimeout) must not block
+	// every other device's session.create.
+	createMu    sync.Mutex
+	createLocks map[string]*createLock
+
+	// advertiseMu serializes canonical-command advertisement. Resolution reads a
+	// snapshot of the session and then compares it with the last list sent, so
+	// two concurrent advertisers — session create and the pump, when the agent's
+	// modes or commands arrive — could otherwise store the *stale* snapshot last
+	// and leave clients with a list nothing will correct. Held across the
+	// snapshot, not just the store, or the same race just moves.
+	advertiseMu sync.Mutex
+
+	mu           sync.RWMutex
+	sessions     map[string]*entry
+	pendingShell map[string]pendingShellConfirmation
+	// reserved counts Creates that passed the maxLive check but have not yet
+	// inserted their entry, so concurrent creates of different ids cannot
+	// overshoot the cap now that they no longer share one lock.
+	reserved int
+	// shuttingDown is set by CloseAll; Create fails closed once true so a
+	// Start that finishes after shutdown cannot re-insert a live session.
+	shuttingDown bool
+
+	// Debounced disk writes for chatty session_status updates (Phase 4.3).
+	// Create / claim / close always flush immediately via persistNow.
+	//
+	// dirtyPersist is a set of session ids, not a snapshot of Meta: the flush
+	// re-reads the authoritative in-memory meta so a debounced write can never
+	// revert a newer immediate write (e.g. an owner claim) nor resurrect a
+	// deleted session — ids no longer live are dropped at flush time.
+	persistMu    sync.Mutex
+	dirtyPersist map[string]struct{}
+	persistTimer *time.Timer
+	// purged is ids that session.delete has removed from disk. writePersist
+	// refuses to Save them (and undoes a Save that raced the mark) so a
+	// debounced flush cannot resurrect an ended session as a fake resume row.
+	//
+	// Bounded by maxPurgedIDs, oldest first (MADR 0095 F7): the window a
+	// tombstone guards is one persistDebounce, and ids are UUIDs so
+	// clearPurged (Create of the same id) never fires for a deleted
+	// session — without the bound the set grew for the life of the daemon.
+	// purgedOrder is insertion order for that trim and must stay in step
+	// with the map.
+	purged      map[string]struct{}
+	purgedOrder []string
+
+	// Debounced durable transcript writes (Phase D). Close / CloseAll flush
+	// immediately so a restart still sees the last ring.
+	historyMu         sync.Mutex
+	dirtyHistory      map[string]struct{}
+	historyDirtySince map[string]time.Time
+	historyTimer      *time.Timer
+	// historyWriteMu serializes every durable transcript write and delete.
+	// savedHistGen is the ring generation each session's file was last
+	// written from (MADR 0201 D15).
+	historyWriteMu sync.Mutex
+	savedHistGen   map[string]uint64
+
+	// runCtx is cancelled by CloseAll so session pumps deriving from it also
+	// exit when the manager shuts down.
+	runCtx    context.Context
+	runCancel context.CancelFunc
+
+	// OnProviderIdle is invoked after the last live session of a provider is
+	// removed (MADR 0089 D7 stop-when-idle). Optional; must not block long.
+	OnProviderIdle func(id provider.ID)
+
+	// receiptsMu guards receipts (MADR 0077 P7). Set once, after construction,
+	// via SetReceiptSupport — daemon.go wires it in only when ws.Server (the
+	// Transport implementation) exists, breaking what would otherwise be a
+	// construction-order cycle (mirrors the existing onEvent/eventHub bridge).
+	receiptsMu sync.RWMutex
+	receipts   ReceiptSupport
+	// globalBudget overrides globalBudgetBytes. Zero uses the constant; tests
+	// set a small value so the cross-session eviction can be exercised without
+	// allocating hundreds of megabytes.
+	globalBudget int
+}
+
 // enforceGlobalBudgetLocked keeps every live session's ring inside
 // globalBudgetBytes, so one chatty session cannot set the daemon's memory
 // ceiling for the host.
@@ -689,105 +788,6 @@ type EventHandler func(ev event.Event)
 
 // ErrLimitReached is returned when MaxLiveSessions would be exceeded.
 var ErrLimitReached = errors.New("live session limit reached")
-
-// Manager tracks sessions created via providers.
-type Manager struct {
-	reg     *provider.Registry
-	store   *Store
-	log     *slog.Logger
-	onEvent EventHandler
-	// maxLive caps concurrent live sessions (0 = unlimited).
-	maxLive int
-	// epoch identifies this seq-counter lineage (MADR 0068 P3). Minted
-	// fresh whenever the previous run did not shut down cleanly — seq may
-	// have regressed by up to persistDebounce of events — and kept across
-	// clean restarts. Empty when the manager has no store (tests).
-	epoch string
-	// silent holds the silent-command marks, in the store's data directory
-	// (MADR 0208 D10). Nil when the manager has no store.
-	silent *silentMarks
-
-	// createMu guards createLocks. Creates are serialized per session id (not
-	// globally): close-and-replace for one id must not race another Create for
-	// that id, but a slow agent launch (up to startTimeout) must not block
-	// every other device's session.create.
-	createMu    sync.Mutex
-	createLocks map[string]*createLock
-
-	// advertiseMu serializes canonical-command advertisement. Resolution reads a
-	// snapshot of the session and then compares it with the last list sent, so
-	// two concurrent advertisers — session create and the pump, when the agent's
-	// modes or commands arrive — could otherwise store the *stale* snapshot last
-	// and leave clients with a list nothing will correct. Held across the
-	// snapshot, not just the store, or the same race just moves.
-	advertiseMu sync.Mutex
-
-	mu           sync.RWMutex
-	sessions     map[string]*entry
-	pendingShell map[string]pendingShellConfirmation
-	// reserved counts Creates that passed the maxLive check but have not yet
-	// inserted their entry, so concurrent creates of different ids cannot
-	// overshoot the cap now that they no longer share one lock.
-	reserved int
-	// shuttingDown is set by CloseAll; Create fails closed once true so a
-	// Start that finishes after shutdown cannot re-insert a live session.
-	shuttingDown bool
-
-	// Debounced disk writes for chatty session_status updates (Phase 4.3).
-	// Create / claim / close always flush immediately via persistNow.
-	//
-	// dirtyPersist is a set of session ids, not a snapshot of Meta: the flush
-	// re-reads the authoritative in-memory meta so a debounced write can never
-	// revert a newer immediate write (e.g. an owner claim) nor resurrect a
-	// deleted session — ids no longer live are dropped at flush time.
-	persistMu    sync.Mutex
-	dirtyPersist map[string]struct{}
-	persistTimer *time.Timer
-	// purged is ids that session.delete has removed from disk. writePersist
-	// refuses to Save them (and undoes a Save that raced the mark) so a
-	// debounced flush cannot resurrect an ended session as a fake resume row.
-	//
-	// Bounded by maxPurgedIDs, oldest first (MADR 0095 F7): the window a
-	// tombstone guards is one persistDebounce, and ids are UUIDs so
-	// clearPurged (Create of the same id) never fires for a deleted
-	// session — without the bound the set grew for the life of the daemon.
-	// purgedOrder is insertion order for that trim and must stay in step
-	// with the map.
-	purged      map[string]struct{}
-	purgedOrder []string
-
-	// Debounced durable transcript writes (Phase D). Close / CloseAll flush
-	// immediately so a restart still sees the last ring.
-	historyMu         sync.Mutex
-	dirtyHistory      map[string]struct{}
-	historyDirtySince map[string]time.Time
-	historyTimer      *time.Timer
-	// historyWriteMu serializes every durable transcript write and delete.
-	// savedHistGen is the ring generation each session's file was last
-	// written from (MADR 0201 D15).
-	historyWriteMu sync.Mutex
-	savedHistGen   map[string]uint64
-
-	// runCtx is cancelled by CloseAll so session pumps deriving from it also
-	// exit when the manager shuts down.
-	runCtx    context.Context
-	runCancel context.CancelFunc
-
-	// OnProviderIdle is invoked after the last live session of a provider is
-	// removed (MADR 0089 D7 stop-when-idle). Optional; must not block long.
-	OnProviderIdle func(id provider.ID)
-
-	// receiptsMu guards receipts (MADR 0077 P7). Set once, after construction,
-	// via SetReceiptSupport — daemon.go wires it in only when ws.Server (the
-	// Transport implementation) exists, breaking what would otherwise be a
-	// construction-order cycle (mirrors the existing onEvent/eventHub bridge).
-	receiptsMu sync.RWMutex
-	receipts   ReceiptSupport
-	// globalBudget overrides globalBudgetBytes. Zero uses the constant; tests
-	// set a small value so the cross-session eviction can be exercised without
-	// allocating hundreds of megabytes.
-	globalBudget int
-}
 
 // ReceiptTransport asks a specific device's live connection to sign a
 // Statement and waits for its signed reply, or returns an error/timeout
@@ -2384,11 +2384,11 @@ func historyBudgetSuffix(window []event.Event) int {
 	return kept
 }
 
-// historySliceBefore returns up to max events with Seq < beforeSeq, ending at
+// historySliceBefore returns up to limit events with Seq < beforeSeq, ending at
 // the newest such event, plus whether anything older than the window remains.
 // beforeSeq 0 means "from the newest event".
-func (m *Manager) historySliceBefore(id string, beforeSeq uint64, max int) (window []event.Event, older bool) {
-	if max <= 0 {
+func (m *Manager) historySliceBefore(id string, beforeSeq uint64, limit int) (window []event.Event, older bool) {
+	if limit <= 0 {
 		return nil, false
 	}
 	take := func(ring []event.Event) ([]event.Event, bool) {
@@ -2399,7 +2399,7 @@ func (m *Manager) historySliceBefore(id string, beforeSeq uint64, max int) (wind
 		if end <= 0 {
 			return nil, false
 		}
-		start := max2(end-max, 0)
+		start := max2(end-limit, 0)
 		return ring[start:end], start > 0
 	}
 
@@ -2486,7 +2486,7 @@ func historyBudgetPrefix(window []event.Event) int {
 	return len(window)
 }
 
-// historySlice returns up to max events with Seq > sinceSeq, plus whether more
+// historySlice returns up to limit events with Seq > sinceSeq, plus whether more
 // remained after them. It copies only the candidate window, not the whole ring:
 // at a 32 MiB per-session budget a full-ring copy per paged read would dominate
 // every history request (MADR 0138, amendment step 1).
@@ -2495,15 +2495,15 @@ func historyBudgetPrefix(window []event.Event) int {
 // deletion paths preserve order — so the start is found by binary search.
 // Deletions leave gaps in the sequence, which a search for "first Seq greater
 // than sinceSeq" handles and an equality search would not.
-func (m *Manager) historySlice(id string, sinceSeq uint64, max int) (window []event.Event, more bool) {
-	if max <= 0 {
+func (m *Manager) historySlice(id string, sinceSeq uint64, limit int) (window []event.Event, more bool) {
+	if limit <= 0 {
 		return nil, false
 	}
 	m.mu.RLock()
 	e, ok := m.sessions[id]
 	if ok && !e.dead && len(e.history) > 0 {
 		start := historyStartIndex(e.history, sinceSeq)
-		end := min(start+max, len(e.history))
+		end := min(start+limit, len(e.history))
 		out := make([]event.Event, end-start)
 		copy(out, e.history[start:end])
 		more = end < len(e.history)
@@ -2519,7 +2519,7 @@ func (m *Manager) historySlice(id string, sinceSeq uint64, max int) (window []ev
 	if start >= len(disk) {
 		return nil, false
 	}
-	end := min(start+max, len(disk))
+	end := min(start+limit, len(disk))
 	return disk[start:end], end < len(disk)
 }
 
@@ -3298,7 +3298,7 @@ func (m *Manager) Fork(ctx context.Context, id, messageID, deviceID string) (Met
 	newAgentID := res.AgentSessionID
 	name := meta.Name
 	if name != "" {
-		name = name + " (fork)"
+		name += " (fork)"
 	} else {
 		name = "fork"
 	}

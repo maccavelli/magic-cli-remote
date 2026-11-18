@@ -7,10 +7,10 @@ package tailnet
 
 import (
 	"context"
-	"github.com/maccavelli/magic-cli-remote/internal/procutil"
-	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
 // detectTimeout bounds the `tailscale ip` exec. A wedged tailscaled socket can
@@ -23,9 +23,7 @@ const detectTimeout = 5 * time.Second
 //
 // It is a variable so tests can stub the detection without a tailnet.
 var IPv4 = detectIPv4
-var execCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-	return procutil.Command(ctx, name, args...)
-}
+var execCommand = procutil.Command
 
 func detectIPv4() string {
 	ctx, cancel := context.WithTimeout(context.Background(), detectTimeout)

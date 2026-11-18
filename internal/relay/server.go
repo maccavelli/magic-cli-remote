@@ -441,8 +441,8 @@ const rateMapMax = 4096
 const retryFloor = 5 * time.Second
 
 // allowRate enforces a per-key sliding one-minute window (R16 multi-bucket).
-func (s *Server) allowRate(id, bucket string, max int) bool {
-	ok, _ := s.allowRateRetry(id, bucket, max)
+func (s *Server) allowRate(id, bucket string, limit int) bool {
+	ok, _ := s.allowRateRetry(id, bucket, limit)
 	return ok
 }
 
@@ -450,8 +450,8 @@ func (s *Server) allowRate(id, bucket string, max int) bool {
 // window — the earliest instant a retry can possibly pass (0068 P6).
 // TTL cleanup of other keys runs in the background (E3); the hot path only
 // prunes when the map is at capacity so lock hold time stays small under load.
-func (s *Server) allowRateRetry(id, bucket string, max int) (bool, time.Duration) {
-	if max <= 0 {
+func (s *Server) allowRateRetry(id, bucket string, limit int) (bool, time.Duration) {
+	if limit <= 0 {
 		return true, 0
 	}
 	key := rateKey{bucket: bucket, id: id}
@@ -474,7 +474,7 @@ func (s *Server) allowRateRetry(id, bucket string, max int) (bool, time.Duration
 		s.rate[key] = &rateWindow{start: now, count: 1}
 		return true, 0
 	}
-	if w.count >= max {
+	if w.count >= limit {
 		return false, w.start.Add(time.Minute).Sub(now)
 	}
 	w.count++

@@ -515,7 +515,7 @@ func setFileDefaults(v *viper.Viper) {
 	v.SetDefault("hosts_csv", "")
 }
 
-func bindRelayFlags(v *viper.Viper, fs *pflag.FlagSet) error {
+func bindRelayFlags(v *viper.Viper, flags *pflag.FlagSet) error {
 	pairs := []struct{ flag, key string }{
 		{"config", ""}, // handled by LoadOptions
 		{"listen-host", "listen.host"},
@@ -542,7 +542,7 @@ func bindRelayFlags(v *viper.Viper, fs *pflag.FlagSet) error {
 		if p.key == "" {
 			continue
 		}
-		f := fs.Lookup(p.flag)
+		f := flags.Lookup(p.flag)
 		if f == nil || !f.Changed {
 			continue
 		}
@@ -658,9 +658,9 @@ func (c FileConfig) ValidateServeable() error {
 
 // validateLimitsConfig enforces MADR 0017 D9 ceilings (reject, do not silently start).
 func validateLimitsConfig(l LimitsConfig) error {
-	check := func(name string, v, max int) error {
-		if v > max {
-			return fmt.Errorf("limits.%s %d exceeds maximum %d", name, v, max)
+	check := func(name string, v, limit int) error {
+		if v > limit {
+			return fmt.Errorf("limits.%s %d exceeds maximum %d", name, v, limit)
 		}
 		return nil
 	}

@@ -135,26 +135,26 @@ func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
 			}
 		}
 	}
-	provider, model := "kilo", conn.Default["kilo"]
+	providerID, model := "kilo", conn.Default["kilo"]
 	if model == "" {
 		// No Gateway default (e.g. logged out): first connected provider's
 		// default keeps prompts working; else the seed stands.
 		for _, p := range conn.Providers {
 			if m := conn.Default[p.ID]; m != "" {
-				provider, model = p.ID, m
+				providerID, model = p.ID, m
 				break
 			}
 		}
 	}
 	d.mu.Lock()
 	if model != "" {
-		d.defaultModelProvider, d.defaultModelID = provider, model
+		d.defaultModelProvider, d.defaultModelID = providerID, model
 	}
 	d.contextLimits = limits
 	d.mu.Unlock()
 	if model != "" {
 		d.log.Info("kilo default model resolved",
-			slog.String("model", provider+"/"+model),
+			slog.String("model", providerID+"/"+model),
 			slog.Int("context_limits", len(limits)))
 	}
 }

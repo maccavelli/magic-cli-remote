@@ -123,7 +123,7 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 		// Short transient retries keep the existing notice-only path.
 		cls := agenterr.Present(msg, time.Now())
 		hard := cls.Kind == agenterr.KindQuota ||
-			next >= agenterr.LongBackoffMin ||
+			next >= agenterr.LongBackoffThreshold ||
 			agenterr.LooksLikeLongBackoff(msg)
 		if hard && (sid == "" || sid == o.h.AgentSessionID()) {
 			if next > 0 && cls.ResetAt.IsZero() {

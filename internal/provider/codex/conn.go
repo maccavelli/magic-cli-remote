@@ -65,7 +65,7 @@ func boundRPCErrorData(raw json.RawMessage) json.RawMessage {
 			continue
 		}
 		if len(value) <= 512 {
-			bounded[key] = json.RawMessage(value)
+			bounded[key] = value
 		}
 	}
 	out, err := json.Marshal(bounded)
@@ -75,12 +75,12 @@ func boundRPCErrorData(raw json.RawMessage) json.RawMessage {
 	return out
 }
 
-func truncateUTF8Bytes(value string, max int) string {
-	if max <= 0 || len(value) <= max {
+func truncateUTF8Bytes(value string, maxBytes int) string {
+	if maxBytes <= 0 || len(value) <= maxBytes {
 		return value
 	}
-	value = value[:max]
-	for !utf8.ValidString(value) && len(value) > 0 {
+	value = value[:maxBytes]
+	for !utf8.ValidString(value) && value != "" {
 		value = value[:len(value)-1]
 	}
 	return value

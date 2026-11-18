@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -352,7 +353,7 @@ func (c *Coordinator) StageCandidate(ctx context.Context, txn *Txn) error {
 		if m.Transaction == nil || m.Transaction.ID != txn.ID {
 			return ErrTransactionBusy
 		}
-		candidate := c.store.txnHome(txn.ID) + string(os.PathSeparator) + c.adapter.CandidateName()
+		candidate := filepath.Join(c.store.txnHome(txn.ID), c.adapter.CandidateName())
 		data, err := c.store.readCandidate(candidate, c.adapter.MaxCandidateBytes())
 		if err != nil {
 			return err

@@ -904,11 +904,11 @@ func (p *Provider) resolveSessionCWD(optsCWD string) (string, error) {
 	if err != nil || !p.spec.RealCWD {
 		return cwd, err
 	}
-	real, err := filepath.EvalSymlinks(cwd)
+	resolved, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
 		return "", fmt.Errorf("cwd %q: %w", cwd, err)
 	}
-	return real, nil
+	return resolved, nil
 }
 
 // EnsureWarm arms (or re-arms) the spare pre-initialized agent process in the

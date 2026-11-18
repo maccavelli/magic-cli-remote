@@ -136,7 +136,7 @@ func newReceiptsListCmd() *cobra.Command {
 					return err
 				}
 				first, last := summarizeDecidedAt(lines)
-				chain := "-"
+				var chain string
 				if devicePub, perr := devicePublicKey(rs, as, id); perr == nil && daemonErr == nil {
 					broken, verr := rs.Verify(id, devicePub, daemonPub)
 					switch {

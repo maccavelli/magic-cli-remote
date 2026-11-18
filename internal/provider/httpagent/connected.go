@@ -145,8 +145,8 @@ func (p *Provider) MutationRingLen() int {
 	p.connectedLock()
 	defer p.connectedUnlock()
 	n := 0
-	for _, m := range p.mutations {
-		if m.seq != 0 {
+	for i := range p.mutations {
+		if p.mutations[i].seq != 0 {
 			n++
 		}
 	}

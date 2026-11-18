@@ -926,19 +926,19 @@ func commonPrefixLen(a, b string) int {
 
 // clip is the one-line form of s, for an id, a title, a branch or a header
 // (output.Line). Agent text that has lines of its own goes through clipText.
-func clip(s string, max int) string { return output.Line(s, max) }
+func clip(s string, limit int) string { return output.Line(s, limit) }
 
 // clipText bounds agent text — tool output, an error, a notice — keeping its
 // line structure (output.Clip, MADR 0208 D11).
-func clipText(s string, max int) string {
-	s, _ = output.Clip(s, max)
+func clipText(s string, limit int) string {
+	s, _ = output.Clip(s, limit)
 	return s
 }
 
 // shortJSON is a raw JSON value as the engine sent it, bounded as agent text.
-func shortJSON(raw json.RawMessage, max int) string {
+func shortJSON(raw json.RawMessage, limit int) string {
 	if len(raw) == 0 {
 		return ""
 	}
-	return clipText(string(raw), max)
+	return clipText(string(raw), limit)
 }

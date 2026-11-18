@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
@@ -142,6 +143,28 @@ func (p *Provider) CoordinatedLogout(ctx context.Context) error {
 	return early(p.coord.RecordLogout(ctx))
 }
 
+// mkdirTempResolved is os.MkdirTemp in the temporary directory, returning the
+// directory's resolved path. os.MkdirTemp joins the temporary directory and the
+// new name by text and does not clean the result, so with an unclean $TMPDIR
+// such as <base>/link/.. (link a symlink) the path it returns still runs through
+// link, which the filesystem follows. A filepath.Join over that path folds
+// link/.. by text and names a different directory. Resolving it once, here, makes
+// the path canonical, so every later Join, and CODEX_HOME in the child, name the
+// directory that was created. The directory is removed again if it cannot be
+// resolved.
+func mkdirTempResolved(pattern string) (string, error) {
+	dir, err := os.MkdirTemp("", pattern)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	return resolved, nil
+}
+
 // copyLiveForRevoke writes LIVE to <tmp>/auth.json in a new owner-only
 // directory and returns the directory, or "" when there is no LIVE file. The
 // caller removes it on every path. A crash between the copy and its removal
@@ -155,7 +178,7 @@ func copyLiveForRevoke(live string) (string, error) {
 		}
 		return "", err
 	}
-	home, err := os.MkdirTemp("", "mcremote-codex-revoke-")
+	home, err := mkdirTempResolved("mcremote-codex-revoke-")
 	if err != nil {
 		return "", err
 	}
@@ -166,7 +189,7 @@ func copyLiveForRevoke(live string) (string, error) {
 	if err := os.Chmod(home, 0o700); err != nil {
 		return fail(err)
 	}
-	if err := os.WriteFile(home+string(os.PathSeparator)+"auth.json", data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), data, 0o600); err != nil {
 		return fail(err)
 	}
 	return home, nil
@@ -183,7 +206,7 @@ func (p *Provider) verifyLogoutOnClone(ctx context.Context, live string) error {
 		}
 		return err
 	}
-	home, err := os.MkdirTemp("", "mcremote-codex-logout-")
+	home, err := mkdirTempResolved("mcremote-codex-logout-")
 	if err != nil {
 		return err
 	}
@@ -191,7 +214,7 @@ func (p *Provider) verifyLogoutOnClone(ctx context.Context, live string) error {
 	if err := os.Chmod(home, 0o700); err != nil {
 		return err
 	}
-	clone := home + string(os.PathSeparator) + "auth.json"
+	clone := filepath.Join(home, "auth.json")
 	if err := os.WriteFile(clone, data, 0o600); err != nil {
 		return err
 	}

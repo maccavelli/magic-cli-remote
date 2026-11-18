@@ -373,19 +373,19 @@ func OrderedQuestionAnswers(answers QuestionAnswers) [][]string {
 	if len(answers) == 0 {
 		return [][]string{}
 	}
-	max := -1
+	highest := -1
 	var rest []string
 	for id := range answers {
 		i, err := strconv.Atoi(id)
 		if err == nil && i >= 0 {
-			if i > max {
-				max = i
+			if i > highest {
+				highest = i
 			}
 			continue
 		}
 		rest = append(rest, id)
 	}
-	out := make([][]string, max+1, max+1+len(rest))
+	out := make([][]string, highest+1, highest+1+len(rest))
 	for id, values := range answers {
 		if i, err := strconv.Atoi(id); err == nil && i >= 0 {
 			out[i] = values

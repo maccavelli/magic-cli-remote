@@ -619,11 +619,12 @@ func (p *Plane) start(ctx context.Context) (*engine, error) {
 	if warning != "" {
 		p.log.Warn(warning)
 	}
-	cmd.Env = append(env,
+	env = append(env,
 		procutil.EnvEngineID+"="+engineID,
 		procutil.EnvEngineOwner+"="+procutil.OwnerToken(),
 		passwordEnv+"="+password,
 	)
+	cmd.Env = env
 	if home, _ := os.UserHomeDir(); home != "" {
 		cmd.Dir = home
 	}

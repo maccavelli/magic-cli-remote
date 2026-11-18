@@ -205,3 +205,60 @@ func TestCoordinatedLogoutNeedsACoordinator(t *testing.T) {
 		t.Fatal("an uncoordinated provider performed a transactional logout")
 	}
 }
+
+// TestIsolatedHomesAreFoundWhereTheyAreCreated guards the two isolated
+// directories logout builds, the revoke copy and the clone probe, against an
+// uncleaned temporary directory. os.MkdirTemp joins the temporary directory and
+// the new name by text and leaves the result as it is, so with
+// TMPDIR=<base>/link/.. (link a symlink into a deeper directory) the directory
+// really exists beside link's target, one level below <base>. A filepath.Join
+// over that result folds link/.. by text and names a different directory, where
+// the credential would be written and not found. The credential must be found
+// where the child, which resolves CODEX_HOME through the filesystem, looks.
+func TestIsolatedHomesAreFoundWhereTheyAreCreated(t *testing.T) {
+	testexec.SkipIfNoSymlink(t)
+	for _, tc := range []struct{ name, cred string }{
+		{"revoking, copied for the revoke", `{"tokens":{"access_token":"a","refresh_token":"r"}}`},
+		{"non-revoking, rehearsed on a clone", `{"OPENAI_API_KEY":"sk-test"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testexec.SkipIfNoPOSIXShell(t)
+			journal := filepath.Join(t.TempDir(), "order.log")
+			bin := filepath.Join(t.TempDir(), "codex")
+			testexec.WriteShellStub(t, bin, `if [ "$1" = "logout" ]; then
+  if [ -f "$CODEX_HOME/auth.json" ]; then echo "found:$CODEX_HOME" >> "`+journal+`"; else echo "missing:$CODEX_HOME" >> "`+journal+`"; fi
+  rm -f "$CODEX_HOME/auth.json"
+  exit 0
+fi
+exit 0
+`)
+			p, _, _ := logoutFixture(t, bin, tc.cred)
+
+			// Only now: every path above was built from the clean temporary
+			// directory, and the logout below is the one thing that reads it.
+			base := t.TempDir()
+			deeper := filepath.Join(base, "a", "b")
+			if err := os.MkdirAll(deeper, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(deeper, filepath.Join(base, "link")); err != nil {
+				t.Fatal(err)
+			}
+			unclean := base + string(os.PathSeparator) + "link" + string(os.PathSeparator) + ".."
+			t.Setenv("TMPDIR", unclean)
+			t.Setenv("TMP", unclean)
+			t.Setenv("TEMP", unclean)
+
+			if err := p.CoordinatedLogout(context.Background()); err != nil {
+				t.Fatalf("logout under an uncleaned temporary directory: %v", err)
+			}
+			b, err := os.ReadFile(journal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(b), "missing:") || !strings.Contains(string(b), "found:") {
+				t.Fatalf("journal = %q, want the credential found in the directory codex was pointed at", b)
+			}
+		})
+	}
+}

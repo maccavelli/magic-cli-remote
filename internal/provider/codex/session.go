@@ -2727,14 +2727,14 @@ func firstOr(a, b string) string {
 	return b
 }
 
-// clip truncates s to max runes, returning the original when it fits.
+// clip truncates s to limit runes, returning the original when it fits.
 // The daemon's TypeError events use this so a 5MB error from the engine
 // does not flood the wire.
-func clip(s string, max int) string {
-	if len(s) <= max {
+func clip(s string, limit int) string {
+	if len(s) <= limit {
 		return s
 	}
-	return s[:max] + "..."
+	return s[:limit] + "..."
 }
 
 // emitCapabilities advertises the session's capabilities so a phone can

@@ -156,5 +156,4 @@ func TestLiveEffectiveHomeIsHonoured(t *testing.T) {
 		t.Fatalf("codex reported a credential from outside the isolated home: %s",
 			strings.TrimSpace(string(out)))
 	}
-
 }

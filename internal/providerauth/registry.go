@@ -113,9 +113,9 @@ func (r *Registry) Add(parent context.Context, f *Flow) (*Flow, context.Context,
 
 	if f.ExpiresAt.IsZero() {
 		f.ExpiresAt = r.now().Add(DefaultTTL)
-	} else if max := r.now().Add(DefaultTTL); f.ExpiresAt.After(max) {
+	} else if ceiling := r.now().Add(DefaultTTL); f.ExpiresAt.After(ceiling) {
 		// Never trust a provider-supplied expiry beyond our own ceiling.
-		f.ExpiresAt = max
+		f.ExpiresAt = ceiling
 	}
 	ctx, cancel := context.WithDeadline(parent, f.ExpiresAt)
 	f.ID = uuid.NewString()

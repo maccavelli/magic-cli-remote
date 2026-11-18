@@ -188,19 +188,19 @@ func (c Catalog) ValidateSelection(ids []string) error {
 		clean = append(clean, id)
 	}
 	n := len(clean)
-	min := c.MinSelect
-	max := c.MaxSelect
+	minSel := c.MinSelect
+	maxSel := c.MaxSelect
 	if c.Kind == KindSingle {
-		max = 1
+		maxSel = 1
 	}
-	if max == 0 && c.Kind == KindMulti {
-		max = n // unlimited
+	if maxSel == 0 && c.Kind == KindMulti {
+		maxSel = n // unlimited
 	}
-	if n < min {
-		return fmt.Errorf("select at least %d option(s)", min)
+	if n < minSel {
+		return fmt.Errorf("select at least %d option(s)", minSel)
 	}
-	if max > 0 && n > max {
-		return fmt.Errorf("select at most %d option(s)", max)
+	if maxSel > 0 && n > maxSel {
+		return fmt.Errorf("select at most %d option(s)", maxSel)
 	}
 
 	byID := make(map[string]Option, len(c.Options))

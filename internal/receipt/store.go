@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -208,7 +209,7 @@ func readLastLine(path string) ([]byte, bool, error) {
 		if _, err := f.ReadAt(chunk, pos); err != nil && err != io.EOF {
 			return nil, false, fmt.Errorf("read %s: %w", path, err)
 		}
-		tail = append(chunk, tail...)
+		tail = slices.Concat(chunk, tail)
 
 		trimmed := tail
 		if len(trimmed) > 0 && trimmed[len(trimmed)-1] == '\n' {
@@ -249,7 +250,7 @@ func (s *Store) Append(deviceID, jwsCompact string) error {
 	}
 	defer f.Close()
 
-	if _, err := f.Write([]byte(jwsCompact + "\n")); err != nil {
+	if _, err := f.WriteString(jwsCompact + "\n"); err != nil {
 		return fmt.Errorf("write %s: %w", p, err)
 	}
 	if err := f.Sync(); err != nil {

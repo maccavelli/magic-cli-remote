@@ -308,15 +308,15 @@ func orderProvidersByLead(ps []providerEntry, lead string) []providerEntry {
 	return out
 }
 
-// capDefaultCatalogModels keeps at most max options, ensuring def stays in
-// the list when it would otherwise fall off the end. max <= 0 leaves opts
+// capDefaultCatalogModels keeps at most limit options, ensuring def stays in
+// the list when it would otherwise fall off the end. limit <= 0 leaves opts
 // unchanged.
-func capDefaultCatalogModels(opts []picker.Option, def string, max int) []picker.Option {
-	if max <= 0 || len(opts) <= max {
+func capDefaultCatalogModels(opts []picker.Option, def string, limit int) []picker.Option {
+	if limit <= 0 || len(opts) <= limit {
 		return opts
 	}
-	out := make([]picker.Option, max)
-	copy(out, opts[:max])
+	out := make([]picker.Option, limit)
+	copy(out, opts[:limit])
 	if def == "" {
 		return out
 	}
@@ -325,12 +325,12 @@ func capDefaultCatalogModels(opts []picker.Option, def string, max int) []picker
 			return out
 		}
 	}
-	for _, o := range opts[max:] {
+	for _, o := range opts[limit:] {
 		if o.ID != def {
 			continue
 		}
 		// Drop the last capped row so the default stays choosable.
-		out[max-1] = o
+		out[limit-1] = o
 		return out
 	}
 	return out

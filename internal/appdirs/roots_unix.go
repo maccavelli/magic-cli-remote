@@ -76,7 +76,7 @@ func resolveRuntimeHome(product string) (string, []Diagnostic) {
 	}
 	if runtime.GOOS == "linux" {
 		uid := os.Getuid()
-		candidate := filepath.Join("/run/user", fmt.Sprintf("%d", uid))
+		candidate := fmt.Sprintf("/run/user/%d", uid)
 		if st, err := os.Stat(candidate); err == nil && st.IsDir() {
 			return candidate, diags
 		}

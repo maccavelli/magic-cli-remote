@@ -17,9 +17,9 @@ func MaxUnixSocketPathLen() int {
 
 // CheckSocketPathLength reports whether path fits in sun_path.
 func CheckSocketPathLength(path string) error {
-	max := MaxUnixSocketPathLen()
-	if len(path) > max {
-		return fmt.Errorf("appdirs: socket path length %d exceeds platform limit %d: %s", len(path), max, path)
+	maxLen := MaxUnixSocketPathLen()
+	if len(path) > maxLen {
+		return fmt.Errorf("appdirs: socket path length %d exceeds platform limit %d: %s", len(path), maxLen, path)
 	}
 	return nil
 }

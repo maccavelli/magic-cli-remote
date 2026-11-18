@@ -1341,10 +1341,11 @@ func (m *Manager) cmdMode(ctx context.Context, id, arg string) error {
 // otherwise the agent is relaunched with the new model, which does not.
 func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string, inPlace bool) error {
 	arg = strings.TrimSpace(arg)
-	prov, cwd, name, owner, cur, thinking, ok := m.sessionRelaunchInfo(id)
+	info, ok := m.sessionRelaunchInfo(id)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
+	prov, cwd, name, owner, cur, thinking := info.prov, info.cwd, info.name, info.owner, info.model, info.thinking
 	if arg == "" {
 		label := cur
 		if label == "" {
@@ -1481,10 +1482,11 @@ func (m *Manager) setModelInPlace(ctx context.Context, id, model string) error {
 
 // cmdReset relaunches the agent with the same model, clearing its context.
 func (m *Manager) cmdReset(ctx context.Context, id, deviceID string) error {
-	prov, cwd, name, owner, cur, thinking, ok := m.sessionRelaunchInfo(id)
+	info, ok := m.sessionRelaunchInfo(id)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
+	prov, cwd, name, owner, cur, thinking := info.prov, info.cwd, info.name, info.owner, info.model, info.thinking
 	m.emitNotice(id, "Restarting the agent…")
 	if err := m.relaunch(ctx, id, prov, cwd, name, cur, thinking, owner, true); err != nil {
 		// Relaunch is destroy-then-create: try once more (same as /model
@@ -1506,10 +1508,11 @@ func (m *Manager) cmdReset(ctx context.Context, id, deviceID string) error {
 // provider, working directory, model, and thinking level. It is owned by the
 // requesting device.
 func (m *Manager) cmdNew(ctx context.Context, id, deviceID, arg string) error {
-	prov, cwd, _, _, model, thinking, ok := m.sessionRelaunchInfo(id)
+	info, ok := m.sessionRelaunchInfo(id)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
+	prov, cwd, model, thinking := info.prov, info.cwd, info.model, info.thinking
 	name := strings.TrimSpace(arg)
 	meta, err := m.Create(ctx, prov, provider.StartOptions{
 		CWD: cwd, Name: name, Model: model, ThinkingLevel: thinking,
@@ -1526,16 +1529,25 @@ func (m *Manager) cmdNew(ctx context.Context, id, deviceID, arg string) error {
 	return nil
 }
 
+// relaunchInfo is what sessionRelaunchInfo snapshots.
+type relaunchInfo struct {
+	prov                              provider.ID
+	cwd, name, owner, model, thinking string
+}
+
 // sessionRelaunchInfo snapshots the fields needed to recreate a session under
 // the same id. ok is false if the session is not live.
-func (m *Manager) sessionRelaunchInfo(id string) (prov provider.ID, cwd, name, owner, model, thinking string, ok bool) {
+func (m *Manager) sessionRelaunchInfo(id string) (info relaunchInfo, ok bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	e, live := m.sessions[id]
 	if !live || e.dead {
-		return "", "", "", "", "", "", false
+		return relaunchInfo{}, false
 	}
-	return e.meta.Provider, e.meta.CWD, e.meta.Name, e.meta.OwnerDeviceID, e.meta.Model, e.meta.ThinkingLevel, true
+	return relaunchInfo{
+		prov: e.meta.Provider, cwd: e.meta.CWD, name: e.meta.Name, owner: e.meta.OwnerDeviceID,
+		model: e.meta.Model, thinking: e.meta.ThinkingLevel,
+	}, true
 }
 
 // relaunch replaces the live session id with a fresh agent process, reusing the

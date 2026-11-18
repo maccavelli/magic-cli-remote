@@ -57,9 +57,6 @@ func waitElicit(t *testing.T, out <-chan elicitResult) acp.CreateElicitationResp
 	return acp.CreateElicitationResponse{}
 }
 
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
-
 func strProp(p acp.ElicitationPropertySchemaString) acp.ElicitationPropertySchema {
 	p.Type = "string"
 	return acp.ElicitationPropertySchema{String: &p}
@@ -73,7 +70,7 @@ func formRequest(props map[string]acp.ElicitationPropertySchema, required ...str
 		RequestedSchema: acp.ElicitationSchema{
 			Title: new("Release details"), Properties: props, Required: required, Type: "object",
 		},
-		Session: &acp.ElicitationSessionScope{SessionId: "a1", ToolCallId: ptr(acp.ToolCallId("call-7"))},
+		Session: &acp.ElicitationSessionScope{SessionId: "a1", ToolCallId: new(acp.ToolCallId("call-7"))},
 	}}
 }
 
@@ -82,7 +79,7 @@ func releaseForm() acp.CreateElicitationRequest {
 	return formRequest(map[string]acp.ElicitationPropertySchema{
 		"name": strProp(acp.ElicitationPropertySchemaString{Title: new("Name"),
 			MinLength: new(uint32(1)), MaxLength: new(uint32(12)), Default: new("Ada")}),
-		"email": strProp(acp.ElicitationPropertySchemaString{Format: ptr(acp.StringFormatEmail)}),
+		"email": strProp(acp.ElicitationPropertySchemaString{Format: new(acp.StringFormatEmail)}),
 		"color": strProp(acp.ElicitationPropertySchemaString{Enum: []string{"red", "green"}}),
 		"size": strProp(acp.ElicitationPropertySchemaString{OneOf: []acp.EnumOption{
 			{Const: "s", Title: "Small"}, {Const: "l", Title: "Large"}}}),
@@ -387,7 +384,7 @@ func TestElicitationFormsMagicCannotShow(t *testing.T) {
 func TestElicitationDropsWhatItCannotDraw(t *testing.T) {
 	s, h := newFormSession(0)
 	req := formRequest(map[string]acp.ElicitationPropertySchema{
-		"name":  strProp(acp.ElicitationPropertySchemaString{Pattern: new(`(?<=x)y`), Format: ptr(acp.StringFormat("hostname"))}),
+		"name":  strProp(acp.ElicitationPropertySchemaString{Pattern: new(`(?<=x)y`), Format: new(acp.StringFormat("hostname"))}),
 		"color": {Other: &acp.ElicitationPropertySchemaOther{Type: "color"}},
 	}, "name")
 	req.Form.Meta = map[string]any{"x": 1}

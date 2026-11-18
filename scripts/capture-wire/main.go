@@ -156,7 +156,7 @@ func run(kind, url, provider, version, out string, dur time.Duration, minFrames 
 // Payloads are kept as-is rather than re-encoded, so a fixture reproduces the
 // engine's own bytes and not this tool's idea of them.
 func captureSSE(url string, dur time.Duration) ([]string, error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, err
 	}

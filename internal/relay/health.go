@@ -150,7 +150,7 @@ func healthzProbe(ctx context.Context, args service.ServeArgs) (libservice.Healt
 	// A fresh transport: no proxy from the environment, no kept connection.
 	tr := &http.Transport{TLSClientConfig: tlsCfg, DisableKeepAlives: true}
 	defer tr.CloseIdleConnections()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return libservice.Health{}, err
 	}

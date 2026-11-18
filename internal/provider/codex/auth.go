@@ -114,9 +114,9 @@ func (p *Provider) runLogout(ctx context.Context) error {
 // clipOutput bounds child output quoted into an error.
 func clipOutput(s string) string {
 	s = strings.TrimSpace(s)
-	const max = 400
-	if len(s) > max {
-		return s[:max] + "…"
+	const maxLen = 400
+	if len(s) > maxLen {
+		return s[:maxLen] + "…"
 	}
 	return s
 }

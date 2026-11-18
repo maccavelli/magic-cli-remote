@@ -2924,7 +2924,7 @@ func (s *session) auditFSAccess(op, path string) error {
 // used to escape it. A not-yet-existing leaf (a write target) is resolved via
 // its nearest existing ancestor. An empty root is ignored.
 func pathWithinRoots(path string, roots []string) bool {
-	real := resolveExistingAncestor(path)
+	resolved := resolveExistingAncestor(path)
 	for _, root := range roots {
 		if root == "" {
 			continue
@@ -2933,7 +2933,7 @@ func pathWithinRoots(path string, roots []string) bool {
 		if err != nil {
 			r = filepath.Clean(root)
 		}
-		if real == r || strings.HasPrefix(real, r+string(os.PathSeparator)) {
+		if resolved == r || strings.HasPrefix(resolved, r+string(os.PathSeparator)) {
 			return true
 		}
 	}
@@ -3039,13 +3039,13 @@ func isBenignPromptErr(err error) bool {
 		strings.Contains(msg, "canceled") && strings.Contains(msg, "prompt")
 }
 
-// truncateRunes cuts s to at most max bytes without splitting a UTF-8 rune
+// truncateRunes cuts s to at most limit bytes without splitting a UTF-8 rune
 // (a byte-offset cut mid-sequence turns into mojibake in JSON events).
-func truncateRunes(s string, max int) string {
-	if max <= 0 || len(s) <= max {
+func truncateRunes(s string, limit int) string {
+	if limit <= 0 || len(s) <= limit {
 		return s
 	}
-	cut := max
+	cut := limit
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
@@ -3163,7 +3163,7 @@ func toolText(content []acp.ToolCallContent, rawIn, rawOut json.RawMessage, term
 // marshals as the text "null" and a string keeps its quotes. An empty value is
 // absent, as the SDK defines it, and JSON null is nothing to show
 // (MADR 0184 D5).
-func shortRaw(raw json.RawMessage, max int) string {
+func shortRaw(raw json.RawMessage, limit int) string {
 	if len(raw) == 0 {
 		return ""
 	}
@@ -3171,10 +3171,10 @@ func shortRaw(raw json.RawMessage, max int) string {
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return ""
 	}
-	return shortAny(v, max)
+	return shortAny(v, limit)
 }
 
-func shortAny(v any, max int) string {
+func shortAny(v any, limit int) string {
 	if v == nil {
 		return ""
 	}
@@ -3184,7 +3184,7 @@ func shortAny(v any, max int) string {
 		if s == "" {
 			return ""
 		}
-		return truncateRunes(s, max)
+		return truncateRunes(s, limit)
 	case float64, int, int64, bool:
 		return fmt.Sprint(t)
 	default:
@@ -3197,7 +3197,7 @@ func shortAny(v any, max int) string {
 		if strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[") {
 			return ""
 		}
-		return truncateRunes(s, max)
+		return truncateRunes(s, limit)
 	}
 }
 

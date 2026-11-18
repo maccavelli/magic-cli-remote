@@ -21,30 +21,29 @@ run:
 linters:
   default: none
   enable:
+    - gocritic
+    - govet
+    - ineffassign
+    - makezero
     - misspell
     - nakedret
-    - unused
-    # revive: only golint's own checks (exported, package-comments, var-naming)
-    # are on in P1; the other fleet rules are listed under settings.revive.rules.
+    - nolintlint
+    # revive: every fleet rule but confusing-naming (P8) is on; see settings.revive.rules.
     - revive
+    - unconvert
+    - unused
+    - whitespace
   disable:
     - bodyclose # P8
     - errcheck # P5
     - errorlint # P6
     - gocognit # P8
     - goconst # P4
-    - gocritic # P2
     - gocyclo # P8
     - gosec # P7
-    - govet # P2 (the fleet's govet; `go vet ./...` stays a separate CI step)
-    - ineffassign # P2
-    - makezero # P2
     - nilerr # P6
-    - nolintlint # P2
     - staticcheck # P3
-    - unconvert # P2
     - unparam # P8
-    - whitespace # P2
   settings:
     errcheck:
       check-type-assertions: true
@@ -77,34 +76,34 @@ linters:
       allow-unused: false
     revive:
       rules:
-        # On now: the rules that replace golint.
+        # golint's own checks (P1), then the rest of the fleet's rules (P2).
+        # revive reports only the rules listed here; confusing-naming is the one not yet on.
         - name: exported
         - name: package-comments
         - name: var-naming
-        # Fleet rules not yet on (revive reports only the rules listed here).
-        # - name: atomic                  # P2
-        # - name: blank-imports           # P2
+        - name: atomic
+        - name: blank-imports
         # - name: confusing-naming        # P8
-        # - name: constant-logical-expr   # P2
-        # - name: context-as-argument     # P2
-        # - name: context-keys-type       # P2
-        # - name: dot-imports             # P2
-        # - name: empty-block             # P2
-        # - name: error-naming            # P2
-        # - name: error-return            # P2
-        # - name: error-strings           # P2
-        # - name: errorf                  # P2
-        # - name: if-return               # P2
-        # - name: increment-decrement     # P2
-        # - name: indent-error-flow       # P2
-        # - name: range                   # P2
-        # - name: receiver-naming         # P2
-        # - name: redefines-builtin-id    # P2
-        # - name: superfluous-else        # P2
-        # - name: time-naming             # P2
-        # - name: unexported-return       # P2
-        # - name: unreachable-code        # P2
-        # - name: var-declaration         # P2
+        - name: constant-logical-expr
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: if-return
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: var-declaration
   exclusions:
     generated: lax
     rules:
@@ -137,7 +136,7 @@ issues:
 formatters:
   enable:
     - gofmt
-    # - goimports # P2: three files to fix first (Q4 A: the fleet's formatter).
+    - goimports # the fleet's formatter (Q4 A); P2 fixed the three files it flagged
   exclusions:
     generated: lax
     paths:

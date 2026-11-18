@@ -20,8 +20,8 @@ func ApplyTLS(ctx context.Context, fc FileConfig, cfg *Config, log *slog.Logger)
 	if log == nil {
 		log = slog.Default()
 	}
-	tls := fc.TLS.Normalized()
-	switch tls.Mode {
+	tlsCfg := fc.TLS.Normalized()
+	switch tlsCfg.Mode {
 	case TLSModeLetsEncrypt:
 		return applyLetsEncrypt(ctx, fc, cfg, log)
 	case TLSModeFiles:

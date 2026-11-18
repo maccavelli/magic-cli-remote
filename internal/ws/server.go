@@ -2853,11 +2853,11 @@ func (s *Server) pushProviderAuthStatus(ctx context.Context, providerID string) 
 	if err != nil {
 		return
 	}
-	auth, ok := p.(provider.Auth)
+	authn, ok := p.(provider.Auth)
 	if !ok {
 		return
 	}
-	st, err := auth.AuthStatus(ctx)
+	st, err := authn.AuthStatus(ctx)
 	payload := protocol.ProviderInfoPayload{ID: providerID, Ready: p.Ready()}
 	if err != nil {
 		payload.Auth = &protocol.ProviderAuthPayload{Status: protocol.AuthStatusError}
@@ -3748,9 +3748,9 @@ func (s *Server) writeOKFrame(ctx context.Context, c *client, id string) error {
 // write path puts a credential into its error text (MADR 0074 D2), but this
 // also stops an unbounded child's output becoming an error frame.
 func clipAuthErr(s string) string {
-	const max = 300
-	if len(s) > max {
-		return s[:max] + "…"
+	const maxLen = 300
+	if len(s) > maxLen {
+		return s[:maxLen] + "…"
 	}
 	return s
 }

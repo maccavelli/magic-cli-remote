@@ -61,10 +61,10 @@ func decodePermissionProfiles(raw []byte) ([]provider.PermissionProfile, string,
 	return out, next, nil
 }
 
-func boundedPermissionText(value string, max int) string {
+func boundedPermissionText(value string, limit int) string {
 	value = strings.TrimSpace(value)
-	if len(value) > max {
-		return value[:max]
+	if len(value) > limit {
+		return value[:limit]
 	}
 	return value
 }

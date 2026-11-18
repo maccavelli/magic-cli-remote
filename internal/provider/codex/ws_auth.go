@@ -118,7 +118,7 @@ func waitWebSocketHealth(ctx context.Context, baseURL string, client *http.Clien
 	for {
 		ready := true
 		for _, path := range []string{"/readyz", "/healthz"} {
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, http.NoBody)
 			if err != nil {
 				return err
 			}

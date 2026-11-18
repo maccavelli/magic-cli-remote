@@ -28,21 +28,21 @@ const MaxToolShown = 8000
 // Truncated ends text Clip has cut.
 const Truncated = "\n…[truncated]"
 
-// Clip bounds s to max bytes, keeping its line structure, and reports whether
+// Clip bounds s to limit bytes, keeping its line structure, and reports whether
 // it cut. Trailing whitespace goes; nothing inside the text changes.
 //
-// The cut falls on the last line break at or before max, so no line is left
+// The cut falls on the last line break at or before limit, so no line is left
 // half shown. When that break would discard more than half the budget (one
-// very long line), the cut falls on the last rune boundary at or before max
-// instead. Truncated is appended after the cut, beyond max.
-func Clip(s string, max int) (string, bool) {
+// very long line), the cut falls on the last rune boundary at or before limit
+// instead. Truncated is appended after the cut, beyond limit.
+func Clip(s string, limit int) (string, bool) {
 	s = strings.TrimRight(s, " \t\r\n")
-	if max <= 0 || len(s) <= max {
+	if limit <= 0 || len(s) <= limit {
 		return s, false
 	}
-	cut := strings.LastIndexByte(s[:max+1], '\n')
-	if cut < max/2 {
-		cut = max
+	cut := strings.LastIndexByte(s[:limit+1], '\n')
+	if cut < limit/2 {
+		cut = limit
 		for cut > 0 && !utf8.RuneStart(s[cut]) {
 			cut--
 		}
@@ -51,15 +51,15 @@ func Clip(s string, max int) (string, bool) {
 }
 
 // Line is the one-line form of s, for a title, a row or a metadata field: its
-// first non-empty line, trimmed, at most max bytes, cut on a rune boundary.
+// first non-empty line, trimmed, at most limit bytes, cut on a rune boundary.
 // It ends in "…" when it was cut or when more lines followed. Spacing inside
 // the line is kept.
-func Line(s string, max int) string {
+func Line(s string, limit int) string {
 	first, rest, _ := strings.Cut(strings.TrimLeft(s, " \t\r\n"), "\n")
 	first = strings.TrimSpace(first)
 	more := strings.TrimSpace(rest) != ""
-	if max > 0 && len(first) > max {
-		cut := max
+	if limit > 0 && len(first) > limit {
+		cut := limit
 		for cut > 0 && !utf8.RuneStart(first[cut]) {
 			cut--
 		}

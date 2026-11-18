@@ -19,9 +19,9 @@ func MaxUnixSocketPathLen() int { return maxWindowsSockaddrUn }
 // Unlike the directory-depth check in roots_windows.go, this refuses rather
 // than warning: an over-long sun_path cannot work at all (MADR 0116 D3).
 func CheckSocketPathLength(path string) error {
-	max := MaxUnixSocketPathLen()
-	if len(path) > max {
-		return fmt.Errorf("appdirs: socket path length %d exceeds platform limit %d: %s", len(path), max, path)
+	maxLen := MaxUnixSocketPathLen()
+	if len(path) > maxLen {
+		return fmt.Errorf("appdirs: socket path length %d exceeds platform limit %d: %s", len(path), maxLen, path)
 	}
 	return nil
 }

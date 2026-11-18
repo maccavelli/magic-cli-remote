@@ -140,9 +140,8 @@ func Ensure(opts Options) (*Bundle, error) {
 	defer unlock()
 
 	// Complete a crash mid-install: both *.new files present and valid.
-	if err := promoteNewPair(certPath, keyPath); err == nil {
-		// Fall through to load the promoted pair.
-	} else {
+	// When the pair promotes, fall through to load it.
+	if err := promoteNewPair(certPath, keyPath); err != nil {
 		cleanupOrphanNew(certPath, keyPath)
 	}
 

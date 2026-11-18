@@ -119,7 +119,9 @@ type Adapter interface {
 	// NativeLockPath is the sibling lock the provider's own writer honors, so
 	// mcremote serializes against it instead of racing it (D25).
 	NativeLockPath() (string, error)
-	// CandidateName is the credential's filename inside a pending home.
+	// CandidateName is the credential's filename inside a pending home: a bare
+	// file name, with no path separator and no "." or ".." element, because the
+	// coordinator joins it onto the home's path (filepath.Join folds both).
 	CandidateName() string
 	// MaxCandidateBytes bounds a staged candidate.
 	MaxCandidateBytes() int64

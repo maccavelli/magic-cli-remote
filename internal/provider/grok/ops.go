@@ -550,13 +550,13 @@ func exhaustedCredits(res billingResponse) string {
 	return strings.Join(parts, "; ")
 }
 
-// truncateRunes cuts s to at most max bytes on a rune boundary, marking the
+// truncateRunes cuts s to at most limit bytes on a rune boundary, marking the
 // cut with an ellipsis. It is acpagent's, which keeps it private.
-func truncateRunes(s string, max int) string {
-	if max <= 0 || len(s) <= max {
+func truncateRunes(s string, limit int) string {
+	if limit <= 0 || len(s) <= limit {
 		return s
 	}
-	cut := max
+	cut := limit
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}

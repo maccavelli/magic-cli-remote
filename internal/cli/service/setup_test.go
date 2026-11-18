@@ -175,7 +175,7 @@ func TestSetupWritesDefaultMcrelayConfig(t *testing.T) {
 	if !strings.Contains(string(b), "max_phones_per_host") {
 		t.Fatalf("mcrelay defaults missing limits: %s", b)
 	}
-	if !strings.Contains(string(res.UnitBody), "--config") {
+	if !strings.Contains(res.UnitBody, "--config") {
 		t.Fatalf("unit should bake config path:\n%s", res.UnitBody)
 	}
 	if !strings.Contains(res.UnitBody, "KillMode=mixed") {

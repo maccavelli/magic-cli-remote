@@ -26,7 +26,7 @@ func clipDiff(s string) (string, bool) {
 		return s, false
 	}
 	cut := s[:maxDiffBytes]
-	for len(cut) > 0 && !utf8.ValidString(cut) {
+	for cut != "" && !utf8.ValidString(cut) {
 		cut = cut[:len(cut)-1]
 	}
 	if i := strings.LastIndexByte(cut, '\n'); i >= 0 {

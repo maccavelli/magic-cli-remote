@@ -712,8 +712,12 @@ func (a *acpAuth) awaitAttempt(ctx context.Context, id, attemptID string, expire
 		switch out.Data.Status {
 		case "complete":
 			a.log.Info("device flow completed", slog.String("agent", "opencode"), slog.String("upstream", id))
-			defer a.restart(credentialChangedNotice)
-			return a.adopt(ctx, id, "oauth", older)
+			// The engine restarts once adopt returns, as the defer it was: in a closure, so
+			// that it is not a defer in this loop.
+			return func() error {
+				defer a.restart(credentialChangedNotice)
+				return a.adopt(ctx, id, "oauth", older)
+			}()
 		case "failed":
 			return fmt.Errorf("opencode sign-in for %s failed: %s", id, out.Data.Message)
 		case "expired":

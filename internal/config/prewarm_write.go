@@ -177,13 +177,14 @@ func setBool(mapping *yaml.Node, key string, v bool) {
 		val = "true"
 	}
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			n := mapping.Content[i+1]
-			n.Kind = yaml.ScalarNode
-			n.Tag = "!!bool"
-			n.Value = val
-			return
+		if mapping.Content[i].Value != key {
+			continue
 		}
+		n := mapping.Content[i+1]
+		n.Kind = yaml.ScalarNode
+		n.Tag = "!!bool"
+		n.Value = val
+		return
 	}
 	mapping.Content = append(mapping.Content,
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},

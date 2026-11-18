@@ -630,7 +630,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 			return "", fmt.Errorf("%s server did not become healthy in %s", p.cfg.Bin, serverStartTimeout)
 		}
 		reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		req, _ := http.NewRequestWithContext(reqCtx, http.MethodGet, url+p.dialect.HealthPath(), nil)
+		req, _ := http.NewRequestWithContext(reqCtx, http.MethodGet, url+p.dialect.HealthPath(), http.NoBody)
 		res, err := p.httpc.Do(req)
 		cancel()
 		if err == nil {
@@ -789,7 +789,7 @@ func (p *Provider) pumpEvents(url string, gen int) {
 }
 
 func (p *Provider) streamOnce(url string, gen int) error {
-	req, err := http.NewRequest(http.MethodGet, url+p.dialect.EventsPath(), nil)
+	req, err := http.NewRequest(http.MethodGet, url+p.dialect.EventsPath(), http.NoBody)
 	if err != nil {
 		return err
 	}
@@ -869,16 +869,16 @@ func (p *Provider) streamOnce(url string, gen int) error {
 const maxSSELine = 10 << 20
 
 // readSSELine reads one '\n'-terminated line, trimming the trailing CR/LF. A
-// line longer than max is fully consumed (so the stream stays aligned) but
+// line longer than limit is fully consumed (so the stream stays aligned) but
 // returned as tooLong with no data, letting the caller skip it without tearing
 // down the connection. err is non-nil only for a real read error or io.EOF
 // (which may accompany a final unterminated line).
-func readSSELine(r *bufio.Reader, max int) (line []byte, tooLong bool, err error) {
+func readSSELine(r *bufio.Reader, limit int) (line []byte, tooLong bool, err error) {
 	for {
 		frag, e := r.ReadSlice('\n')
 		if !tooLong {
 			line = append(line, frag...)
-			if len(line) > max {
+			if len(line) > limit {
 				tooLong = true
 				line = nil
 			}

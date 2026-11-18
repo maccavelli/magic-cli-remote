@@ -17,7 +17,7 @@ import (
 // default, so the two cannot drift apart.
 
 func TestBridgeDefaultIsRelayDefault(t *testing.T) {
-	if got, want := int64(bridgeWSReadLimit), int64(relay.DefaultLimits().MaxMessageBytes); got != want {
+	if got, want := bridgeWSReadLimit, int64(relay.DefaultLimits().MaxMessageBytes); got != want {
 		t.Fatalf("bridge default %d, relay default %d: they must be the same value", got, want)
 	}
 }
