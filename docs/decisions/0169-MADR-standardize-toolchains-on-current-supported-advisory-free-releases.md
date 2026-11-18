@@ -795,3 +795,12 @@ the directive.
 
 Sources: OSV `POST /v1/query` and `GET /v1/vulns/GO-2026-6859`; [go.dev downloads](https://go.dev/dl/?mode=json);
 `go env GOTOOLCHAIN GOROOT` on each host; 0217-PLAN Deviation 28's check-libs logs.
+
+## Update (2026-11-18): the golangci-lint standard is v2.15.0
+
+An addition; the text above is kept as written on its date. On 2026-11-18 the owner ruled to standardize on
+golangci-lint v2.15.0 (recorded in [0131-MADR-replace-golint-with-golangci-lint.md](0131-MADR-replace-golint-with-golangci-lint.md),
+"Update (2026-11-18)"). Where this record names golangci-lint **v2.13.2** as the host standard (the Go 1.27 readiness
+bullet, and the acp-go-sdk fork's differing tool list), the standard is now **v2.15.0**, built with Go 1.27.4. Nothing
+else in this record's toolchain table changes. This repository installs it in CI with `go install ...@v2.15.0` and
+refuses any other version in `scripts/lint.py`.

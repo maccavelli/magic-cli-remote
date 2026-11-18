@@ -1856,3 +1856,10 @@ rather than takes over, and D3's Flutter lockstep, which waits on magic-git's ow
 overtaken by 0217 D2 (3.47.9).
 
 Recorded by the November 2026 audit, [0239-REPORT-record-status-and-docs-accuracy-audit.md](../reports/0239-REPORT-record-status-and-docs-accuracy-audit.md).
+
+## Update (2026-11-18): the golangci-lint pin is v2.15.0
+
+An addition. This plan's list of host Go tools names golangci-lint v2.13.2. From 2026-11-18 it is v2.15.0, by the
+owner's ruling recorded in [0131-PLAN-replace-golint-with-golangci-lint.md](0131-PLAN-replace-golint-with-golangci-lint.md)
+(its P1 adopts the tool in this repository and pins the version in `scripts/lint.py`). A host that still carries
+v2.13.2 is refused by `make lint` until it installs v2.15.0. No other pin in this plan changes.
