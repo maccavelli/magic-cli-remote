@@ -261,8 +261,8 @@ func shellWords(s string) ([]string, error) {
 	)
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		switch {
-		case c == '\'':
+		switch c {
+		case '\'':
 			j := strings.IndexByte(s[i+1:], '\'')
 			if j < 0 {
 				return nil, errors.New("unterminated single quote")
@@ -270,7 +270,7 @@ func shellWords(s string) ([]string, error) {
 			cur.WriteString(s[i+1 : i+1+j])
 			i += j + 1
 			started = true
-		case c == '"':
+		case '"':
 			j := strings.IndexByte(s[i+1:], '"')
 			if j < 0 {
 				return nil, errors.New("unterminated double quote")
@@ -278,14 +278,14 @@ func shellWords(s string) ([]string, error) {
 			cur.WriteString(s[i+1 : i+1+j])
 			i += j + 1
 			started = true
-		case c == '\\':
+		case '\\':
 			if i+1 >= len(s) {
 				return nil, errors.New("trailing backslash")
 			}
 			cur.WriteByte(s[i+1])
 			i++
 			started = true
-		case c == ' ' || c == '\t':
+		case ' ', '\t':
 			if started {
 				words = append(words, cur.String())
 				cur.Reset()

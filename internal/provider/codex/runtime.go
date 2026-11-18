@@ -182,7 +182,7 @@ func (p *Provider) RuntimeSnapshot() RuntimeSnapshot {
 	}
 
 	for _, model := range models {
-		if model.ID != modelID && !(modelID == "" && model.IsDefault) {
+		if model.ID != modelID && (modelID != "" || !model.IsDefault) {
 			continue
 		}
 		out.Model.ID = model.ID

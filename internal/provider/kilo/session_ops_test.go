@@ -755,14 +755,17 @@ func TestCommandTableOpsAreImplemented(t *testing.T) {
 			t.Errorf("/%s claims op %q, which this dialect does not implement", name, m.Op)
 		}
 	}
-	var (
-		_ func(context.Context) error                   = s.Compact
-		_ func(context.Context, string) error           = s.SetModel
-		_ func(context.Context) (string, error)         = s.UndoLast
-		_ func(context.Context) error                   = s.Unrevert
-		_ func(context.Context, string) (string, error) = s.Diff
-	)
+	// Each method keeps the signature the dialect's command table drives it with: the type argument is the
+	// assertion, and the call fails to compile if the method's signature changes.
+	hasSignature[func(context.Context) error](s.Compact)
+	hasSignature[func(context.Context, string) error](s.SetModel)
+	hasSignature[func(context.Context) (string, error)](s.UndoLast)
+	hasSignature[func(context.Context) error](s.Unrevert)
+	hasSignature[func(context.Context, string) (string, error)](s.Diff)
 }
+
+// hasSignature compiles only when f is assignable to F.
+func hasSignature[F any](F) {}
 
 // The engine contract: argv, health path and event path are what the transport
 // spawns and polls. Changing one silently breaks every Kilo session.

@@ -52,7 +52,7 @@ func (c *CoordinatedProvider) ClearCredentialMethod(ctx context.Context, upstrea
 		if c.Provider == nil {
 			return fmt.Errorf("grok: provider is not constructed")
 		}
-		return c.Provider.ClearCredential(ctx, upstreamID)
+		return c.ClearCredential(ctx, upstreamID)
 	case xaiUpstreamID + ":device":
 		return c.clearOAuthSession(ctx)
 	default:

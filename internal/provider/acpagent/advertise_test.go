@@ -66,7 +66,7 @@ func TestCapabilityHonesty(t *testing.T) {
 		"auth.terminal":   {Auth: acp.AuthCapabilities{Terminal: true}},
 		// Deferred until an engine Magic runs sends it (MADR 0195 S1).
 		//lint:ignore SA1019 the unstable ACP schema's subagent capability, as an example (MADR 0195); 0207 amendment H
-		"subagents": {Subagents: &acp.SubagentCapabilities{}},
+		"subagents": {Subagents: &acp.SubagentCapabilities{}}, //nolint:staticcheck // as the lint:ignore above
 	}
 	for name, c := range dishonest {
 		if problems := CheckClientCapabilities(c); len(problems) == 0 {

@@ -245,7 +245,7 @@ func (p *Plane) Do(ctx context.Context, req Request) (Response, error) {
 	for attempt := 1; ; attempt++ {
 		res, err := p.send(ctx, eng, req)
 		if err != nil || res.Status != http.StatusServiceUnavailable ||
-			!(req.Method == http.MethodGet && req.Path == "/api/agent") || attempt == agentRetries {
+			req.Method != http.MethodGet || req.Path != "/api/agent" || attempt == agentRetries {
 			return res, err
 		}
 		p.log.Debug("control plane: agents not ready; retrying",

@@ -2110,14 +2110,14 @@ func (s *session) SessionUpdate(ctx context.Context, params acp.SessionNotificat
 			Entries:   acpcommon.PlanEntries(u.Plan.Entries),
 		})
 	//lint:ignore SA1019 identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H
-	case u.PlanUpdate != nil:
+	case u.PlanUpdate != nil: //nolint:staticcheck // as the lint:ignore above
 		//lint:ignore SA1019 identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H
-		s.onPlanUpdate(u.PlanUpdate, now)
+		s.onPlanUpdate(u.PlanUpdate, now) //nolint:staticcheck // as the lint:ignore above
 	//lint:ignore SA1019 identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H
-	case u.PlanRemoved != nil:
+	case u.PlanRemoved != nil: //nolint:staticcheck // as the lint:ignore above
 		// Removes one identified plan, never the stable plan (MADR 0192 D2).
 		//lint:ignore SA1019 identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H
-		s.onPlanRemoved(u.PlanRemoved, now)
+		s.onPlanRemoved(u.PlanRemoved, now) //nolint:staticcheck // as the lint:ignore above
 	case u.UsageUpdate != nil:
 		// Token/context report → advisory usage event (droppable telemetry).
 		// ACP's cost is the session's running total, so it travels as

@@ -79,9 +79,9 @@ func TestStartTimeoutBoundsTheHandshake(t *testing.T) {
 			began := time.Now()
 			_, err := startOnScript(t, New(Spec{ID: "vendor", StartTimeout: 200 * time.Millisecond}, Config{}),
 				provider.StartOptions{}, func(r scriptRequest, _ func(string)) {
-					switch {
-					case r.Method == stalled:
-					case r.Method == "initialize":
+					switch r.Method {
+					case stalled:
+					case "initialize":
 						r.Answer(`{"protocolVersion":1,"agentCapabilities":{}}`)
 					}
 				})

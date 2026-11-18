@@ -58,9 +58,10 @@ func TestLiveToolStreamDynamics(t *testing.T) {
 			if !ok {
 				t.Fatal("events channel closed before turn_complete")
 			}
-			if ev.Type == event.TypeTurnComplete {
+			switch ev.Type {
+			case event.TypeTurnComplete:
 				sawComplete = true
-			} else if ev.Type == event.TypeError {
+			case event.TypeError:
 				t.Fatalf("agent error: %s", ev.Error)
 			}
 		case <-deadline:

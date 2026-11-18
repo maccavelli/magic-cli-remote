@@ -250,7 +250,7 @@ func TestReceiptEndToEndOverRealWS(t *testing.T) {
 	// server-initiated `permission.receipt_request` push (no matching id).
 	var receiptReqPayload protocol.PermissionReceiptRequestPayload
 	var sawOK, sawReceiptRequest bool
-	for i := 0; i < 4 && !(sawOK && sawReceiptRequest); i++ {
+	for i := 0; i < 4 && (!sawOK || !sawReceiptRequest); i++ {
 		env := readEnv(ctx, t, conn)
 		switch {
 		case env.ID == "3" && env.Type == protocol.TypeOK:

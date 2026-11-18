@@ -24,7 +24,7 @@ func (s *session) beginTurnUsage() {
 // and Size 0, as a Spec's own report may.
 func (s *session) emitTurnUsage(resp acp.PromptResponse) {
 	//lint:ignore SA1019 the unstable ACP schema's turn usage (MADR 0207 D25); 0207 amendment H
-	u := resp.Usage
+	u := resp.Usage //nolint:staticcheck // as the lint:ignore above
 	if u == nil {
 		return
 	}

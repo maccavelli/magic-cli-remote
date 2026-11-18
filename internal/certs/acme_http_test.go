@@ -2,7 +2,6 @@ package certs
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -114,9 +113,7 @@ func TestEnsureACMEHTTPManageFailsCleanly(t *testing.T) {
 	if err2 == nil || !strings.Contains(err2.Error(), "no domains") {
 		t.Fatalf("expected validation after failed manage, got %v (first=%v)", err2, err)
 	}
-	if errors.Is(err, context.Canceled) {
-		// timeout is fine; just ensure we got *an* error
-	}
+	// A timeout (context.Canceled) from the first call is fine; only the second call's validation is asserted.
 }
 
 func TestHTTPLetsEncryptStagingConstant(t *testing.T) {

@@ -50,6 +50,18 @@ The pre-add gate requires `gofmt`, `golangci-lint` (v2.15.0, configured by
 Do not substitute `gofumpt`: it is not configured by this repository.
 `staticcheck`, `golangci-lint` and `go vet` are part of `make preflight`.
 
+The one deprecated use this repository allows is an `acp-go-sdk2` name that is
+deprecated only because it comes from the unstable ACP schema (MADR 0207,
+amendment H). Each such use carries a pair, because `staticcheck` reads only
+`//lint:ignore` and `golangci-lint` reads only `//nolint`: a
+`//lint:ignore SA1019 <reason citing a record>` on the line above, and
+`//nolint:staticcheck // as the lint:ignore above` at the end of the line it
+covers. A file that needs the whole file covered has
+`//nolint:staticcheck // as the lint:file-ignore below` above its `package`
+clause and a `//lint:file-ignore SA1019 <reason>` beneath it. `make staticcheck`
+runs `scripts/check_staticcheck_ignored.py`, which refuses a directive without
+its pair and a count above the bound recorded in the script.
+
 ## Documents
 
 - [Core and build](core.md)

@@ -150,7 +150,7 @@ func TestControlEventsNotDropped(t *testing.T) {
 	// all land because emit blocks for them.
 	var sawTurnComplete, sawIdleAfter bool
 	deadline := time.After(3 * time.Second)
-	for !(sawTurnComplete && sawIdleAfter) {
+	for !sawTurnComplete || !sawIdleAfter {
 		select {
 		case ev := <-s.Events():
 			time.Sleep(2 * time.Millisecond)

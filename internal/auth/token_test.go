@@ -49,7 +49,7 @@ func TestGenerateTokenHexChars(t *testing.T) {
 	}
 	hexPart := tok[len(tokenPrefix):]
 	for _, c := range hexPart {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			t.Fatalf("non-hex character %c in token %q", c, tok)
 		}
 	}

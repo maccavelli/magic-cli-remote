@@ -104,7 +104,7 @@ func TestKiloMethodIDsSurviveAReorder(t *testing.T) {
 		t.Fatalf("listed id = %q", chosen.ID)
 	}
 
-	var started int = -1
+	started := -1
 	_, _, err = StartEngineDeviceFlow(ctx, catalogAPI(reordered, deviceAuthorize, &started), quietLog(),
 		"kilo", "xai", chosen.ID, nil, nil, nil)
 	if err != nil {

@@ -30,6 +30,7 @@ linters:
     - nolintlint
     # revive: every fleet rule but confusing-naming (P8) is on; see settings.revive.rules.
     - revive
+    - staticcheck # the pinned staticcheck stays beside it (MADR 0131, Q2 A), with its ignore bound
     - unconvert
     - unused
     - whitespace
@@ -42,7 +43,6 @@ linters:
     - gocyclo # P8
     - gosec # P7
     - nilerr # P6
-    - staticcheck # P3
     - unparam # P8
   settings:
     errcheck:
