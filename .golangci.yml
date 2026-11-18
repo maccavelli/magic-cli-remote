@@ -1,0 +1,146 @@
+# golangci-lint v2.15.0 (pinned by scripts/lint.py), adopted by
+# docs/decisions/0131-MADR-replace-golint-with-golangci-lint.md and phased by its PLAN.
+#
+# This is the fleet's configuration (go-llmprovider-sdk's .golangci.yml) with two
+# differences, both recorded in that PLAN:
+#
+#   1. PHASING. A linter is enabled in the phase that fixes its findings and not
+#      before, so every phase ends with `make lint` at 0 and CI green. Each disabled
+#      linter below names the phase that enables it; P9 removes this table and the
+#      file then equals the fleet's apart from difference 2. Nothing is suppressed
+#      to get a phase green: no baseline, no path exclusion beyond the fleet's own.
+#   2. errcheck.check-blank is false (the owner's ruling of 2026-11-18, Q3 A). This
+#      repository's guide (docs/guides/standards/go/logging.md) allows an explicit
+#      `_ =` discard of a best-effort cleanup or write when the reason is evident,
+#      which the fleet's check-blank: true reports (about 493 sites). The bare
+#      calls that drop an error silently are fixed in P5.
+version: "2"
+run:
+  tests: true
+  allow-parallel-runners: true
+linters:
+  default: none
+  enable:
+    - misspell
+    - nakedret
+    - unused
+    # revive: only golint's own checks (exported, package-comments, var-naming)
+    # are on in P1; the other fleet rules are listed under settings.revive.rules.
+    - revive
+  disable:
+    - bodyclose # P8
+    - errcheck # P5
+    - errorlint # P6
+    - gocognit # P8
+    - goconst # P4
+    - gocritic # P2
+    - gocyclo # P8
+    - gosec # P7
+    - govet # P2 (the fleet's govet; `go vet ./...` stays a separate CI step)
+    - ineffassign # P2
+    - makezero # P2
+    - nilerr # P6
+    - nolintlint # P2
+    - staticcheck # P3
+    - unconvert # P2
+    - unparam # P8
+    - whitespace # P2
+  settings:
+    errcheck:
+      check-type-assertions: true
+      # Local difference from the fleet (true): see the header. 0131-PLAN, Q3 A.
+      check-blank: false
+    gocognit:
+      min-complexity: 50
+    gocritic:
+      disabled-checks:
+        - paramTypeCombine
+        - unnamedResult
+        - exitAfterDefer
+        - octalLiteral
+        - hugeParam
+        - rangeValCopy
+        - ifElseChain
+        - elseif
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+    gocyclo:
+      min-complexity: 40
+    gosec:
+      excludes:
+        - G104
+    # Every //nolint names its linter and is still needed (0021-MADR Z5).
+    nolintlint:
+      require-specific: true
+      allow-unused: false
+    revive:
+      rules:
+        # On now: the rules that replace golint.
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        # Fleet rules not yet on (revive reports only the rules listed here).
+        # - name: atomic                  # P2
+        # - name: blank-imports           # P2
+        # - name: confusing-naming        # P8
+        # - name: constant-logical-expr   # P2
+        # - name: context-as-argument     # P2
+        # - name: context-keys-type       # P2
+        # - name: dot-imports             # P2
+        # - name: empty-block             # P2
+        # - name: error-naming            # P2
+        # - name: error-return            # P2
+        # - name: error-strings           # P2
+        # - name: errorf                  # P2
+        # - name: if-return               # P2
+        # - name: increment-decrement     # P2
+        # - name: indent-error-flow       # P2
+        # - name: range                   # P2
+        # - name: receiver-naming         # P2
+        # - name: redefines-builtin-id    # P2
+        # - name: superfluous-else        # P2
+        # - name: time-naming             # P2
+        # - name: unexported-return       # P2
+        # - name: unreachable-code        # P2
+        # - name: var-declaration         # P2
+  exclusions:
+    generated: lax
+    rules:
+      # mkwinsyscall's //sys directives must start "//sys<tab>"; gocritic's
+      # commentFormatting allowlist (//go:generate, //export, //line) lacks
+      # them. Directive lines only; a prose comment is still checked
+      # (0010-MADR, amendment of 2026-10-03).
+      - linters:
+          - gocritic
+        path: _windows\.go$
+        source: ^//sys\s
+      - linters:
+          - errcheck
+          - gosec
+          - unparam
+          - revive
+          - gocritic
+          - goconst
+        path: _test\.go
+      - linters:
+          - godot
+        text: Comment should end in a period
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    # - goimports # P2: three files to fix first (Q4 A: the fleet's formatter).
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

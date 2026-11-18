@@ -1,3 +1,6 @@
+// Package opencode implements the OpenCode provider as a Spec over acpagent:
+// sessions run on `opencode acp`, and what ACP lacks runs on a lease-bound
+// control plane (control/).
 package opencode
 
 import (

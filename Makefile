@@ -462,6 +462,7 @@ preflight:
 	@echo "==> go vet";        go vet ./...
 	@echo "==> go vet, every build tag"; $(MAKE) --no-print-directory vet-tags
 	@echo "==> staticcheck";   $(MAKE) --no-print-directory staticcheck
+	@echo "==> golangci-lint"; $(MAKE) --no-print-directory lint
 	@echo "==> go test -race"; go test -race ./...
 	@echo "==> install/restart tests"; ./scripts/install-binary_test.sh
 	@echo "==> systemd units"; \
@@ -612,8 +613,16 @@ run:
 fmt:
 	gofmt -w cmd internal
 
+# golangci-lint, pinned by scripts/lint.py (v2.15.0, the fleet's pin; MADR 0131), with this
+# repository's .golangci.yml. scripts/lint.py runs it once per GOOS CI builds for (the host's,
+# linux, darwin, windows) and once more with every opt-in build tag, because a host-only run
+# misses _windows.go and tagged files. GOLANGCI_LINT=<path> names the binary when it is not on
+# PATH or in $(go env GOPATH)/bin; install it with
+#   go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+GOLANGCI_LINT ?=
+
 lint:
-	golint ./cmd/... ./internal/...
+	@GOLANGCI_LINT="$(GOLANGCI_LINT)" python3 scripts/lint.py
 
 # staticcheck is pinned by the repository, not taken from the host (MADR 0170
 # D4): the version decides what preflight and CI report, and "whatever is on
@@ -655,7 +664,7 @@ staticcheck: $(STATICCHECK_BIN)
 vulncheck:
 	@./scripts/vulncheck.sh
 
-# The pre-add rule (AGENTS.md): gofmt, golint and govulncheck must be clean
+# The pre-add rule (AGENTS.md): gofmt, golangci-lint and govulncheck must be clean
 # before Go files are staged. This script is the one implementation; the agent
 # gate that blocks `git add` shells out to this very file, so the manual check
 # and the enforced one cannot drift.

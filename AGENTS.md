@@ -16,7 +16,7 @@ When in-scope work needs a path outside the workspace's granted filesystem roots
 
 ## The pre-add rule (Go)
 
-**No Go file is staged until `gofmt`, `golint` and `govulncheck` are clean.** `git add` is where the tree becomes what will be committed.
+**No Go file is staged until `gofmt`, `golangci-lint` and `govulncheck` are clean.** `git add` is where the tree becomes what will be committed.
 
 ```bash
 make pre-add-check                    # every tracked Go file
@@ -27,7 +27,7 @@ make pre-add-check FILES="a.go b.go"  # just these
 `scripts/go-precheck.sh` is the only implementation. `make pre-add-check` and the per-machine agent gates (`~/.global-agent-hooks/`) all call it. There is no git `pre-commit` hook; a `git add` typed in a plain terminal is ungated — `make pre-add-check` is the manual equivalent.
 
 - **gofmt** — plain `gofmt`, not `gofumpt`. `make fmt` formats `cmd` and `internal`.
-- **golint** — per file so the output names what to fix. Any output fails.
+- **golangci-lint** — v2.15.0, pinned by `scripts/lint.py`, with `.golangci.yml`. Over the packages that hold the staged files, once for each of linux, darwin and windows and once with every opt-in build tag, as `make lint` does over the whole tree. Any finding fails, and a different golangci-lint version is refused. Install it with `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0`. `.golangci.yml` enables a linter in the phase of [0131-PLAN-replace-golint-with-golangci-lint.md](docs/decisions/0131-PLAN-replace-golint-with-golangci-lint.md) that fixes its findings, so the file is not yet the fleet's whole set.
 - **govulncheck** — whole module (~7s). A vulnerability fails; an unreachable vuln DB only warns. `GO_PRECHECK_SKIP_VULN=1` skips one run.
 
 **Dart:** CI runs `dart format --output=none --set-exit-if-changed .` over `apps/mobile`. Format each staged `.dart` file. `make preflight` runs the full mobile trio (`flutter analyze`, `flutter test`, `dart format`).

@@ -43,7 +43,7 @@ need() {
   command -v "$1" >/dev/null 2>&1 && return 0
   echo "go-precheck: $1 not found in PATH." >&2
   case "$1" in
-  golint) echo "  install: go install golang.org/x/lint/golint@latest" >&2 ;;
+  python3) echo "  python3 runs scripts/lint.py, which runs the pinned golangci-lint." >&2 ;;
   esac
   return 1
 }
@@ -61,21 +61,30 @@ if [ -n "$unformatted" ]; then
   failed=1
 fi
 
-# 2. golint, per file so the output names what to fix.
-if need golint; then
-  lint_out=""
-  for f in "${files[@]}"; do
-    out="$(golint "$f" 2>&1)"
-    [ -n "$out" ] && lint_out+="$out"$'\n'
-  done
-  if [ -n "$lint_out" ]; then
-    echo "golint:" >&2
-    printf '%s' "$lint_out" | sed 's/^/  /' >&2
-    failed=1
-  fi
-else
-  failed=2
+# 2. golangci-lint (MADR 0131), through scripts/lint.py, the implementation `make lint` and CI
+# also run, so this gate cannot pass what CI would refuse. golangci-lint analyses packages, not
+# files: with arguments it runs over the packages that hold them (every build GOOS CI covers, and
+# every opt-in tag, as `make lint` does; a few seconds a package), with none over `./...`.
+need python3 || exit 2
+lint_dirs=()
+if [ "$#" -gt 0 ]; then
+  while IFS= read -r d; do
+    [ -n "$d" ] && lint_dirs+=("$d")
+  done < <(for f in "${files[@]}"; do dirname "$f"; done | sort -u)
 fi
+lint_out="$(python3 "$REPO_ROOT/scripts/lint.py" "${lint_dirs[@]+"${lint_dirs[@]}"}" 2>&1)"
+case $? in
+0) ;;
+2)
+  printf '%s\n' "$lint_out" | sed 's/^/  /' >&2
+  failed=2
+  ;;
+*)
+  echo "golangci-lint:" >&2
+  printf '%s\n' "$lint_out" | sed 's/^/  /' >&2
+  [ "$failed" -eq 0 ] && failed=1
+  ;;
+esac
 
 # 3. govulncheck, over the module: scripts/vulncheck.sh fails on a called, imported or
 # required-module finding, apart from its allowlist (MADR 0174). It is a property of the
@@ -93,6 +102,6 @@ else
 fi
 
 if [ "$failed" -eq 0 ]; then
-  echo "go-precheck: ${#files[@]} file(s) clean (gofmt, golint, govulncheck)."
+  echo "go-precheck: ${#files[@]} file(s) clean (gofmt, golangci-lint, govulncheck)."
 fi
 exit "$failed"

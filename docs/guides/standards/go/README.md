@@ -1,7 +1,7 @@
 ---
 title: "Go Standards"
 version: "1.27.4-v1"
-last_updated: "2026-11-10"
+last_updated: "2026-11-18"
 status: "active"
 applies_to: ["cmd/mcremote", "cmd/mcrelay", "internal", "scripts/smoke-protocol"]
 go_version: "1.27.4"
@@ -38,15 +38,17 @@ authoritative commands are in the Makefile and `AGENTS.md`:
 | Purpose | Command |
 | --- | --- |
 | Format Go | `make fmt` |
+| Lint (golangci-lint, every build GOOS and tag) | `make lint` |
 | Pre-add Go gate | `make pre-add-check FILES="a.go b.go"` |
 | Unit tests | `make test` |
 | Race suite | `make race` |
 | Full local CI parity | `make preflight` |
 | Library compatibility, before moving a pin (needs the network and a `../go-shared` checkout) | `make check-libs` |
 
-The pre-add gate requires `gofmt`, `golint`, and `govulncheck` to pass for Go
-files. Do not substitute `gofumpt` or `golangci-lint`: neither is configured by
-this repository. `staticcheck` and `go vet` are part of `make preflight`.
+The pre-add gate requires `gofmt`, `golangci-lint` (v2.15.0, configured by
+`.golangci.yml` and run by `make lint`), and `govulncheck` to pass for Go files.
+Do not substitute `gofumpt`: it is not configured by this repository.
+`staticcheck`, `golangci-lint` and `go vet` are part of `make preflight`.
 
 ## Documents
 

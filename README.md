@@ -1505,7 +1505,7 @@ Three workflows run there
 
 | Job | When | What it does |
 |-----|------|--------------|
-| `go` | always | records check, markdownlint, gofmt, `go mod tidy` cleanliness, govulncheck, vet (also under every build tag), race and cgo-free tests, systemd unit validation, build-tag policy, staticcheck (linux, darwin, windows), and the `install-binary.sh` tests |
+| `go` | always | records check, markdownlint, gofmt, `go mod tidy` cleanliness, govulncheck, vet (also under every build tag), race and cgo-free tests, systemd unit validation, build-tag policy, staticcheck (linux, darwin, windows), golangci-lint (pinned; linux, darwin, windows and every opt-in build tag), and the `install-binary.sh` tests |
 | `go-native` | always | the Go tests natively on **linux/arm64**, **windows/amd64** and **darwin/arm64**, each retried once and recorded in the flake ledger |
 | `live-supervisors` | always | the runit and s6 service backends against live supervisors |
 | `flutter` | always | `dart format` check, Flutter analyze, Flutter test (Flutter **3.47.9** pinned) |
@@ -1570,7 +1570,7 @@ make test          # go test ./...
 make race          # race detector
 make vet
 make fmt           # gofmt (not gofumpt)
-make lint          # golint
+make lint          # golangci-lint v2.15.0: linux, darwin, windows, every opt-in build tag
 make staticcheck
 make vulncheck     # govulncheck
 make tidy
@@ -1583,7 +1583,7 @@ make preflight
 # Verifications CI also runs
 make verify-build-metadata   # per-OS build tags (Linux netgo,osusergo / Darwin none)
 make verify-units            # systemd unit directives
-make pre-add-check           # gofmt + golint + govulncheck (the staging rule)
+make pre-add-check           # gofmt + golangci-lint + govulncheck (the staging rule)
 
 # Before moving a library pin (network; needs a ../go-shared checkout; not in CI)
 make check-libs              # latest acp-go-sdk2, go-selfupdate-lib and go-llmprovider-sdk tags against HEAD
@@ -1631,7 +1631,7 @@ scripts/                    # build, install, smoke, precheck, records and CI ch
 
 ### Code standards
 
-See [AGENTS.md](AGENTS.md) for the **pre-add rule** (`gofmt` + `golint` +
+See [AGENTS.md](AGENTS.md) for the **pre-add rule** (`gofmt` + `golangci-lint` +
 `govulncheck` before staging Go), Dart format, and agent conventions.
 Language/style guides live under `docs/guides/standards/`.
 

@@ -176,6 +176,21 @@ jobs:
       - name: Staticcheck (pinned; GOOS linux, darwin, windows)
         run: make staticcheck
 
+      # MADR 0131 (update of 2026-11-18). golangci-lint at the fleet's pin, which
+      # scripts/lint.py holds (v2.15.0) so CI, `make lint`, `make preflight` and
+      # the pre-add gate cannot disagree about it. `make lint` runs it once per
+      # GOOS (linux, darwin, windows) and once with every opt-in build tag; a
+      # host-only run misses _windows.go and tagged files. .golangci.yml enables
+      # a linter only in the phase that has fixed its findings, so this step is
+      # green at every phase.
+      - name: golangci-lint (pinned; GOOS linux, darwin, windows; every opt-in tag)
+        run: |
+          set -euo pipefail
+          go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(python3 scripts/lint.py --pin)"
+          gobin="$(go env GOPATH)/bin"
+          export PATH="$gobin:$PATH"
+          make lint
+
       - name: install-binary.sh tests (hermetic, stub service managers)
         run: bash scripts/install-binary_test.sh
 

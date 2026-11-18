@@ -1,3 +1,6 @@
+// Command mcrelay is the optional public-edge join router: it registers hosts,
+// lets a phone join one, and splices their WebSocket traffic without reading it.
+// The routing lives in internal/relay.
 package main
 
 import (

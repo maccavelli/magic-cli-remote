@@ -1,3 +1,6 @@
+// Package codex implements the Codex provider: it manages a Codex app-server
+// engine process and its sessions, and the device and API-key sign-in that the
+// engine needs.
 package codex
 
 import (

@@ -1,3 +1,6 @@
+// Command mcremote is the host daemon and its command line: it runs a coding
+// agent CLI per session and serves the phone app over WebSocket. The command
+// tree lives in internal/cli.
 package main
 
 import (

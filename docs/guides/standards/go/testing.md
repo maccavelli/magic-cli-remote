@@ -1,7 +1,7 @@
 ---
 title: "Go Testing Standards"
 version: "1.27.4-v3"
-last_updated: "2026-11-16"
+last_updated: "2026-11-18"
 component: "testing"
 ---
 
@@ -24,7 +24,7 @@ but are not mandatory when a focused scenario is clearer.
   to test event timing deterministically using virtualized time.
 - Run `make test` for ordinary Go changes and `make race` for concurrent,
   session, relay, or WebSocket changes. `make preflight` runs formatting, tidy
-  verification, vet, staticcheck, race tests, and mobile checks.
+  verification, vet, staticcheck, golangci-lint, race tests, and mobile checks.
 - Tests tagged `live_grok`, `live_opencode`, `live_codex` (and its
   `live_codex_turn`, `live_codex_review` and `live_codex_contract` parts),
   `live_gobble` and `live_kilo` invoke real CLIs/models and spend quota
@@ -35,4 +35,4 @@ but are not mandatory when a focused scenario is clearer.
   integration suites, with a blank line before `package`.
 
 Before staging Go files, run the repository's `make pre-add-check`; it is the
-enforced gate for `gofmt`, `golint`, and `govulncheck`.
+enforced gate for `gofmt`, `golangci-lint`, and `govulncheck`.
