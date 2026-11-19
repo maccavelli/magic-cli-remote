@@ -1044,6 +1044,83 @@ target and CI step". It tests the script's functions directly. It would be the r
 it is not the option the agent recommended. It is to be built as the first step after phase 4 is committed, and handed back by itself.
 Nothing was built for it in phase 4.
 
+### Tests for the bound script, 2026-11-19
+
+The step the owner ruled on under the P3 close-out ("A Python unittest file with its own make target and CI step"), built after phase 4
+was committed (record `b82b96e7`, change `f37dda87`) and handed back by itself. It is the repository's first Python test, so it sets
+the convention; no Go code changed and no race run was needed. The changes are in the working tree, unstaged; only this PLAN is staged.
+
+**What and where.** `scripts/check_staticcheck_ignored_test.py`, a `unittest` file beside the script, standard library only, no
+network, no staticcheck binary and not the real tree: the Go files are fixtures in a temporary directory, and the `git ls-files` call
+and the staticcheck run are passed in or patched. **The convention chosen:** the tests of `scripts/<name>.py` are
+`scripts/<name>_test.py`. The name follows the repository's `scripts/<name>_test.sh` convention for the shell scripts, with the
+underscore a Python module name needs; a second script's tests sit beside its script under the same rule, and the one target finds them
+by that pattern, so nothing is registered. `make test-scripts` runs
+`python3 -m unittest discover -s scripts -p '*_test.py'`. Plain `python3 -m unittest` from the root finds nothing, because `scripts/`
+is not a package and unittest's default pattern is `test*.py`; `python3 -m unittest scripts/check_staticcheck_ignored_test.py` from the
+root works, and so does the discover form.
+
+**The script was refactored, and only so far as the tests needed** (the command line is unchanged): `tracked_go_files()` holds the
+`git ls-files *.go` call; `bad_directives` and `bad_pairs` take an optional list of files (the default is the tracked files);
+`bad_ignored` takes the process runner (the default is `subprocess.run`); and its two `open(path).read()` calls became `with` blocks,
+because each test leaked a file handle and Python reported it. `make staticcheck` on the real tree, before and after, through
+`run-heavy`: the same six lines, byte for byte, on linux, darwin and windows (`check_staticcheck_ignored: 56 ignored finding(s), each
+an acp-go-sdk2 unstable-schema name; 9 //nolint:staticcheck directive(s), each paired`), exit 0.
+
+**The tests: 55**, in five classes. *DirectiveRule* (rule 1): a conforming directive passes; a code other than `SA1019` (ignore,
+file-ignore, and `SA1019` among other codes); no reason; a reason that does not cite the record; an unreadable file skipped; the
+default file list. *PairingRules* (rule 3, each both ways): an ignore with its `//nolint` on the next line passes, and is flagged with no
+`//nolint` there, on the last line, naming another linter, with the wrong pairing comment or with none; a file-ignore with the
+file-level `//nolint` directly above `package` passes, and is flagged without it, with a blank line between, with the wrong pairing
+comment, with another linter, or in a file with no `package` clause; a `//nolint:staticcheck` with no ignore above it (or a blank line
+between) is flagged; a file-level `//nolint` with no file-ignore in the file is flagged and with one passes; a `//nolint` naming
+staticcheck among several linters counts, and is flagged when unpaired; one that does not name staticcheck (`gosec`, `staticcheckx`) is
+neither counted nor flagged; the count over several files; an unreadable file; the default file list. *IgnoredFindingsRule* (rule 2,
+with a stub for staticcheck): the argument vector; an SDK declaration with the unstable-schema notice, in both subject forms, is allowed
+and counted; another code, another package, and another SDK deprecation are each flagged; a finding that is not ignored is skipped;
+unreadable output; a staticcheck that fails to run; exit status 1 with findings is not a failure; a clean empty run. *Main* (the
+bounds, the status and the lines): for each of the two bounds, at the bound passes, one over fails, below passes with "lower it"; the
+exact summary line; each of the three rules failing the run and printing its line; no summary on failure; the binary argument is
+passed on; usage with no argument exits 2. *TrackedFiles*: git is asked for `*.go`.
+
+**Each test seen to fail.** 54 breaks of the script, each on a scratch copy of it (one rule broken at a time: a clause removed, a
+comparison loosened or tightened, a message reworded, a branch deleted), run against the unmodified test file: every break turned at
+least one test red, and every one of the 55 tests turned red under at least one break (a test that no break reddens fails the run of
+the mutation script). The first draft had one test no break reddened (a clean empty staticcheck run), and a break that reddens it was
+added. The list of breaks and, for each test, the breaks that redden it, is saved with the scratch results.
+
+**Which Python.** The Makefile and every workflow call a bare `python3` and nothing pins it: there is no `setup-python`, no
+`.python-version` and no `requires-python`. CI's `go` job (`ubuntu-latest`, with the checkout) uses the image's own `python3`. On a
+developer's macOS the oldest in practice is Apple's `/usr/bin/python3`, 3.9.6, which is what a bare `python3` is when Homebrew's is not
+first on the path. The test file uses nothing newer than 3.9 (no `match`, no `X | Y` at run time, no parenthesised `with`, no
+`ignore_cleanup_errors`, no `onexc`), and the script's annotations are under `from __future__ import annotations`. All 55 pass, and
+all 54 breaks are caught, on 3.9.6 and on 3.14.10.
+
+**Wiring.** `Makefile`: the target `test-scripts` (after `staticcheck`) and in `.PHONY`; `make preflight` runs it as the step
+`==> python script tests`, directly after staticcheck and before golangci-lint. `.github/workflows/ci.yml`, job `go` (the job that
+runs the other Python-driven steps, `make check-records` and `make lint`): one step, `Python script tests (unittest)`, `run: make
+test-scripts`, directly after the staticcheck step and before golangci-lint; nothing else in the workflow changed. `AGENTS.md` says no
+workflow edit without the owner's permission; this edit is the step the owner ruled on, made at the coordinator's instruction.
+
+**Docs.** `AGENTS.md` (Tests: the convention in one paragraph), `README.md` (the Development target list and the `go` job row of the CI
+table) and `docs/guides/standards/go/README.md` (the paragraph that names the script now names its tests).
+
+**Gates** (start, end, exit status, each recorded before any filter; `make staticcheck` waited in the queue behind another agent's run). `make lint`, `make check-records`, `make pre-add-check` and `make preflight` ran with the two PLAN entries of this step already in place. The working tree was unchanged by the gates: 8 files, 7 modified and 1 new, nothing else.
+
+| Gate | Start | End | Exit |
+| :--- | :--- | :--- | ---: |
+| `make staticcheck` through `run-heavy`, output compared with the run before the refactor: identical | 09:26:28 | 09:26:40 | 0 |
+| `make test-scripts` (55 tests) | 09:27:38 | 09:27:39 | 0 |
+| `/usr/bin/python3` 3.9.6, `-m unittest discover -s scripts -p '*_test.py'` (55 tests) | 09:27:39 | 09:27:39 | 0 |
+| `python3 -m unittest scripts/check_staticcheck_ignored_test.py`, from the root (55 tests) | 09:27:39 | 09:27:39 | 0 |
+| `make lint` (four passes) through `run-heavy` | 09:27:39 | 09:27:49 | 0 |
+| `make check-records` | 09:27:49 | 09:27:51 | 0 |
+| `make markdownlint-docs` (offline, from the npx cache) | 09:27:51 | 09:27:54 | 0 |
+| `actionlint` over `.github/workflows` | 09:27:54 | 09:27:54 | 0 |
+| `make pre-add-check`, 1,038 tracked Go files, with the vulnerability check, through `run-heavy` | 09:27:54 | 09:28:07 | 0 |
+| `make preflight` through `run-heavy` (the new step runs after staticcheck) | 09:28:07 | 09:30:48 | 0 |
+| the 54 breaks of the script, each run against the tests, on 3.9.6 and on 3.14.10 | not timed | not timed | 0 |
+
 ### P4. `goconst`, 2026-11-18
 
 Run by a mainstream-tier agent at high effort, on the coordinator's brief, from `master` at `e446770b` (clean at the start). The
@@ -1309,3 +1386,23 @@ enum words, flags, subcommand names). The notifications are classified by the ro
 
 **Put to the owner (three options each, in the hand-back):** the 40 untouched literal and constant pairs of old code; and the
 `knownNonToolItems` and `itemsRenderedAsTools` maps of `codex/items.go`, which mix constants and literals for one meaning.
+
+### P4, close-out, 2026-11-19
+
+P4 is committed and pushed on `master`: the record as `b82b96e7` and the change as `f37dda87`. The coordinator's gate on the corrected
+tree: `make lint` 0, `make check-records` 0, `make pre-add-check` with the vulnerability check 0, `make preflight` 0, the tree
+unchanged by the gate. The coordinator re-ran the independent verifier's own checker binary on fresh copies of `e446770b` and of the
+working tree: exit 0 on all four configurations; 1,001 replaced sites on darwin, linux and the tag pass and 1,008 on windows (950 and
+957 to constants, 51 to non-constant expressions), 97 typed new expressions, 0 sites with a differing type, 235 inserted constants,
+every changed file compiled in some configuration; 40 non-INFO findings, every one a comment difference in
+`internal/provider/codex/commandtable.go` and `session.go`, and no other finding.
+
+CI on `f37dda87`, as the coordinator reported it: the workflow "CI", attempt 1, succeeded: Go (test) with 23 steps; Go on darwin/arm64,
+linux/arm64 and windows/amd64 with 12 steps each; Live supervisors (runit, s6); Flutter (analyze and test); Flutter (test on windows);
+the APK and the two self-update jobs skipped, there being no tag. "Docs" succeeded.
+
+**The two questions the correction round put to the owner**, decided by the coordinator under the owner's instruction "we need to limit
+scope creep", and recorded as the coordinator's decision and not as the owner's choice between the options: the 40 older
+literal-beside-constant pairs this phase did not touch, and the two lists in `internal/provider/codex/items.go` that mix constants and
+literals, are **left as they are**, known and not pursued; `goconst` does not flag them and they are outside P4. The 2,877 line
+citations in the dated records (2,590 in the decision records and 287 in the reports) stay untouched: records are history.
