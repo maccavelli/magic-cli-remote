@@ -25,6 +25,7 @@ script holds it:
      names the record that allows it. A count below the bound passes and says so: lower the bound then.
 
 Findings that are not ignored are staticcheck's own run's business; this script reads only the ignored.
+Its tests are check_staticcheck_ignored_test.py beside it, run by `make test-scripts`.
 Exit status is 1 iff a directive, a pairing, a bound or an ignored finding is outside the exception.
 """
 
@@ -48,12 +49,19 @@ BOUND_NOLINT = 9
 BOUND_IGNORED = 56
 
 
-def bad_directives() -> list[str]:
-    files = subprocess.run(["git", "ls-files", "*.go"], capture_output=True, text=True, check=True).stdout.split()
+def tracked_go_files() -> list[str]:
+    return subprocess.run(["git", "ls-files", "*.go"], capture_output=True, text=True, check=True).stdout.split()
+
+
+def bad_directives(files: list[str] | None = None) -> list[str]:
+    """Rule 1. `files` is the list to read; None reads every tracked Go file (the tests pass their own)."""
+    if files is None:
+        files = tracked_go_files()
     bad = []
     for path in files:
         try:
-            lines = open(path, encoding="utf-8").read().splitlines()
+            with open(path, encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
         except OSError:
             continue
         for n, line in enumerate(lines, 1):
@@ -67,14 +75,16 @@ def names_staticcheck(m: re.Match | None) -> bool:
     return bool(m) and "staticcheck" in m.group(1).split(",")
 
 
-def bad_pairs() -> tuple[list[str], int]:
+def bad_pairs(files: list[str] | None = None) -> tuple[list[str], int]:
     """Rule 3: each //lint:ignore and //lint:file-ignore paired with its //nolint:staticcheck, and no other //nolint:staticcheck.
-    Returns the problems and the number of //nolint:staticcheck directives."""
-    files = subprocess.run(["git", "ls-files", "*.go"], capture_output=True, text=True, check=True).stdout.split()
+    Returns the problems and the number of //nolint:staticcheck directives. `files` as for bad_directives."""
+    if files is None:
+        files = tracked_go_files()
     bad, count = [], 0
     for path in files:
         try:
-            lines = open(path, encoding="utf-8").read().splitlines()
+            with open(path, encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
         except OSError:
             continue
         pkg = next((i for i, l in enumerate(lines) if PACKAGE_RE.match(l)), None)
@@ -109,8 +119,9 @@ def bad_pairs() -> tuple[list[str], int]:
     return bad, count
 
 
-def bad_ignored(staticcheck: str) -> tuple[list[str], int]:
-    r = subprocess.run([staticcheck, "-show-ignored", "-f", "json", "./..."], capture_output=True, text=True)
+def bad_ignored(staticcheck: str, run=subprocess.run) -> tuple[list[str], int]:
+    """Rule 2. `run` is the process runner; the tests pass a stub, so no staticcheck binary is needed."""
+    r = run([staticcheck, "-show-ignored", "-f", "json", "./..."], capture_output=True, text=True)
     bad, allowed = [], 0
     for line in r.stdout.splitlines():
         try:

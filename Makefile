@@ -156,7 +156,7 @@ DEVICE ?=
 MOBILE_DIR := apps/mobile
 
 .PHONY: build debug build-relay build-remote install install-relay codesign-maybe test live-opencode live-codex live-codex-contract live-codex-turn live-codex-review live-grok live-grok-discrimination live-grok-rest live-kilo live-gobble live-replacefirst live-supervisors race test-all preflight apk manifest-surface \
-	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
+	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck test-scripts vulncheck \
 	pre-add-check vet vet-tags tidy clean check-host-target check-cgo-off check-records markdownlint-docs \
 	check-libs
 
@@ -462,6 +462,7 @@ preflight:
 	@echo "==> go vet";        go vet ./...
 	@echo "==> go vet, every build tag"; $(MAKE) --no-print-directory vet-tags
 	@echo "==> staticcheck";   $(MAKE) --no-print-directory staticcheck
+	@echo "==> python script tests"; $(MAKE) --no-print-directory test-scripts
 	@echo "==> golangci-lint"; $(MAKE) --no-print-directory lint
 	@echo "==> go test -race"; go test -race ./...
 	@echo "==> install/restart tests"; ./scripts/install-binary_test.sh
@@ -659,6 +660,12 @@ staticcheck: $(STATICCHECK_BIN)
 		GOOS=$$goos CGO_ENABLED=0 python3 scripts/check_staticcheck_ignored.py ./$(STATICCHECK_BIN) || rc=1; \
 	done; \
 	exit $$rc
+
+# The tests of the Python scripts (0131-PLAN, P3 close-out): every scripts/<name>_test.py
+# is a unittest file for scripts/<name>.py, standard library only. A new script's tests go
+# beside it under that name and this target finds them; nothing is registered anywhere.
+test-scripts:
+	@PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p '*_test.py'
 
 # govulncheck at every level, with scripts/vulncheck-allow.txt (MADR 0174 D3, D4).
 vulncheck:

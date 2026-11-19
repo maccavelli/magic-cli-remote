@@ -60,7 +60,11 @@ covers. A file that needs the whole file covered has
 `//nolint:staticcheck // as the lint:file-ignore below` above its `package`
 clause and a `//lint:file-ignore SA1019 <reason>` beneath it. `make staticcheck`
 runs `scripts/check_staticcheck_ignored.py`, which refuses a directive without
-its pair and a count above the bound recorded in the script.
+its pair and a count above the bound recorded in the script. The script has
+its own tests, `scripts/check_staticcheck_ignored_test.py` (`unittest`, no
+staticcheck binary needed), which `make test-scripts` runs, and every pairing
+rule and bound is held by one: a change to the script changes them in the same
+commit.
 
 ## Documents
 

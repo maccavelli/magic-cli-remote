@@ -1505,7 +1505,7 @@ Three workflows run there
 
 | Job | When | What it does |
 |-----|------|--------------|
-| `go` | always | records check, markdownlint, gofmt, `go mod tidy` cleanliness, govulncheck, vet (also under every build tag), race and cgo-free tests, systemd unit validation, build-tag policy, staticcheck (linux, darwin, windows), golangci-lint (pinned; linux, darwin, windows and every opt-in build tag), and the `install-binary.sh` tests |
+| `go` | always | records check, markdownlint, gofmt, `go mod tidy` cleanliness, govulncheck, vet (also under every build tag), race and cgo-free tests, systemd unit validation, build-tag policy, staticcheck (linux, darwin, windows), the Python scripts' `unittest` tests (`make test-scripts`), golangci-lint (pinned; linux, darwin, windows and every opt-in build tag), and the `install-binary.sh` tests |
 | `go-native` | always | the Go tests natively on **linux/arm64**, **windows/amd64** and **darwin/arm64**, each retried once and recorded in the flake ledger |
 | `live-supervisors` | always | the runit and s6 service backends against live supervisors |
 | `flutter` | always | `dart format` check, Flutter analyze, Flutter test (Flutter **3.47.9** pinned) |
@@ -1572,6 +1572,7 @@ make vet
 make fmt           # gofmt (not gofumpt)
 make lint          # golangci-lint v2.15.0: linux, darwin, windows, every opt-in build tag
 make staticcheck
+make test-scripts  # unittest files of the Python scripts: scripts/<name>_test.py beside scripts/<name>.py
 make vulncheck     # govulncheck
 make tidy
 make test-all      # race suite + Flutter tests

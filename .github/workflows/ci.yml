@@ -176,6 +176,12 @@ jobs:
       - name: Staticcheck (pinned; GOOS linux, darwin, windows)
         run: make staticcheck
 
+      # MADR 0131 (0131-PLAN, P3 close-out). The unittest files beside the Python
+      # scripts (scripts/<name>_test.py), which `make preflight` also runs. They
+      # use the runner's own python3 and the standard library only.
+      - name: Python script tests (unittest)
+        run: make test-scripts
+
       # MADR 0131 (update of 2026-11-18). golangci-lint at the fleet's pin, which
       # scripts/lint.py holds (v2.15.0) so CI, `make lint`, `make preflight` and
       # the pre-add gate cannot disagree about it. `make lint` runs it once per

@@ -50,6 +50,8 @@ Agents load hook config at session start. There is nothing to bypass: fix the fi
 
 `make test`, and `make race` / `go test -race ./...` before a commit. Live-tagged tests spend real tokens; run them at acceptance. The live targets are `make live-grok` (its two parts also run alone as `live-grok-discrimination` and `live-grok-rest`), `live-opencode`, `live-kilo`, `live-codex`, `live-codex-turn`, `live-codex-review`, `live-codex-contract`, `live-gobble`, `live-replacefirst` and `live-supervisors`.
 
+**Tests of the Python scripts:** the tests of `scripts/<name>.py` are a `unittest` file `scripts/<name>_test.py`, standard library only, no network and no real tree (fixtures in a temporary directory, the `git` and tool calls patched or passed in). `make test-scripts` runs every such file; `make preflight` and CI's `go` job run it. Write for the oldest `python3` a developer's macOS ships (3.9). A new script's tests follow this and need no registration.
+
 ## Commit messages
 
 **Do not pass a commit message (`-m`, `-M`, `--message`, or `-F`).** A global `prepare-commit-msg` hook fills `.git/COMMIT_EDITMSG`. Run `git commit --no-edit`. A bare `git commit` opens vim and hangs a headless agent. Do not write the subject or body, and do not use `GIT_EDITOR=true`. Grok's always-on copy lives in `~/.grok/rules/git-prepare-commit-msg.md`.
