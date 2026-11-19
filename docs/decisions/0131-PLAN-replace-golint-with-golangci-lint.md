@@ -1003,3 +1003,309 @@ packages `ok`. The macOS race run is the one inside `make preflight`. No `_windo
 **Not done.** The other P4 and later linters are not enabled; `.golangci.yml` still lists them disabled. The three directive forms in
 this phase follow `gobble-cli`; `golangci-lint`'s handling of a trailing `//nolint` on a `case` line was not examined beyond the lint
 passing, and the standalone `staticcheck`, kept by the owner's ruling, remains the exact check of each site.
+
+### P3, close-out, 2026-11-18
+
+P3 passed the coordinator's gate on the tree as handed back (`make lint` 0, `make check-records` 0, `make pre-add-check` with the
+vulnerability check 0, `make preflight` 0, the tree unchanged by the gate) and is committed and pushed: the record as `a2c16a70`, the
+change as `e446770b`, on `master`. The coordinator read the whole P3 diff and found each of the 16 non-`SA1019` edits behaviour-preserving.
+CI on `e446770b`, as the coordinator reported it: the workflow "CI", attempt 1, succeeded: Go (test) with 23 steps, Go on
+darwin/arm64, linux/arm64 and windows/amd64 with 12 steps each, Live supervisors (runit, s6), Flutter (analyze and test) and Flutter
+(test on windows); the APK and the two self-update jobs were skipped, there being no tag. "Docs" succeeded. "CI flake ledger" succeeded.
+
+**What a `//nolint:staticcheck` covers, stated plainly.** golangci-lint's `//nolint:staticcheck` silences every staticcheck check it runs
+at that scope, not only `SA1019`: for the seven line directives, one line each; for `internal/provider/acpagent/plans.go` and
+`plans_test.go`, the whole file. Tested on a scratch copy of the tree: an `S1012` (`time.Now().Sub(t)`, which `time.Since` replaces) was
+planted at `plans.go:86` and, as a control, in an uncovered file (`zz_control.go`), and both tools were run over `./internal/provider/acpagent`.
+
+| Tool | Exit | `plans.go:86` (file-level `//nolint`) | `zz_control.go:5` (uncovered) |
+| :--- | ---: | :--- | :--- |
+| golangci-lint, `make lint`'s own command | 1 | not reported | `S1012: should use time.Since instead of time.Now().Sub` |
+| standalone `staticcheck` v0.8.2, `make staticcheck`'s binary | 1 | `plans.go:86:50: should use time.Since instead of time.Now().Sub (S1012)` | reported |
+
+So golangci-lint does not see a non-`SA1019` finding in `plans.go`, and the standalone `staticcheck` does, because `//lint:file-ignore
+SA1019` names one check. There is no hole while the standalone `staticcheck` stays in the gate, which the owner's ruling (Q2 A) keeps. One
+class is covered by neither: the quick-fix checks (`QF1xxx`) run only in golangci-lint's `staticcheck`, and are silenced at the nine
+scopes; they are style suggestions, and a plant of one there would not be reported.
+
+**Does this repository keep tests for its Python scripts?** No. Searched: `scripts/` (no `*_test.py`, no `test_*.py`, no tests directory),
+the whole tracked tree for Python test files, `Makefile`, `make/`, `.github/workflows`, `AGENTS.md`, `README.md`, `docs/guides`, and the
+Go tests (two Go tests mention `live_supervisors.py`; none tests `check_staticcheck_ignored.py`, `lint.py`, `check_records.py`,
+`vet_build_tags.py` or any other `.py`). The repository's convention for test scripts is shell: `scripts/*_test.sh` for shell
+scripts (`install-binary_test.sh`, `vulncheck_test.sh`, `coverage-delta_test.sh`, `ci-flake-capture_test.sh`), and of those only
+`install-binary_test.sh` is wired (`make preflight`, `Makefile:467`, and the CI `go` job, `ci.yml:195`); the other three are not
+referenced by the Makefile, the workflows or the guides. No Python-script test harness was invented. The gap is reported and put to the
+owner with three options in the hand-back: a `scripts/check_staticcheck_ignored_test.sh` in `vulncheck_test.sh`'s style, wired like
+`install-binary_test.sh`; a Python `unittest` file with its own make target and CI step, a new convention; or the planted runs as the
+standing evidence, as P3 recorded.
+
+**Owner's ruling on tests for the Python scripts, recorded 2026-11-19.** The owner chose "A Python unittest file with its own make
+target and CI step". It tests the script's functions directly. It would be the repository's first Python test, so a new convention, and
+it is not the option the agent recommended. It is to be built as the first step after phase 4 is committed, and handed back by itself.
+Nothing was built for it in phase 4.
+
+### P4. `goconst`, 2026-11-18
+
+Run by a mainstream-tier agent at high effort, on the coordinator's brief, from `master` at `e446770b` (clean at the start). The
+changes are in the working tree, unstaged, for the coordinator to commit after its own gate. The PLAN says nothing about two equal
+strings that mean different things, and the brief says they must not share a constant; the rule applied is one constant per meaning
+(the same text may have two constants), and no departure from the PLAN was needed.
+
+**Re-measured first**, on a scratch copy of `HEAD` with `goconst` switched on, four passes, limits raised: darwin 378, linux 378,
+windows 379, linux with every opt-in tag 378, **379 in the union**, as the PLAN expected: all in 113 production files, none in tests
+(the fleet's own exclusion). 172 distinct (package, string) groups. By package: `internal/provider/codex` 153, `internal/cli/service`
+96, `internal/provider/kilo` 55, `internal/provider/acpagent` 12, `internal/provider/grok` 10, `internal/provider/opencode` 8,
+`internal/ws` 7, `internal/agenterr` 6, `internal/provider/fake` 6, and 26 more across 13 packages. After the phase: **0 on all four
+passes** with the tree's own `.golangci.yml`.
+
+**How it was done.** golangci-lint's `goconst` reports one occurrence of a string per file, so the first pass found 379 sites and each
+pass after it found more of the same strings in the same files (121, 50, 27, 14, then the last by hand). Each round was decided by
+reading the sites, recorded as a table of decisions, and applied by a checked script (assert-before-replace on the exact column, new
+constants inserted after the file's imports, `goimports` and `gofmt` after). A blanket "replace every occurrence in the file" sweep was
+tried once and discarded: it replaced `json:"text"` struct tags and a map key, and `gocritic` and `govet` (`structtag`) found it; the
+affected files were restored from the scratch snapshot taken just before it, and the rest was done site by site. A struct tag that
+had been changed once more by a later script was found by `govet` and restored; no struct tag differs from `HEAD` in the diff.
+
+**What was added.** 235 unexported constants in 22 packages (counted on the tree as handed back after the correction round of
+2026-11-19; the first hand-back said 222). No exported name was added or changed. By package: `internal/provider/codex` 106,
+`internal/provider/kilo` 38, `internal/cli/service` 27, `internal/provider/acpagent` 11, `internal/ws` 9, `internal/provider/grok` 8,
+`internal/provider/opencode` 7, `internal/provider/fake` 5, `internal/agenterr` 3, `internal/session` 3, `internal/appdirs` 2,
+`internal/cli` 2, `internal/pairuri` 2, `internal/provider/acpagent/acptest` 2, `internal/provider/gobble` 2, `internal/relay` 2,
+`internal/auth` 1, `internal/provider/credstore` 1, `internal/provider/httpagent` 1, `internal/receipt` 1, `internal/testexec` 1,
+`scripts/smoke-protocol` 1. By class: other 47, wire field name 20, event status 17, wire method or notification name 16, mode id 13,
+wire item type 11, environment variable name 10, approval decision 9, wire status 9, wire action name 8, command-line flag 7, GOOS
+name 5, stop reason 5, approval policy / scope 4, environment status 4, config layer kind 4, binary name 4, engine part type 4, todo
+status 4, tool / binary name 4, provider error code 3, plist kind 3, URL scheme 3, option id / kind 3, sandbox mode 3, subcommand name
+2, JSON literal 2, content type 2, provenance label 2, summary kind 2, picker group 2, message role 2, version label 1. Each carries a
+one-line comment naming what it is. The complete list (package, name, value, class, uses, file, the tests that keep the literal) is
+saved with the scratch results.
+
+**How the uses are counted** (corrected 2026-11-19; the first hand-back's "843 uses" was wrong and is not repeated). A *replaced
+site* is a string literal in non-test code that the change turned into another expression. The independent checker pairs every such
+site in the `HEAD` tree with its place in the working tree by type-resolved position, in four configurations (darwin, linux,
+windows, and linux with every opt-in tag), and a site is counted once however many configurations compile it. On the tree as handed
+back: **1,008 replaced sites**; **908** of them now read one of the 235 new constants, which is the number of references to the new
+constants in non-test code, and every one of the 235 has at least one; **100** read an expression that already existed (no new
+constant): `appdirs.ProductMcremote.Name` 29 and `appdirs.ProductMcrelay.Name` 22 (variables, see the correction round, item 5),
+`string(KindLaunchdAgent)` 10, `string(KindWindowsTask)` 10, `string(KindSystemdUser)` 3, `string(provider.IDCodex)` 7,
+`string(provider.IDOpencode)` 5, `string(provider.IDGrok)` 5, `string(provider.IDGobble)` 3, `string(provider.IDKilo)` 2,
+`string(provider.IDFake)` 1, `collaborationModePlan` 1, `wsJWTIssuer` 1 and `wsJWTAudience` 1. The figure the first hand-back gave was the checker's
+count of mentions plus one per constant for its declaration, and, for `kilo`'s `partText`, ten more, because that count included the
+struct field `partText` (`internal/provider/kilo/session.go:73`) and its nine uses; that constant is now named `partTypeText`, so the
+two no longer share a name. Saved counts of identifier mentions (`total uses` in the constants list) are a different number and are not
+the references.
+
+Existing expressions were used instead of new constants where one already held the meaning: `appdirs.ProductMcremote.Name` and
+`appdirs.ProductMcrelay.Name` for the product names in `internal/cli`, `internal/cli/service` and `internal/relay`,
+`string(KindLaunchdAgent)`, `string(KindWindowsTask)` and `string(KindSystemdUser)` for the scope names, `string(provider.ID<X>)` for a
+provider's own name in its `Section` and registry entry (the same literal sat in `ID: provider.IDCodex, Name: "codex"`, so a second
+constant would have named one meaning twice), `collaborationModePlan` for the `ModeID` of the codex `/plan` command, and `wsJWTIssuer`
+for the issuer claim `launch.go` writes.
+
+**Equal text, different meaning, kept apart.** Where one string had more than one meaning in a package, each meaning has its own
+constant: in `codex`, `unknown` (a version, `versionUnknown`, an environment status, `environmentUnknown`, and a config layer's kind,
+`layerUnknown`), `file` (a tool name, a URL scheme and a summary kind), `command` (a tool name, a JSON member and a summary kind, and
+the approval `kind` that runs a command), `session` (an approval scope and a config layer), `error` (a notification name and a stop
+reason), `pending`, `running`, `completed` and `failed` (the wire's item status and our event Status), `disconnected` (an environment
+status and a session Status), `user` and `project` (a layer type the wire sends, a layer kind we project, and a setting's
+provenance), `mcremote` (the thread source and the client name), `accept`, `decline` and `cancel` (an approval decision, an MCP
+elicitation action, and for `cancel` an option kind: `decisionX`, `mcpActionX`, `optionKindCancel`), `plan` (the `/plan` command-table key,
+`commandPlan`, against the mode id), and `codex` (the binary, `defaultBin`, against the provider's own name, which is
+`provider.IDCodex`); in `acpagent`, `true` (a boolean option id, a configuration value and a picker meta value:
+`boolOptionTrue`, `configValueTrue`, `metaConnectedTrue`, with `boolOptionFalse` beside the first) and `unknown` (a compaction kind, an
+elicitation field kind, a plan status); in `kilo`, `kilo` (the binary and the model provider id of Kilo's own gateway,
+`providerKilo`, against the provider's own name, `provider.IDKilo`), `cancelled`, `error`, `pending`, `retry` and `completed` (a
+message, a todo item and our event Status), `text` (a JSON member and an engine part type) and `plan` (command-table key and mode
+id); in `grok`, `plan` and `default` (a mode id and a permission-mode setting; `plan` also the command-table key); in `opencode`
+and `fake`, the picker group and the binary or model-provider name (`fake` and `fake-remote` are the ids of the fake catalog's two
+model providers, `modelProviderFake` and `modelProviderFakeRemote`, which is not the provider's own name). A mode's label and name,
+which `kilo`'s picker entries spell the same as its id (`{ID: modeCode, Label: modeCode, ...}`), use the mode's id constant;
+`grok`, `fake` and `opencode` keep independent display labels (`"Build"`, `"Echo"`), which are text, not ids.
+
+**Tests.** No test file changed except seven, by comment only (the correction round, item 3): 897 (constant, test file) pairs, where
+a test file contains a literal equal to a new constant's value, in 17 packages, are all left as they were, and the list is saved. A
+test that asserts a wire literal therefore still asserts the literal and not the constant it would share with the code under test. The
+source-scanning tests that read the packages (`contract_inputs_test.go`, `decoded_names_test.go`, `rawpath_test.go` and the others
+that parse Go) passed on the changed tree: the codex contract's `implementedMethods` scan reads string literals in call arguments and
+case labels, and the only method names that became constants are server notification names, which the route table supplies (the
+checker's scan emulation, below, shows no client or server request name lost from those inputs).
+
+**Seen to fail, on scratch copies** (`HEAD` plus the changes, run again on 2026-11-19, before the last one-line edit to `codex/launch.go`, with the same four results), through `scripts/lint.py`: a new literal repeated four times fails with
+"string `zzrepeated` has 4 occurrences, make it a constant (goconst)"; a literal repeated three times in `codex` where a constant
+exists fails with "string `threadId` has 3 occurrences, but such constant `fieldThreadID` already exists (goconst)"; a planted
+unchecked error and a planted `os.ReadFile(name)` together pass (errcheck and gosec still off); the clean tree passes.
+
+**Configuration.** `.golangci.yml` enables `goconst`. Still disabled, each with its phase: `errcheck` P5, `errorlint` and `nilerr` P6,
+`gosec` P7, and `bodyclose`, `gocognit`, `gocyclo`, `unparam` and `confusing-naming` P8. `scripts/lint.py` is unchanged.
+
+**Tests and host, first hand-back.** The suite is unchanged. `go test -race ./...` on a clean copy through `run-on-host --race`: on the Windows laptop,
+exit 0, 49 packages `ok`; on the Linux host, exit 0, 50 packages `ok`. The macOS race run is the one inside
+`make preflight`. `make ci-windows`, because `owneronly_message_windows.go` changed, ran on the Windows host: exit 0
+("ALL SELECTED CHECKS PASSED").
+
+**Gates, first hand-back** (start, end, exit status, each recorded before any filter; the correction round's are at the end of this entry):
+
+| Gate | Start | End | Exit |
+| :--- | :--- | :--- | ---: |
+| `lint` | 18:14:25 | 18:14:59 | 0 |
+| `make staticcheck` (with the bound script, three GOOS) | 18:14:59 | 18:15:18 | 0 |
+| `vet` | 18:15:18 | 18:15:21 | 0 |
+| `vet-tags` | 18:15:21 | 18:15:47 | 0 |
+| `tidy` | 18:15:48 | 18:15:49 | 0 |
+| gofmt over `cmd`, `internal`, `scripts`, `test` | 18:15:49 | 18:15:49 | 0 |
+| `check-records` | 18:15:49 | 18:15:51 | 0 |
+| `make markdownlint-docs` (offline, from the npx cache) | 18:26:18 | 18:26:21 | 0 |
+| `make pre-add-check` on the 114 changed Go files, with the vulnerability check, through `run-heavy` | 18:16:02 | 18:16:13 | 0 |
+| `make preflight` through `run-heavy` | 18:16:13 | 18:19:43 | 0 |
+
+**Not done.** `goconst` strings that appear only in tests are untouched, as the fleet excludes tests. Singleton uses of a string that
+the first pass did not report (for example `"read-only"` in a validation list beside the constant that now names it) were left as they
+were unless goconst reported them.
+
+### P4, correction round, 2026-11-19
+
+Run by the same agent on the coordinator's brief, after the coordinator's gate and an independent verifier's read of the first
+hand-back (verdict: equivalent, with listed exceptions). The changes are in the working tree, unstaged; only this PLAN is staged. Two
+usage-limit interruptions fell inside the round. **State found on resume** (the second): 118 `git status` lines (117 modified files,
+unstaged, and this PLAN, staged); the tree built on darwin, linux and windows, with `go vet` and `gofmt` clean; the one script that had
+stopped part-way (it had asserted on a single-line import in `grok` after editing some of its targets) was made safe to re-run, and each
+of its targets was then checked to be present exactly once, by counting; no file was left half-edited. Each later script asserted
+before it replaced, and a failed assertion changed nothing in its file.
+
+**1. The counts** are corrected in the P4 entry above, with how each is counted: 235 constants, 1,008 replaced sites, 908 references to
+the new constants, 100 sites that read an existing expression. The earlier "843 uses" is withdrawn.
+
+**2. `collaborationModePlan`.** The first record said the existing constant `collaborationModePlan` replaced a literal as the codex
+`/plan` command's mode id. It replaced the literal that was the *key* of the command table (`codex/commandtable.go`, the
+`"plan": {Kind: command.KindCollaborationMode, ModeID: "plan"}` entry); the `ModeID: "plan"` stayed a literal. Now the key is the new
+constant `commandPlan` (the `/plan` command's name) and the `ModeID` is `collaborationModePlan` (the collaboration mode's id), the same
+split `grok`, `kilo` and `opencode` have (`commandPlan` and `modePlan`). `fake`'s table keeps its keys as literals, like every other key
+of that table, and its `ModeID` is `modePlan`.
+
+**3. Comments that cite a line.** Searched every tracked `.go`, `.md`, `.py`, `.sh` and `.yml` file for `file.go:N`, outside the dated
+records, for a changed file. Twelve comments cited a position; each now names the function or constant, the comment text only (the
+only way a test file changed in this phase; the checker reports the seven test files as differing, and each difference is one of
+these comment edits):
+
+| Where (as edited) | Cited | Now names |
+| :--- | :--- | :--- |
+| `internal/provider/acpagent/stalledpump_test.go:93` | `acpagent.go:655` | `session.watchConnClose` |
+| `internal/provider/codex/capability_stability_test.go:13` | `capabilities.go:195` | `buildCapabilitySnapshot` |
+| `internal/provider/codex/commandtable.go:22` | `session.go:310-317` | `session.SetModel`, `session.beginTurn` |
+| `internal/provider/codex/commandtable.go:24` | `commands.go:225,654-675` | `Manager.runCanonical`, `dispatchDaemon` |
+| `internal/provider/codex/commandtable.go:30` | `commands.go:53` | `Manager.commandContext` |
+| `internal/provider/codex/commandtable_test.go:29` | `session.go:457` | `session.Compact` |
+| `internal/provider/codex/item_test.go:277` | `session.go:1498-1504` | `session.handleDecodedNotification` |
+| `internal/provider/codex/session.go:457` | `session.go:26,1183-1217` | `buildPrompt` and its `dataURL` handling |
+| `internal/provider/codex/session.go:2774` | `session.go:26,1183-1217` | the same |
+| `internal/provider/kilo/catalog_test.go:102` | `catalog_live.go:124` | `connectedProvidersResponse` |
+| `internal/session/noticededupe_test.go:125` | `manager.go:202-208` | `entry.appendHistoryLocked` |
+| `internal/session/turnlatency_test.go:25` | `codex/session.go:2305` | codex's `emitTurnFailure` and the other providers' turn-end emitters |
+
+Several already pointed at other code in `HEAD` (`acpagent.go:655` is a comment on `startFailed`; `manager.go:202-208` is the fields of
+`entry`), so they were wrong before this phase moved anything. Not edited: the dated records (`docs/decisions` and
+`apps/*/docs/decisions`, 2,590 citations of changed files, and `docs/reports`, 287), which say where code stood when they were
+written; a rewrite would falsify them. There is none in `docs/guides`, `docs/architecture.md` or the scripts. The guide
+`docs/guides/standards/go/core.md` now says a comment names the function, not a `file:line`.
+
+**4. One constant per meaning.** (a) Command-table keys against mode ids: `commandPlan` added in `codex`, `grok`, `kilo` and
+`opencode`; the mode ids stay `modePlan` (or `collaborationModePlan` in codex); `fake` as in item 2. (b) `codex/callbacks.go`: the
+elicitation actions an MCP server is offered are `mcpActionAccept`, `mcpActionDecline` and `mcpActionCancel`, apart from the approval
+decisions `decisionAccept`, `decisionDecline` and `decisionCancel` and the option kind `optionKindCancel`. (c) `acpagent`:
+`boolOptionTrue` and `boolOptionFalse` for an elicitation's boolean option ids, `configValueTrue` for a configuration value, and
+`metaConnectedTrue` for the picker meta, which stay three. (d) `kilo`: the picker `Group` of a mode is its kind, assigned from the
+engine's own kind field, so one constant, `modeKindPrimary`, serves both, and `groupPrimary`, which named the same value for the group
+alone, is gone. The part-type constants are `partTypeText`, `partTypeReasoning`, `partTypeTool` and `partTypeRetry`, which no longer
+share a name with the struct field `partText`. (e) A literal left beside a constant of its meaning in the same package, found by a
+token-level scan (comments, raw strings, runes and struct tags skipped, log keys listed apart) and replaced by reading each site: 257
+sites replaced where a value had one constant, 55 more decided one by one where it had several (`error` as a notification name, a
+stop reason, a status: each to its own), and the product names the first pass could not see because their constant is an expression
+(`setup.go` and `setup_service.go`, 7 sites, among them a `case "mcremote", appdirs.ProductMcrelay.Name:` that mixed a literal and an
+expression for one meaning; and `Scope: "systemd-user"` twice, to `string(KindSystemdUser)`). Where the same text
+named the provider itself, the new `providerName<X>` constants of the first pass are removed and `string(provider.ID<X>)` is read, since
+`ID: provider.IDCodex, Name: "codex"` sat side by side in each `Section` (six packages). `fake`'s two catalog ids are
+`modelProviderFake` and `modelProviderFakeRemote`, because they are model-provider ids and not the provider's name. (f) `kilo`'s
+picker labels are the mode's id expression throughout its list (`Label: modeCode`); `grok`, `fake` and `opencode` keep independent
+display labels (`"Build"`, `"Echo"`), which are text and not ids.
+
+Constants added since the first hand-back: `acpagent` `boolOptionFalse`, `configValueTrue`, `statusError`; `codex` `commandPlan`,
+`environmentReady`, `environmentUnknown`, `fieldText`, `mcpActionAccept`, `mcpActionCancel`, `mcpActionDecline`; `fake`
+`modelProviderFake`, `modelProviderFakeRemote`; `grok`, `kilo` and `opencode` `commandPlan`; `kilo` `partTypeReasoning`,
+`partTypeRetry`, `partTypeText`, `partTypeTool`, `statusCompleted`, `stopReasonError`, `todoInProgress`, `todoPending`. Removed:
+`codex` `limitProviderCodex` (the provider's name is `string(provider.IDCodex)`); `fake` `groupFake`, `groupFakeRemote` and
+`providerNameFake` (the last two renamed to the model-provider constants); `kilo` `groupPrimary` and the four `part*` names above;
+`opencode` `providerNameOpencode`. Net 222 to 235. No exported name was added; no `//nolint:goconst`, configuration exclusion or
+threshold was needed.
+
+**The sweep of the saved constants list for the three patterns**, over all 235, by reading what a script listed:
+
+- *A constant at a site of another meaning:* found `codex` `contentText` as a JSON member in an outgoing message (the member is
+  `fieldText`; the content type stays `contentText`), `opencode` `authTypeKey` as the request body's member (restored to the literal
+  `"key"`), the product name constants at cli sites that spelled the wrong product, `gobble` and `grok` provider names against the binary
+  name, `fake`'s group against its provider name, and `kilo`'s wire, status and stop reason `error`, `pending` and `completed`, which
+  were one constant and are now one each. All fixed.
+- *One meaning under two constants:* the six `providerName<X>` against `provider.ID<X>` (above); `codex` `limitProviderCodex`, same;
+  `kilo` `groupPrimary` against `modeKindPrimary`; `fake` `groupFake` against `providerNameFake`. All fixed. Kept as two, on purpose,
+  and listed so a reader does not take them for duplicates: `statusX` against `wireX` in `codex` and `kilo` (our event Status against
+  what the engine sent), `layerX`, `wireLayerX` and `provenanceX`, `plistElemDict` (the XML element) against `plistKindDict` (a node
+  kind) in `cli/service`, `binName` against `providerKilo` (the model provider id inside Kilo's gateway).
+- *A literal left beside its constant in the same package:* four literals stand on lines this phase changed, kept on purpose:
+  `codex/items.go` `"plan"` (a thread item type, not the command or the mode), `codex/provider.go` `"test-helper"` (a version string,
+  two uses), `fake/fake.go` the `"plan"` table key (as item 2) and `ws/server.go` `Name: "dev"` (a display name beside the id
+  `devDeviceID`). One more from the same scan, on a line this phase edited, was fixed (`codex/launch.go`, `"codex-app-server"` beside
+  the issuer, now `wsJWTAudience`). The scan was widened to every string constant in a package, those that were there before this
+  phase included: 40 more pairs exist that this phase did not touch, some of them local variables the scan cannot tell from
+  constants (for example `grok` `"xai"` beside `xaiUpstreamID`, `kilo` `"/kilocode/provider-usage"` beside
+  `providerUsagePath`, `codex` `"warn"`, `"refuse"` beside `sandboxPolicyWarn` and `sandboxPolicyRefuse`, and the two item-type
+  allowlist maps of `codex/items.go`, which hold some names as constants and the rest as literals because only the repeated ones were
+  named). They are listed in the saved results and **not changed**: a clean-up of old code is outside P4's scope, and is put to the
+  owner at the end of this section.
+
+**5. Recorded, not changed.** 51 sites now read `appdirs.ProductMcremote.Name` (29) or `appdirs.ProductMcrelay.Name` (22). Those are
+package-level *variables*, not constants, so an expression made of them is not a constant expression. The consequence is in `case`
+lists: `internal/cli/service/refresh.go:135` and `internal/cli/service/setup.go:313`, `999`, `1022` and `1322` are no longer constant
+cases, and the compiler no longer rejects a duplicate there (for example `case appdirs.ProductMcremote.Name, appdirs.ProductMcrelay.Name`
+written with one product twice). Nothing in the tree has a duplicate; `go vet` and the tests are the guard; a switch on the product that
+must reject a duplicate would have to compare in code. The verifier's "not proven" list, kept here as it stands: the compiled binaries of
+`HEAD` and the working tree were not compared; the five `_other.go` files are compiled in no configuration the checker ran, so
+their sites are read, not compiled; and the source scanners were emulated by the scan emulation, not
+run (the real scanners ran in `go test`, which passed).
+
+**6. Verification again, on the tree as handed back.** The verifier's tree builder (read first; it reads the repository only) rebuilt
+`old/` from `HEAD` and `new/` from the working tree, and its checker ran over darwin, linux, windows and linux with the opt-in tags
+(`debugpprof`, `live_codex`, `live_codex_contract`, `live_codex_review`, `live_codex_turn`, `live_gobble`, `live_grok`, `live_kilo`,
+`live_opencode`), with `GOPROXY=off`: exit 0; 235 inserted constants in the union; 128 changed Go files, 7 of them tests; every changed
+file compiled in some configuration; 0 inner-scope identifiers named like a new constant (the struct field `partText` is no longer
+shadowing one); 0 sites with a differing type (97 typed new expressions); the replaced sites are 1,001 on darwin, linux and the tag
+pass and 1,008 on windows. It reports 40 findings, all of one kind: a comment added or removed, five comments in `codex/commandtable.go`
+and `codex/session.go` (each found in all four configurations), which are the item 3 edits listed above, and the seven test files
+that differ, each one comment of that table. There are no other findings. The scan emulation (`scanemu`), which lists the string
+literals of each non-test file in call arguments, case labels and the other positions that the repository's scanners read, shows
+55 values gone from those positions in `internal/provider/codex`; every one is a server notification name or not a method name at
+all, and none is a client request or a server request name of the contract manifest (16 notification names and 39 other values:
+enum words, flags, subcommand names). The notifications are classified by the route table, not by that scan.
+
+**Tests and host.** The suite is unchanged. `go test -race -count=1 ./...` on a clean copy of the tree, through `run-on-host --race`: on the Windows laptop, exit 0, 49 packages `ok`, 0 failures or races; on the Linux host, exit 0, 50 packages `ok`, 0 failures or races (no WSL result is used for a race run). The macOS race run is the one inside `make preflight`. `make ci-windows`, because `owneronly_message_windows.go` differs from `HEAD`, ran on the Windows host: exit 0 ("ALL SELECTED CHECKS PASSED"). The working tree was the same before and after the gates: 132 `git status` lines (131 modified files and this PLAN, staged, with nothing untracked).
+
+**Gates on the tree handed back** (start, end, exit status, each recorded before any filter):
+
+| Gate | Start | End | Exit |
+| :--- | :--- | :--- | ---: |
+| `make lint` (four passes, `goconst` on; the start includes time queued behind another agent's run, 46 s of its own) | 08:38:33 | 08:43:09 | 0 |
+| `make staticcheck` (with the bound script, three GOOS) | 08:43:10 | 08:43:34 | 0 |
+| `go vet ./...` | 08:43:34 | 08:43:36 | 0 |
+| `make vet-tags` | 08:43:36 | 08:44:01 | 0 |
+| `go mod tidy -diff` | 08:44:01 | 08:44:02 | 0 |
+| `gofmt -l` over `cmd`, `internal`, `scripts`, `test` | 08:44:02 | 08:44:02 | 0 |
+| `make pre-add-check` on the 128 changed Go files, with the vulnerability check, through `run-heavy` | 08:44:02 | 08:44:42 | 0 |
+| `make preflight` through `run-heavy` | 08:44:42 | 08:47:48 | 0 |
+| `make check-records` | 08:53:27 | 08:53:29 | 0 |
+| `make markdownlint-docs` (offline, from the npx cache) | 08:53:29 | 08:53:31 | 0 |
+| the verifier's checker and scan emulation, through `run-heavy` | 08:34:43 | 08:37:06 | 0 |
+| the lint plants (`p4test`), through `run-heavy` | 08:31:07 | 08:32:34 | 0 |
+| `go test -race -count=1 ./...`, Windows laptop, through `run-on-host --race` | 08:38:13 | 08:39:51 | 0 |
+| `go test -race -count=1 ./...`, Linux host, through `run-on-host --race` (queued behind another agent's run; 308 s of its own) | 08:38:10 | 09:00:23 | 0 |
+| `make ci-windows`, Windows host, through `run-on-host` | 08:46:42 | 08:48:05 | 0 |
+
+**Put to the owner (three options each, in the hand-back):** the 40 untouched literal and constant pairs of old code; and the
+`knownNonToolItems` and `itemsRenderedAsTools` maps of `codex/items.go`, which mix constants and literals for one meaning.
