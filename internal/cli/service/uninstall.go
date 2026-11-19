@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
+	"github.com/maccavelli/magic-cli-remote/internal/cliout"
 )
 
 // setup-service --uninstall (MADR 0054 PLAN S5e, gap G4). It is install.sh's
@@ -295,26 +296,26 @@ func PrintUninstallResult(w io.Writer, res UninstallResult) {
 		if len(products) == 0 {
 			products = []string{appdirs.ProductMcremote.Name, appdirs.ProductMcrelay.Name}
 		}
-		fmt.Fprintf(w, "no service definition of %s was found\n", strings.Join(products, " or "))
+		cliout.Fprintf(w, "no service definition of %s was found\n", strings.Join(products, " or "))
 		return
 	}
 	for _, it := range res.Removed {
-		fmt.Fprintf(w, "removed: %s %s service %s\n", it.Product, it.Kind, it.Path)
+		cliout.Fprintf(w, "removed: %s %s service %s\n", it.Product, it.Kind, it.Path)
 		if it.Backup != "" {
-			fmt.Fprintf(w, "removed: %s %s backup %s\n", it.Product, it.Kind, it.Backup)
+			cliout.Fprintf(w, "removed: %s %s backup %s\n", it.Product, it.Kind, it.Backup)
 		}
 	}
 	for _, it := range res.Left {
-		fmt.Fprintf(w, "left:    %s %s service %s — %s\n", it.Product, it.Kind, it.Path, it.Reason)
+		cliout.Fprintf(w, "left:    %s %s service %s — %s\n", it.Product, it.Kind, it.Path, it.Reason)
 	}
 	for _, it := range res.Failed {
-		fmt.Fprintf(w, "failed:  %s %s service %s — %s\n", it.Product, it.Kind, it.Path, it.Reason)
+		cliout.Fprintf(w, "failed:  %s %s service %s — %s\n", it.Product, it.Kind, it.Path, it.Reason)
 	}
 	switch {
 	case len(res.Removed) == 0:
 	case res.FromInstaller:
-		fmt.Fprintln(w, "Configuration and data were left in place. The installer removes the binaries next.")
+		cliout.Fprintln(w, "Configuration and data were left in place. The installer removes the binaries next.")
 	default:
-		fmt.Fprintln(w, "Configuration and data were left in place. Remove the binaries with the installer's --uninstall.")
+		cliout.Fprintln(w, "Configuration and data were left in place. Remove the binaries with the installer's --uninstall.")
 	}
 }

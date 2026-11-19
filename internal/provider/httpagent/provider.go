@@ -620,7 +620,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	for {
 		if ctx.Err() != nil || time.Now().After(deadline) {
 			killTree()
-			<-waitCh
+			p.awaitExit(waitCh)
 			tail := stderr.tail()
 			if tail != "" {
 				provider.LogStderrTail(p.log, p.cfg.Bin, tail)
@@ -635,7 +635,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		cancel()
 		if err == nil {
 			body, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
-			res.Body.Close()
+			_ = res.Body.Close()
 			if res.StatusCode == http.StatusOK {
 				// A 200 is not health unless it is the engine's JSON with its
 				// version. OpenCode v2 answers every 1.x path with its web
@@ -644,13 +644,13 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 				// (MADR 0214 D12). Either failure is final, not a retry.
 				if herr := checkHealthBody(res.Header.Get("Content-Type"), body); herr != nil {
 					killTree()
-					<-waitCh
+					p.awaitExit(waitCh)
 					return "", fmt.Errorf("%s health check %s: %w", p.cfg.Bin, p.dialect.HealthPath(), herr)
 				}
 				if hh, ok := p.dialect.(HealthyHook); ok {
 					if herr := hh.OnHealthy(body); herr != nil {
 						killTree()
-						<-waitCh
+						p.awaitExit(waitCh)
 						return "", fmt.Errorf("%s health check rejected: %w", p.cfg.Bin, herr)
 					}
 				}
@@ -663,13 +663,19 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		// receive here is the sole consumer of waitCh on the early-exit path, so
 		// no other Wait runs; the process is already reaped, so no kill is needed.
 		select {
-		case <-waitCh:
+		case waitErr := <-waitCh:
+			// How it exited ("exit status 1", "signal: killed") is the first
+			// thing to know about an engine that died while starting.
+			exited := ""
+			if waitErr != nil {
+				exited = " (" + waitErr.Error() + ")"
+			}
 			tail := stderr.tail()
 			if tail != "" {
 				provider.LogStderrTail(p.log, p.cfg.Bin, tail)
-				return "", fmt.Errorf("%s server exited during startup; recent stderr:\n%s", p.cfg.Bin, tail)
+				return "", fmt.Errorf("%s server exited during startup%s; recent stderr:\n%s", p.cfg.Bin, exited, tail)
 			}
-			return "", fmt.Errorf("%s server exited during startup", p.cfg.Bin)
+			return "", fmt.Errorf("%s server exited during startup%s", p.cfg.Bin, exited)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -683,7 +689,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		p.mu.Unlock()
 		procutil.TerminateProcessGroup(cmd.Process, dead, engineStopTimeout)
 		release()
-		<-waitCh
+		p.awaitExit(waitCh)
 		return "", fmt.Errorf("provider shut down")
 	}
 	// Publish the engine here — under the same lock that bumps generation and
@@ -798,7 +804,7 @@ func (p *Provider) streamOnce(url string, gen int) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("sse status %d", res.StatusCode)
 	}
@@ -1210,7 +1216,7 @@ func (p *Provider) apiAt(base string) API {
 		if err != nil {
 			return err
 		}
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		// 16MB: engine catalogs (e.g. OpenCode's /provider model list) exceed
 		// 4MB, and a truncated read decodes as corrupt JSON.
 		data, _ := io.ReadAll(io.LimitReader(res.Body, 16<<20))
@@ -1306,13 +1312,32 @@ func exitCode(err error) int {
 	return -1
 }
 
+// awaitExit waits for the engine process that was just killed to be reaped and
+// logs how it ended. The status is expected to be a kill, so it is a debug line:
+// the caller is already returning its own error.
+func (p *Provider) awaitExit(waitCh <-chan error) {
+	if err := <-waitCh; err != nil {
+		p.log.Debug("engine process ended", slog.String("bin", p.cfg.Bin), slog.String("err", err.Error()))
+	}
+}
+
 func freePort() (int, error) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return 0, err
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
+	defer func() { _ = l.Close() }()
+	return tcpPort(l.Addr())
+}
+
+// tcpPort is the port of a TCP address. A listener on "tcp" always has one;
+// anything else is reported rather than assumed.
+func tcpPort(a net.Addr) (int, error) {
+	tcp, ok := a.(*net.TCPAddr)
+	if !ok {
+		return 0, fmt.Errorf("listener address %q is %T, not a TCP address", a.String(), a)
+	}
+	return tcp.Port, nil
 }
 
 // lineRing writes process stderr as slog debug lines and keeps the last max

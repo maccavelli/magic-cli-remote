@@ -18,6 +18,7 @@ import (
 	"github.com/maccavelli/go-tui-lib/v2/termsvc"
 	"github.com/maccavelli/magic-cli-remote/internal/admin"
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
+	"github.com/maccavelli/magic-cli-remote/internal/cliout"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/pairuri"
@@ -53,7 +54,7 @@ func warnIfDaemonMissesDataDir(w io.Writer, cfg config.Config) {
 		return
 	}
 	_ = conn.Close()
-	fmt.Fprintf(w, "warning: this was written to %s, a daemon is listening on %s, and no daemon serves this data directory.\n"+
+	cliout.Fprintf(w, "warning: this was written to %s, a daemon is listening on %s, and no daemon serves this data directory.\n"+
 		"         A daemon that has not paired the device will reject it. Run pair with that daemon's --data-dir or config.\n",
 		cfg.DataDir, addr)
 }
@@ -84,22 +85,27 @@ func newPairCmd() *cobra.Command {
 			return err
 		}
 		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "Device: %s (id=%s)\n", termLine(dev.Name), dev.ID)
-		fmt.Fprintf(out, "Token:  %s\n", token)
-		fmt.Fprintf(out, "Host:   %s\n", host)
-		fmt.Fprintf(out, "WS URL: %s://%s/v1/ws\n", cfg.TLS.Scheme(), host)
+		cliout.Fprintf(out, "Device: %s (id=%s)\n", termLine(dev.Name), dev.ID)
+		if _, err := fmt.Fprintf(out, "Token:  %s\n", token); err != nil {
+			return fmt.Errorf("device %s was created but its token could not be written, and only its hash is stored, so it cannot be shown again; "+
+				"it stays valid until revoked (mcremote pair revoke %s): %w", dev.ID, dev.ID, err)
+		}
+		cliout.Fprintf(out, "Host:   %s\n", host)
+		cliout.Fprintf(out, "WS URL: %s://%s/v1/ws\n", cfg.TLS.Scheme(), host)
 		printFingerprint(out, "Cert:   ", fp, cfg.TLS.ResolvedMode())
 
 		uri, err := pairuri.Encode(pairPayload(cfg, host, fp, token, ""))
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "Pair:   %s\n", uri)
+		if _, err := fmt.Fprintf(out, "Pair:   %s\n", uri); err != nil {
+			return fmt.Errorf("device %s was created and its token was written, but the pairing URI that carries it could not be: %w", dev.ID, err)
+		}
 		printRelayLines(out, cfg)
-		fmt.Fprintln(out, "Store this token; it will not be shown again.")
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "Tip: prefer `mcremote pair code` for a 5-minute short code (no long token to copy).")
-		fmt.Fprintln(out, "On the phone: Scan QR, or paste Host + Token.")
+		cliout.Fprintln(out, "Store this token; it will not be shown again.")
+		cliout.Fprintln(out)
+		cliout.Fprintln(out, "Tip: prefer `mcremote pair code` for a 5-minute short code (no long token to copy).")
+		cliout.Fprintln(out, "On the phone: Scan QR, or paste Host + Token.")
 
 		printPairQR(cmd, out, showQR, uri)
 		return nil
@@ -153,25 +159,30 @@ func newPairCmd() *cobra.Command {
 		}
 		out := cmd.OutOrStdout()
 		remain := max(time.Until(info.ExpiresAt).Round(time.Second), 0)
-		fmt.Fprintf(out, "Device name: %s\n", termLine(info.Name))
-		fmt.Fprintf(out, "Pair code:   %s\n", info.Display)
-		fmt.Fprintf(out, "Expires in:  %s (at %s)\n", remain, info.ExpiresAt.Local().Format(time.Kitchen))
-		fmt.Fprintf(out, "Host:        %s\n", host)
-		fmt.Fprintf(out, "WS URL:      %s://%s/v1/ws\n", cfg.TLS.Scheme(), host)
+		cliout.Fprintf(out, "Device name: %s\n", termLine(info.Name))
+		if _, err := fmt.Fprintf(out, "Pair code:   %s\n", info.Display); err != nil {
+			return fmt.Errorf("the pair code for %q was created but could not be written; it stays valid for %s or until used (run the command again for another): %w",
+				info.Name, remain, err)
+		}
+		cliout.Fprintf(out, "Expires in:  %s (at %s)\n", remain, info.ExpiresAt.Local().Format(time.Kitchen))
+		cliout.Fprintf(out, "Host:        %s\n", host)
+		cliout.Fprintf(out, "WS URL:      %s://%s/v1/ws\n", cfg.TLS.Scheme(), host)
 		printFingerprint(out, "Cert:        ", fp, cfg.TLS.ResolvedMode())
 
 		uri, err := pairuri.Encode(pairPayload(cfg, host, fp, "", info.Code))
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "Pair URI:    %s\n", uri)
+		if _, err := fmt.Fprintf(out, "Pair URI:    %s\n", uri); err != nil {
+			return fmt.Errorf("the pair code for %q was written, but the pairing URI that carries it could not be: %w", info.Name, err)
+		}
 		if copyURI {
 			copyPairURI(out, cmd.ErrOrStderr(), uri)
 		}
 		printRelayLines(out, cfg)
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "On the phone: Magic CLI Remote → Enter code (or Scan QR).")
-		fmt.Fprintln(out, "One-time use. Daemon must share this data dir to accept the claim.")
+		cliout.Fprintln(out)
+		cliout.Fprintln(out, "On the phone: Magic CLI Remote → Enter code (or Scan QR).")
+		cliout.Fprintln(out, "One-time use. Daemon must share this data dir to accept the claim.")
 
 		printPairQR(cmd, out, showQR, uri)
 		return nil
@@ -239,7 +250,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 				return err
 			}
 			if len(devices) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No devices paired.")
+				cliout.Fprintln(cmd.OutOrStdout(), "No devices paired.")
 				return nil
 			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
@@ -247,7 +258,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 			// legacy rows), matchable against the phone's Client-identity
 			// tile and the daemon's "client key rejected" log lines
 			// (MADR 0066 D8).
-			fmt.Fprintln(w, "ID\tNAME\tKEY\tCREATED\tLAST_USED")
+			cliout.Fprintln(w, "ID\tNAME\tKEY\tCREATED\tLAST_USED")
 			for _, d := range devices {
 				last := "-"
 				if d.LastUsedAt != nil {
@@ -260,7 +271,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 						key = key[:12]
 					}
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				cliout.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 					d.ID, termLine(d.Name), key, d.CreatedAt.Format("2006-01-02T15:04:05Z"), last)
 			}
 			return w.Flush()
@@ -282,7 +293,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Revoked device %s (%s)\n", termLine(dev.Name), dev.ID)
+			cliout.Fprintf(cmd.OutOrStdout(), "Revoked device %s (%s)\n", termLine(dev.Name), dev.ID)
 			notifyDeviceKick(cmd, cfg.Paths.AdminSocket, dev.ID)
 			return nil
 		},
@@ -315,12 +326,12 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 				return err
 			}
 			if len(removed) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No matching devices to prune.")
+				cliout.Fprintln(cmd.OutOrStdout(), "No matching devices to prune.")
 				return nil
 			}
 			ids := make([]string, 0, len(removed))
 			for _, d := range removed {
-				fmt.Fprintf(cmd.OutOrStdout(), "Pruned %s (%s)\n", termLine(d.Name), d.ID)
+				cliout.Fprintf(cmd.OutOrStdout(), "Pruned %s (%s)\n", termLine(d.Name), d.ID)
 				ids = append(ids, d.ID)
 			}
 			notifyDeviceKick(cmd, cfg.Paths.AdminSocket, ids...)
@@ -343,15 +354,15 @@ func notifyDeviceKick(cmd *cobra.Command, adminSocket string, deviceIDs ...strin
 	out := cmd.OutOrStdout()
 	if err != nil {
 		if errors.Is(err, admin.ErrDaemonNotRunning) {
-			fmt.Fprintln(out, "Note: no live daemon admin socket; revoked on disk only "+
+			cliout.Fprintln(out, "Note: no live daemon admin socket; revoked on disk only "+
 				"(restart serve or wait for client reconnect to drop open sockets).")
 			return
 		}
-		fmt.Fprintf(out, "Warning: could not kick live sockets: %v\n", err)
+		cliout.Fprintf(out, "Warning: could not kick live sockets: %v\n", err)
 		return
 	}
 	if n > 0 {
-		fmt.Fprintf(out, "Kicked %d live connection(s).\n", n)
+		cliout.Fprintf(out, "Kicked %d live connection(s).\n", n)
 	}
 }
 
@@ -401,19 +412,19 @@ func copyPairURI(out, errOut io.Writer, uri string) {
 		switch route {
 		case termsvc.RouteTmuxBuffer:
 			if err := runTmuxLoadBuffer(uri); err != nil {
-				fmt.Fprintf(errOut, "warning: tmux did not take the pair URI (%v); writing OSC 52 instead\n", err)
+				cliout.Fprintf(errOut, "warning: tmux did not take the pair URI (%v); writing OSC 52 instead\n", err)
 				continue
 			}
-			fmt.Fprintln(out, "Copied the pair URI through tmux (tmux load-buffer -w); the terminal does not confirm it.")
+			cliout.Fprintln(out, "Copied the pair URI through tmux (tmux load-buffer -w); the terminal does not confirm it.")
 			return
 		case termsvc.RouteOSC52, termsvc.RouteOSC52Tmux:
 			seq, _, err := termsvc.CopySequence(caps, uri)
 			if err != nil {
-				fmt.Fprintf(errOut, "warning: the pair URI was not copied: %v\n", err)
+				cliout.Fprintf(errOut, "warning: the pair URI was not copied: %v\n", err)
 				return
 			}
-			fmt.Fprint(out, seq)
-			fmt.Fprintln(out, "Copied the pair URI through the terminal (OSC 52); the terminal does not confirm it.")
+			cliout.Fprint(out, seq)
+			cliout.Fprintln(out, "Copied the pair URI through the terminal (OSC 52); the terminal does not confirm it.")
 			return
 		}
 	}
@@ -427,8 +438,8 @@ func printPairQR(cmd *cobra.Command, out interface {
 		printQR = stdoutIsTerminal(out)
 	}
 	if printQR {
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "Scan with the Magic CLI Remote app:")
+		cliout.Fprintln(out)
+		cliout.Fprintln(out, "Scan with the Magic CLI Remote app:")
 		qrterminal.GenerateWithConfig(uri, qrterminal.Config{
 			// Level M renders the relay-carrying pair URI at 61 modules wide;
 			// level L would render it at 53 (the width it had before relay
@@ -443,7 +454,7 @@ func printPairQR(cmd *cobra.Command, out interface {
 			QuietZone:  2,
 		})
 	} else {
-		fmt.Fprintln(out, "(re-run with --qr to print a terminal QR code)")
+		cliout.Fprintln(out, "(re-run with --qr to print a terminal QR code)")
 	}
 }
 
@@ -468,7 +479,7 @@ func printRelayLines(out interface{ Write([]byte) (int, error) }, cfg config.Con
 	if !cfg.Relay.Enabled() {
 		return
 	}
-	fmt.Fprintf(out, "Relay:  %s (host_id=%s)\n",
+	cliout.Fprintf(out, "Relay:  %s (host_id=%s)\n",
 		strings.TrimSpace(cfg.Relay.URL), strings.TrimSpace(cfg.Relay.HostID))
 }
 
@@ -518,13 +529,13 @@ func pairFingerprint(cfg config.Config) (string, error) {
 func printFingerprint(out interface{ Write([]byte) (int, error) }, label, fp string, mode string) {
 	switch {
 	case fp != "" && mode == config.TLSModeLetsEncrypt:
-		fmt.Fprintf(out, "%ssha256:%s (letsencrypt — the app validates the public "+
+		cliout.Fprintf(out, "%ssha256:%s (letsencrypt — the app validates the public "+
 			"chain; this pin is the fallback if ACME issuance fails)\n", label, fp)
 	case fp != "":
-		fmt.Fprintf(out, "%ssha256:%s (selfsigned — pinned by the app; nothing else "+
+		cliout.Fprintf(out, "%ssha256:%s (selfsigned — pinned by the app; nothing else "+
 			"is accepted)\n", label, fp)
 	default:
-		fmt.Fprintf(out, "%sdisabled — the device token will travel in cleartext.\n",
+		cliout.Fprintf(out, "%sdisabled — the device token will travel in cleartext.\n",
 			strings.Replace(label, "Cert:", "TLS: ", 1))
 	}
 }

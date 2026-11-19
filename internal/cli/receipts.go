@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
+	"github.com/maccavelli/magic-cli-remote/internal/cliout"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/receipt"
@@ -117,19 +118,19 @@ func newReceiptsListCmd() *cobra.Command {
 			if device != "" {
 				found := slices.Contains(ids, device)
 				if !found {
-					fmt.Fprintf(cmd.OutOrStdout(), "No receipts for device %s.\n", device)
+					cliout.Fprintf(cmd.OutOrStdout(), "No receipts for device %s.\n", device)
 					return nil
 				}
 				ids = []string{device}
 			}
 			if len(ids) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No devices have a receipts chain.")
+				cliout.Fprintln(cmd.OutOrStdout(), "No devices have a receipts chain.")
 				return nil
 			}
 
 			out := cmd.OutOrStdout()
 			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "DEVICE\tENTRIES\tFIRST\tLAST\tCHAIN")
+			cliout.Fprintln(tw, "DEVICE\tENTRIES\tFIRST\tLAST\tCHAIN")
 			for _, id := range ids {
 				lines, err := rs.Lines(id)
 				if err != nil {
@@ -150,7 +151,7 @@ func newReceiptsListCmd() *cobra.Command {
 				} else {
 					chain = "unavailable"
 				}
-				fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", id, len(lines), first, last, chain)
+				cliout.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", id, len(lines), first, last, chain)
 			}
 			return tw.Flush()
 		},
@@ -192,10 +193,17 @@ func newReceiptsVerifyCmd() *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			if broken == -1 {
-				fmt.Fprintf(out, "OK: device %s chain intact.\n", device)
+				if _, err := fmt.Fprintf(out, "OK: device %s chain intact.\n", device); err != nil {
+					return fmt.Errorf("write the verification result: %w", err)
+				}
 				return nil
 			}
-			fmt.Fprintf(out, "BROKEN: device %s chain broken at line %d.\n", device, broken)
+			// A broken chain is the result, and the command fails with it whether or
+			// not the line saying so could be written: a failed write is added to
+			// the error, never put in its place.
+			if _, err := fmt.Fprintf(out, "BROKEN: device %s chain broken at line %d.\n", device, broken); err != nil {
+				return fmt.Errorf("chain broken at line %d, and the verification result could not be written: %w", broken, err)
+			}
 			return fmt.Errorf("chain broken at line %d", broken)
 		},
 	}
@@ -260,12 +268,16 @@ func newReceiptsShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if verified {
-				fmt.Fprintln(out, "Signature: VERIFIED")
-			} else {
-				fmt.Fprintln(out, "Signature: NOT VERIFIED (signing key unavailable — content shown as-is, do not treat as authoritative)")
+			verdict := "Signature: VERIFIED"
+			if !verified {
+				verdict = "Signature: NOT VERIFIED (signing key unavailable — content shown as-is, do not treat as authoritative)"
 			}
-			fmt.Fprintln(out, string(pretty))
+			if _, err := fmt.Fprintln(out, verdict); err != nil {
+				return fmt.Errorf("write the receipt: %w", err)
+			}
+			if _, err := fmt.Fprintln(out, string(pretty)); err != nil {
+				return fmt.Errorf("write the receipt: %w", err)
+			}
 			return nil
 		},
 	}

@@ -21,6 +21,7 @@ run:
 linters:
   default: none
   enable:
+    - errcheck
     - goconst
     - gocritic
     - govet
@@ -37,7 +38,6 @@ linters:
     - whitespace
   disable:
     - bodyclose # P8
-    - errcheck # P5
     - errorlint # P6
     - gocognit # P8
     - gocyclo # P8

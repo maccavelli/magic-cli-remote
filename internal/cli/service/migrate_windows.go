@@ -16,7 +16,7 @@ func (registryPath) get() (string, uint32, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }()
 	v, typ, err := k.GetStringValue("Path")
 	if errors.Is(err, registry.ErrNotExist) {
 		return "", registry.EXPAND_SZ, nil
@@ -29,7 +29,8 @@ func (registryPath) set(value string, typ uint32) error {
 	if err != nil {
 		return err
 	}
-	defer k.Close()
+	// The write's outcome is SetStringValue's, returned below; RegCloseKey reports only an invalid handle.
+	defer func() { _ = k.Close() }()
 	if typ == registry.EXPAND_SZ {
 		return k.SetExpandStringValue("Path", value)
 	}

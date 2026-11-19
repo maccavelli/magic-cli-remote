@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/maccavelli/magic-cli-remote/internal/cliout"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
@@ -144,8 +145,10 @@ func newAuthRecoveryStatusCmd() *cobra.Command {
 				if err != nil {
 					return &exitCodeError{code: authRecoveryExitFailed, err: err}
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%-6s  %-18s  recovery_available=%v\n",
-					id, st.BackupState, st.RecoveryAvailable)
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%-6s  %-18s  recovery_available=%v\n",
+					id, st.BackupState, st.RecoveryAvailable); err != nil {
+					return &exitCodeError{code: authRecoveryExitFailed, err: fmt.Errorf("write the recovery status: %w", err)}
+				}
 			}
 			return nil
 		},
@@ -188,7 +191,7 @@ func newAuthRecoveryChooseCmd() *cobra.Command {
 			if err != nil {
 				return &exitCodeError{code: authRecoveryExitFailed, err: err}
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s resolved: %s (recovery_available=%v)\n",
+			cliout.Fprintf(cmd.OutOrStdout(), "%s resolved: %s (recovery_available=%v)\n",
 				args[0], st.BackupState, st.RecoveryAvailable)
 			return nil
 		},

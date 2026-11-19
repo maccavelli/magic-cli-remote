@@ -58,7 +58,7 @@ func socketIdentity(path string, _ fs.FileInfo) (uint64, bool) {
 	if err != nil {
 		return 0, false
 	}
-	defer windows.CloseHandle(h)
+	defer func() { _ = windows.CloseHandle(h) }()
 	var info windows.ByHandleFileInformation
 	if err := windows.GetFileInformationByHandle(h, &info); err != nil {
 		return 0, false

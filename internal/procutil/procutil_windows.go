@@ -150,7 +150,7 @@ func KillProcessGroup(p *os.Process) error {
 		// handle, which is what the caller would have used anyway.
 		return p.Kill()
 	}
-	defer windows.CloseHandle(h)
+	defer func() { _ = windows.CloseHandle(h) }()
 	if err := windows.TerminateProcess(h, 1); err != nil {
 		return p.Kill()
 	}
@@ -189,7 +189,7 @@ func signalBreak(pid uint32) error {
 	// Give the console back on every path out, including the error one: holding
 	// it would make the next hasConsole() answer "yes" and quietly deny
 	// CREATE_NO_WINDOW to the next child started (0159 D17).
-	defer procFreeConsole.Call()
+	defer func() { _, _, _ = procFreeConsole.Call() }()
 
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
 }
@@ -274,18 +274,18 @@ func SuperviseStarted(p *os.Process) (release func(), err error) {
 	if _, err := windows.SetInformationJobObject(job,
 		windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafePointer(&info)), uint32(unsafeSizeof(info))); err != nil {
-		windows.CloseHandle(job)
+		_ = windows.CloseHandle(job)
 		return nil, fmt.Errorf("procutil: set job limits: %w", err)
 	}
 	h, err := windows.OpenProcess(
 		windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(p.Pid))
 	if err != nil {
-		windows.CloseHandle(job)
+		_ = windows.CloseHandle(job)
 		return nil, fmt.Errorf("procutil: open process %d: %w", p.Pid, err)
 	}
-	defer windows.CloseHandle(h)
+	defer func() { _ = windows.CloseHandle(h) }()
 	if err := windows.AssignProcessToJobObject(job, h); err != nil {
-		windows.CloseHandle(job)
+		_ = windows.CloseHandle(job)
 		return nil, fmt.Errorf("procutil: assign process %d to job: %w", p.Pid, err)
 	}
 	// release is idempotent. A second CloseHandle on the same value is not
@@ -296,5 +296,6 @@ func SuperviseStarted(p *os.Process) (release func(), err error) {
 	// their own guard, and the one that forgot would be a Windows-only bug of
 	// exactly the kind this record exists to remove (MADR 0150, P3 amendment).
 	var once sync.Once
-	return func() { once.Do(func() { windows.CloseHandle(job) }) }, nil
+	// release has no error to return, and a failed close of the job handle this function owns has no recovery.
+	return func() { once.Do(func() { _ = windows.CloseHandle(job) }) }, nil
 }

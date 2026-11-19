@@ -41,7 +41,7 @@ func currentUserSID() (*windows.SID, error) {
 	if err != nil {
 		return nil, fmt.Errorf("appdirs: open process token: %w", err)
 	}
-	defer token.Close()
+	defer func() { _ = token.Close() }()
 	u, err := token.GetTokenUser()
 	if err != nil {
 		return nil, fmt.Errorf("appdirs: token user: %w", err)

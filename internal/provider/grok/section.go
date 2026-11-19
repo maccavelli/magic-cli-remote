@@ -144,7 +144,10 @@ func Descriptor() provider.Descriptor {
 			return NewCredentialAdapter(string(provider.IDGrok))
 		},
 		New: func(b provider.Build) provider.Provider {
-			s := b.Section.(*Section)
+			s, ok := b.Section.(*Section)
+			if !ok {
+				panic(fmt.Sprintf("interface conversion: config.ProviderSection is %T, not %T", b.Section, (*Section)(nil)))
+			}
 			cfg := s.providerConfig(b.Version)
 			cfg.SavedCatalogs = b.SavedCatalogs
 			gp := NewWithLogger(cfg, b.Log)

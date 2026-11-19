@@ -14,6 +14,6 @@ func ProcessStartToken(pid int) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	defer windows.CloseHandle(h)
+	defer func() { _ = windows.CloseHandle(h) }()
 	return creationTime(h)
 }

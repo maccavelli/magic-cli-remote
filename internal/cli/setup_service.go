@@ -7,6 +7,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
+	"github.com/maccavelli/magic-cli-remote/internal/cliout"
 	"github.com/maccavelli/magic-cli-remote/internal/relay"
 	"github.com/spf13/cobra"
 )
@@ -155,7 +156,9 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 			return err
 		}
 		if f.printOnly && res.Body != "" {
-			fmt.Fprint(out, res.Body)
+			if _, err := fmt.Fprint(out, res.Body); err != nil {
+				return fmt.Errorf("write the refreshed service definition: %w", err)
+			}
 			return nil
 		}
 		return service.PrintRefreshResult(out, res, appdirs.ProductMcremote.Name, f.jsonOut)
@@ -187,23 +190,25 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 	if err != nil {
 		// The definition may already be on disk (post-write step failed): say where.
 		if res.UnitPath != "" && !f.printOnly {
-			fmt.Fprintf(out, "Service file:      %s\n", res.UnitPath)
+			cliout.Fprintf(out, "Service file:      %s\n", res.UnitPath)
 		}
 		return err
 	}
 
 	if f.printOnly {
-		fmt.Fprint(out, res.UnitBody)
+		if _, err := fmt.Fprint(out, res.UnitBody); err != nil {
+			return fmt.Errorf("write the service definition: %w", err)
+		}
 		return nil
 	}
 
 	service.PrintSetupResult(out, res, opts.NoLinger, appdirs.ProductMcremote.Name)
 	if withRelay && res.NotConfigured {
-		fmt.Fprintf(out, "mcrelay (%s=1): not set up either, for the same reason\n", service.EnvWithRelayService)
+		cliout.Fprintf(out, "mcrelay (%s=1): not set up either, for the same reason\n", service.EnvWithRelayService)
 	}
 	if withRelay && !res.NotConfigured {
-		fmt.Fprintln(out)
-		fmt.Fprintf(out, "mcrelay (%s=1):\n", service.EnvWithRelayService)
+		cliout.Fprintln(out)
+		cliout.Fprintf(out, "mcrelay (%s=1):\n", service.EnvWithRelayService)
 		rres, err := service.SetupRelayBeside(res, opts, relay.SetupHealth())
 		if err != nil {
 			return err

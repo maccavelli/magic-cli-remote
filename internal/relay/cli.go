@@ -12,6 +12,7 @@ import (
 	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
+	"github.com/maccavelli/magic-cli-remote/internal/cliout"
 	"github.com/maccavelli/magic-cli-remote/internal/debugserve"
 	"github.com/maccavelli/magic-cli-remote/internal/logging"
 	"github.com/maccavelli/magic-cli-remote/internal/sdnotify"
@@ -489,7 +490,9 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 			return err
 		}
 		if f.printOnly && res.Body != "" {
-			fmt.Fprint(out, res.Body)
+			if _, err := fmt.Fprint(out, res.Body); err != nil {
+				return fmt.Errorf("write the refreshed service definition: %w", err)
+			}
 			return nil
 		}
 		return service.PrintRefreshResult(out, res, appdirs.ProductMcrelay.Name, f.jsonOut)
@@ -516,49 +519,51 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 	res, err := service.Setup(opts)
 	if err != nil {
 		if res.UnitPath != "" && !f.printOnly {
-			fmt.Fprintf(out, "Service file:      %s\n", res.UnitPath)
+			cliout.Fprintf(out, "Service file:      %s\n", res.UnitPath)
 		}
 		return err
 	}
 	if f.printOnly {
-		fmt.Fprint(out, res.UnitBody)
+		if _, err := fmt.Fprint(out, res.UnitBody); err != nil {
+			return fmt.Errorf("write the service definition: %w", err)
+		}
 		return nil
 	}
 	if res.Unchanged {
-		fmt.Fprintln(out, "Service definition unchanged (already installed).")
+		cliout.Fprintln(out, "Service definition unchanged (already installed).")
 	}
 	service.PrintSetupResult(out, res, opts.NoLinger, appdirs.ProductMcrelay.Name)
-	fmt.Fprintln(out)
+	cliout.Fprintln(out)
 	// 0099 F4b: the written config binds loopback, because a public bind with
 	// no TLS is refused at startup and used to yield a crash-looping unit.
-	fmt.Fprintln(out, "Listen:       127.0.0.1:8443 (loopback) — the shipped default, so the")
-	fmt.Fprintln(out, "      service starts as provisioned. To expose it publicly set")
-	fmt.Fprintln(out, "      listen.host and tls.mode=letsencrypt|files together; a public")
-	fmt.Fprintln(out, "      bind without TLS is refused at startup.")
-	fmt.Fprintln(out)
+	cliout.Fprintln(out, "Listen:       127.0.0.1:8443 (loopback) — the shipped default, so the")
+	cliout.Fprintln(out, "      service starts as provisioned. To expose it publicly set")
+	cliout.Fprintln(out, "      listen.host and tls.mode=letsencrypt|files together; a public")
+	cliout.Fprintln(out, "      bind without TLS is refused at startup.")
+	cliout.Fprintln(out)
 	// mcrelay is a public edge. What binding 443 (TLS) or 80 (ACME HTTP-01)
 	// costs differs by platform: a privilege on Unix, a reservation collision
 	// on Windows (MADR 0116 F15).
 	switch res.Scope {
 	case "windows-task":
-		fmt.Fprintln(out, "Public ports: Windows has no privileged-port restriction, so binding 443")
-		fmt.Fprintln(out, "      or 80 needs no elevation. Two things do bite:")
-		fmt.Fprintln(out, "        * excluded ranges — check with:")
-		fmt.Fprintln(out, "            netsh int ipv4 show excludedportrange protocol=tcp")
-		fmt.Fprintln(out, "          Hyper-V, WinNAT and Docker Desktop claim wide dynamic ranges.")
-		fmt.Fprintln(out, "        * Windows Defender Firewall prompts on the first inbound bind;")
-		fmt.Fprintln(out, "          allow it for the private and/or public profile as appropriate.")
-		fmt.Fprintln(out, "      Note the task starts at logon, not at boot (MADR 0116 D12).")
+		cliout.Fprintln(out, "Public ports: Windows has no privileged-port restriction, so binding 443")
+		cliout.Fprintln(out, "      or 80 needs no elevation. Two things do bite:")
+		cliout.Fprintln(out, "        * excluded ranges — check with:")
+		cliout.Fprintln(out, "            netsh int ipv4 show excludedportrange protocol=tcp")
+		cliout.Fprintln(out, "          Hyper-V, WinNAT and Docker Desktop claim wide dynamic ranges.")
+		cliout.Fprintln(out, "        * Windows Defender Firewall prompts on the first inbound bind;")
+		cliout.Fprintln(out, "          allow it for the private and/or public profile as appropriate.")
+		cliout.Fprintln(out, "      Note the task starts at logon, not at boot (MADR 0116 D12).")
 	case "launchd-agent":
-		fmt.Fprintln(out, "Public ports: binding 443 (TLS) or 80 (ACME HTTP-01) needs elevated")
-		fmt.Fprintln(out, "      privileges a user service cannot grant. If you bind a port < 1024:")
-		fmt.Fprintln(out, "      use a privileged front proxy/port-forward, or run behind a load balancer.")
-		fmt.Fprintln(out, "      (Not needed for the default 8443.)")
+		cliout.Fprintln(out, "Public ports: binding 443 (TLS) or 80 (ACME HTTP-01) needs elevated")
+		cliout.Fprintln(out, "      privileges a user service cannot grant. If you bind a port < 1024:")
+		cliout.Fprintln(out, "      use a privileged front proxy/port-forward, or run behind a load balancer.")
+		cliout.Fprintln(out, "      (Not needed for the default 8443.)")
 	default:
-		fmt.Fprintln(out, "Public ports: binding 443 (TLS) or 80 (ACME HTTP-01) needs elevated")
-		fmt.Fprintln(out, "      privileges a user service cannot grant. If you bind a port < 1024:")
-		fmt.Fprintf(out, "        sudo setcap 'cap_net_bind_service=+ep' %s\n", res.Binary)
-		fmt.Fprintln(out, "      (Not needed for the default 8443, or behind a proxy/port-forward.)")
+		cliout.Fprintln(out, "Public ports: binding 443 (TLS) or 80 (ACME HTTP-01) needs elevated")
+		cliout.Fprintln(out, "      privileges a user service cannot grant. If you bind a port < 1024:")
+		cliout.Fprintf(out, "        sudo setcap 'cap_net_bind_service=+ep' %s\n", res.Binary)
+		cliout.Fprintln(out, "      (Not needed for the default 8443, or behind a proxy/port-forward.)")
 	}
 	return nil
 }

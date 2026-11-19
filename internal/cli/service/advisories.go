@@ -1,13 +1,13 @@
 package service
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"runtime"
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
+	"github.com/maccavelli/magic-cli-remote/internal/cliout"
 )
 
 // The two notices the shipped install.sh printed on every install, whatever
@@ -79,6 +79,6 @@ func PrintInstallerAdvisories(out io.Writer, product string) {
 		return
 	}
 	for _, l := range installerAdvisories(osName, product, dir) {
-		fmt.Fprintln(out, l)
+		cliout.Fprintln(out, l)
 	}
 }

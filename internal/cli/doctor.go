@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
+	"github.com/maccavelli/magic-cli-remote/internal/cliout"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -47,23 +47,23 @@ func newDoctorCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 			renderServiceDoctor(w, service.ProbeStatus(appdirs.ProductMcremote.Name))
-			fmt.Fprintln(w)
+			cliout.Fprintln(w)
 			renderDoctor(w, runtime.GOOS, tcc.Probe())
-			fmt.Fprintln(w)
+			cliout.Fprintln(w)
 			renderCredentialDoctor(w, probeCredentialStores())
-			fmt.Fprintln(w)
+			cliout.Fprintln(w)
 			cfg, err := config.Load(config.LoadOptions{ConfigFile: cfgFile, Providers: registered.Sections()})
 			if err != nil {
-				fmt.Fprintln(w, "agent engines")
-				fmt.Fprintf(w, "  configuration could not be loaded: %v\n", err)
+				cliout.Fprintln(w, "agent engines")
+				cliout.Fprintf(w, "  configuration could not be loaded: %v\n", err)
 				return nil
 			}
 			log := slog.New(slog.DiscardHandler)
 			renderEngineDoctor(w, daemon.InspectProviders(cfg, runningVersion(), log), engineBins(cfg), engineFloors())
-			fmt.Fprintln(w)
+			cliout.Fprintln(w)
 			marks, err := session.LoadSilentMarks(cfg.DataDir)
 			renderSilentDoctor(w, marks, err)
-			fmt.Fprintln(w)
+			cliout.Fprintln(w)
 			exe, _ := os.Executable()
 			res, err := libservice.ReadHandOffResult(libservice.DefaultResultPath(exe))
 			renderHandOffDoctor(w, res, err)
@@ -146,21 +146,21 @@ func probeCredentialStores() []credentialStore {
 // upstreams are configured. Values are never read, so this output is safe to
 // paste into an issue (MADR 0074 §9).
 func renderCredentialDoctor(w io.Writer, stores []credentialStore) {
-	fmt.Fprintln(w, "provider credentials (names only; no values are read)")
+	cliout.Fprintln(w, "provider credentials (names only; no values are read)")
 	for _, s := range stores {
-		fmt.Fprintf(w, "  %-9s %s\n", s.Agent+":", s.Path)
-		fmt.Fprintf(w, "    present:   %s\n", yesNo(s.Present))
+		cliout.Fprintf(w, "  %-9s %s\n", s.Agent+":", s.Path)
+		cliout.Fprintf(w, "    present:   %s\n", yesNo(s.Present))
 		if len(s.Upstreams) > 0 {
-			fmt.Fprintf(w, "    upstreams: %s\n", strings.Join(s.Upstreams, ", "))
+			cliout.Fprintf(w, "    upstreams: %s\n", strings.Join(s.Upstreams, ", "))
 		}
 		if s.Note != "" {
-			fmt.Fprintf(w, "    note:      %s\n", s.Note)
+			cliout.Fprintf(w, "    note:      %s\n", s.Note)
 		}
 		if s.Store != "" {
-			fmt.Fprintf(w, "    store:     %s\n", s.Store)
+			cliout.Fprintf(w, "    store:     %s\n", s.Store)
 		}
 		if s.Warning != "" {
-			fmt.Fprintf(w, "    warning:   %s\n", s.Warning)
+			cliout.Fprintf(w, "    warning:   %s\n", s.Warning)
 		}
 	}
 }
@@ -230,10 +230,10 @@ func engineBins(cfg config.Config) map[provider.ID]string {
 // PLAN P8 Deviation 1).
 func renderEngineDoctor(w io.Writer, reg *provider.Registry, bins map[provider.ID]string,
 	floors map[provider.ID]engineFloor) {
-	fmt.Fprintln(w, "agent engines (no engine is started)")
+	cliout.Fprintln(w, "agent engines (no engine is started)")
 	ps := reg.All()
 	if len(ps) == 0 {
-		fmt.Fprintln(w, "  none enabled")
+		cliout.Fprintln(w, "  none enabled")
 		return
 	}
 	slices.SortFunc(ps, func(a, b provider.Provider) int { return cmp.Compare(a.ID(), b.ID()) })
@@ -241,17 +241,17 @@ func renderEngineDoctor(w io.Writer, reg *provider.Registry, bins map[provider.I
 		label := string(p.ID()) + ":"
 		bin, hasBin := bins[p.ID()]
 		if !hasBin {
-			fmt.Fprintf(w, "  %-9s ready: %s (built in)\n", label, yesNo(p.Ready()))
+			cliout.Fprintf(w, "  %-9s ready: %s (built in)\n", label, yesNo(p.Ready()))
 			continue
 		}
 		resolved, err := launch.Resolve(bin)
 		switch {
 		case err != nil:
-			fmt.Fprintf(w, "  %-9s missing: %s\n", label, bin)
+			cliout.Fprintf(w, "  %-9s missing: %s\n", label, bin)
 		case p.Ready():
 			renderReadyEngine(w, label, resolved, floors[p.ID()])
 		default:
-			fmt.Fprintf(w, "  %-9s not ready: %s was found, but the provider refuses it; check its configuration\n",
+			cliout.Fprintf(w, "  %-9s not ready: %s was found, but the provider refuses it; check its configuration\n",
 				label, resolved.Path)
 		}
 	}
@@ -261,21 +261,21 @@ func renderEngineDoctor(w io.Writer, reg *provider.Registry, bins map[provider.I
 // with a floor the version its binary names, or why that is not known.
 func renderReadyEngine(w io.Writer, label string, resolved launch.Resolved, floor engineFloor) {
 	if floor.min == "" {
-		fmt.Fprintf(w, "  %-9s ready    %s\n", label, resolved.Path)
+		cliout.Fprintf(w, "  %-9s ready    %s\n", label, resolved.Path)
 		return
 	}
 	out, err := engineVersion(resolved)
 	version, named := versionIn(out)
 	switch {
 	case err != nil:
-		fmt.Fprintf(w, "  %-9s ready    %s; its version could not be read: %v\n", label, resolved.Path, err)
+		cliout.Fprintf(w, "  %-9s ready    %s; its version could not be read: %v\n", label, resolved.Path, err)
 	case !named:
-		fmt.Fprintf(w, "  %-9s ready    %s; `--version` named no version\n", label, resolved.Path)
+		cliout.Fprintf(w, "  %-9s ready    %s; `--version` named no version\n", label, resolved.Path)
 	case provider.CompareVersions(version, floor.min) < 0:
-		fmt.Fprintf(w, "  %-9s too old: %s is %s; this provider needs %s or later (%s)\n",
+		cliout.Fprintf(w, "  %-9s too old: %s is %s; this provider needs %s or later (%s)\n",
 			label, resolved.Path, version, floor.min, floor.upgradeURL)
 	default:
-		fmt.Fprintf(w, "  %-9s ready    %s (%s)\n", label, resolved.Path, version)
+		cliout.Fprintf(w, "  %-9s ready    %s (%s)\n", label, resolved.Path, version)
 	}
 }
 
@@ -283,13 +283,13 @@ func renderReadyEngine(w io.Writer, label string, resolved launch.Resolved, floo
 // over the remote connection (MADR 0208 D10). A mark applies only on the host
 // and agent version it names; the list shows every one on disk.
 func renderSilentDoctor(w io.Writer, marks []session.SilentMark, err error) {
-	fmt.Fprintln(w, "silent agent commands (each applies to its host and agent version only)")
+	cliout.Fprintln(w, "silent agent commands (each applies to its host and agent version only)")
 	if err != nil {
-		fmt.Fprintf(w, "  could not be read: %v\n", err)
+		cliout.Fprintf(w, "  could not be read: %v\n", err)
 		return
 	}
 	if len(marks) == 0 {
-		fmt.Fprintln(w, "  none")
+		cliout.Fprintln(w, "  none")
 		return
 	}
 	slices.SortFunc(marks, func(a, b session.SilentMark) int {
@@ -301,7 +301,7 @@ func renderSilentDoctor(w io.Writer, marks []session.SilentMark, err error) {
 		if version == "" {
 			version = "version unknown"
 		}
-		fmt.Fprintf(w, "  %-9s /%-20s %s, host %s, marked %s\n", m.Provider+":", m.Command, version, m.Host,
+		cliout.Fprintf(w, "  %-9s /%-20s %s, host %s, marked %s\n", m.Provider+":", m.Command, version, m.Host,
 			m.MarkedAt.Format("2006-01-02"))
 	}
 }
@@ -311,35 +311,35 @@ func renderSilentDoctor(w io.Writer, marks []session.SilentMark, err error) {
 // binary; with no file there, no update has been handed off.
 func renderHandOffDoctor(w io.Writer, res libservice.HandOffResult, err error) {
 	if errors.Is(err, fs.ErrNotExist) {
-		fmt.Fprintln(w, "self-update handoff: none")
+		cliout.Fprintln(w, "self-update handoff: none")
 		return
 	}
-	fmt.Fprintln(w, "self-update handoff (the last update an agent handed to the service manager)")
+	cliout.Fprintln(w, "self-update handoff (the last update an agent handed to the service manager)")
 	if err != nil {
-		fmt.Fprintf(w, "  could not be read: %v\n", err)
+		cliout.Fprintf(w, "  could not be read: %v\n", err)
 		return
 	}
-	fmt.Fprintf(w, "  id:        %s\n", res.ID)
-	fmt.Fprintf(w, "  started:   %s\n", res.StartedAt.Format(time.RFC3339))
-	fmt.Fprintf(w, "  finished:  %s\n", res.FinishedAt.Format(time.RFC3339))
-	fmt.Fprintf(w, "  exit code: %d\n", res.ExitCode)
+	cliout.Fprintf(w, "  id:        %s\n", res.ID)
+	cliout.Fprintf(w, "  started:   %s\n", res.StartedAt.Format(time.RFC3339))
+	cliout.Fprintf(w, "  finished:  %s\n", res.FinishedAt.Format(time.RFC3339))
+	cliout.Fprintf(w, "  exit code: %d\n", res.ExitCode)
 	if res.Error != "" {
-		fmt.Fprintf(w, "  error:     %s\n", res.Error)
+		cliout.Fprintf(w, "  error:     %s\n", res.Error)
 	}
 }
 
 // renderServiceDoctor prints LaunchAgent / user-unit status (MADR 0072 P2).
 func renderServiceDoctor(w io.Writer, st service.Status) {
-	fmt.Fprintln(w, "mcremote user service")
-	fmt.Fprintf(w, "  path:    %s\n", st.PlistOrUnit)
-	fmt.Fprintf(w, "  present: %s\n", yesNo(st.PlistPresent))
-	fmt.Fprintf(w, "  loaded:  %s\n", yesNo(st.Loaded))
-	fmt.Fprintf(w, "  enabled: %s\n", yesNo(st.Enabled))
-	fmt.Fprintf(w, "  active:  %s\n", yesNo(st.Active))
+	cliout.Fprintln(w, "mcremote user service")
+	cliout.Fprintf(w, "  path:    %s\n", st.PlistOrUnit)
+	cliout.Fprintf(w, "  present: %s\n", yesNo(st.PlistPresent))
+	cliout.Fprintf(w, "  loaded:  %s\n", yesNo(st.Loaded))
+	cliout.Fprintf(w, "  enabled: %s\n", yesNo(st.Enabled))
+	cliout.Fprintf(w, "  active:  %s\n", yesNo(st.Active))
 	if st.Hint != "" {
-		fmt.Fprintf(w, "  hint:    %s\n", st.Hint)
+		cliout.Fprintf(w, "  hint:    %s\n", st.Hint)
 	} else if st.Active {
-		fmt.Fprintln(w, "  OK: service is loaded and running")
+		cliout.Fprintln(w, "  OK: service is loaded and running")
 	}
 }
 
@@ -354,39 +354,39 @@ func yesNo(v bool) string {
 // command so tests can cover every state without owning the host's TCC
 // database.
 func renderDoctor(w io.Writer, goos string, res tcc.ProbeResult) {
-	fmt.Fprintln(w, "macOS privacy (TCC / Full Disk Access)")
+	cliout.Fprintln(w, "macOS privacy (TCC / Full Disk Access)")
 	if goos != "darwin" {
-		fmt.Fprintln(w, "  not applicable on this platform")
+		cliout.Fprintln(w, "  not applicable on this platform")
 		return
 	}
 	// TCC attributes access to the *responsible process*: run from a
 	// terminal, this probe reports the terminal app's grant, not the
 	// LaunchAgent's. The service's authoritative verdict is the daemon's
 	// own startup log line.
-	fmt.Fprintln(w, "  (probing under this process's identity — the running service's")
-	fmt.Fprintln(w, "  verdict is its startup log line; a terminal's grant does not")
-	fmt.Fprintln(w, "  transfer to the LaunchAgent)")
+	cliout.Fprintln(w, "  (probing under this process's identity — the running service's")
+	cliout.Fprintln(w, "  verdict is its startup log line; a terminal's grant does not")
+	cliout.Fprintln(w, "  transfer to the LaunchAgent)")
 	switch res {
 	case tcc.Granted:
-		fmt.Fprintln(w, "  OK: the daemon can read ~/Downloads — a privacy grant covers it.")
-		fmt.Fprintln(w, "  Note: this is a lower-bound signal; iCloud Drive and external")
-		fmt.Fprintln(w, "  volumes have separate protections.")
+		cliout.Fprintln(w, "  OK: the daemon can read ~/Downloads — a privacy grant covers it.")
+		cliout.Fprintln(w, "  Note: this is a lower-bound signal; iCloud Drive and external")
+		cliout.Fprintln(w, "  volumes have separate protections.")
 	case tcc.Denied:
-		fmt.Fprintln(w, "  DENIED: macOS is blocking the daemon from protected folders.")
-		fmt.Fprintln(w, "  Agent sessions under ~/Documents, ~/Desktop or ~/Downloads will")
-		fmt.Fprintln(w, "  fail with \"operation not permitted\".")
-		fmt.Fprintln(w, "")
-		fmt.Fprintln(w, "  Fix: System Settings → Privacy & Security → Full Disk Access →")
-		fmt.Fprintln(w, "  \"+\" → add the mcremote binary, then restart the service.")
-		fmt.Fprintln(w, "  If a grant exists but stopped working after an upgrade, the")
-		fmt.Fprintln(w, "  binary's code identity changed (unsigned builds change identity")
-		fmt.Fprintln(w, "  every rebuild): remove and re-add it, or reset stale rows with")
-		fmt.Fprintln(w, "    tccutil reset SystemPolicyAllFiles")
-		fmt.Fprintln(w, "  To confirm a live denial:")
-		fmt.Fprintln(w, "    log stream --predicate 'subsystem == \"com.apple.TCC\"' | grep -i deny")
-		fmt.Fprintln(w, "  Details: docs/guides/ops-macos-tcc.md")
+		cliout.Fprintln(w, "  DENIED: macOS is blocking the daemon from protected folders.")
+		cliout.Fprintln(w, "  Agent sessions under ~/Documents, ~/Desktop or ~/Downloads will")
+		cliout.Fprintln(w, "  fail with \"operation not permitted\".")
+		cliout.Fprintln(w, "")
+		cliout.Fprintln(w, "  Fix: System Settings → Privacy & Security → Full Disk Access →")
+		cliout.Fprintln(w, "  \"+\" → add the mcremote binary, then restart the service.")
+		cliout.Fprintln(w, "  If a grant exists but stopped working after an upgrade, the")
+		cliout.Fprintln(w, "  binary's code identity changed (unsigned builds change identity")
+		cliout.Fprintln(w, "  every rebuild): remove and re-add it, or reset stale rows with")
+		cliout.Fprintln(w, "    tccutil reset SystemPolicyAllFiles")
+		cliout.Fprintln(w, "  To confirm a live denial:")
+		cliout.Fprintln(w, "    log stream --predicate 'subsystem == \"com.apple.TCC\"' | grep -i deny")
+		cliout.Fprintln(w, "  Details: docs/guides/ops-macos-tcc.md")
 	default:
-		fmt.Fprintln(w, "  UNKNOWN: the probe location (~/Downloads) is missing or errored")
-		fmt.Fprintln(w, "  in a non-TCC way; no verdict. See docs/guides/ops-macos-tcc.md.")
+		cliout.Fprintln(w, "  UNKNOWN: the probe location (~/Downloads) is missing or errored")
+		cliout.Fprintln(w, "  in a non-TCC way; no verdict. See docs/guides/ops-macos-tcc.md.")
 	}
 }

@@ -158,7 +158,7 @@ func healthzProbe(ctx context.Context, args service.ServeArgs) (libservice.Healt
 	if err != nil {
 		return libservice.Health{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(res.Body, 4096))
 	if err != nil {
 		return libservice.Health{}, err

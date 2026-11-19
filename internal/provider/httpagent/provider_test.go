@@ -3,6 +3,7 @@ package httpagent
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -113,6 +114,22 @@ func TestStartServerBailsWhenEngineExitsImmediately(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "exited during startup") {
 		t.Fatalf("error=%q, want it to mention 'exited during startup'", err)
+	}
+	// The helper exits with status 1, and the error says how the engine ended.
+	if !strings.Contains(err.Error(), "(exit status 1)") {
+		t.Fatalf("error=%q, want it to carry the engine's exit status '(exit status 1)'", err)
+	}
+}
+
+func TestTCPPort(t *testing.T) {
+	if got, err := tcpPort(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 4242}); err != nil || got != 4242 {
+		t.Fatalf("tcpPort(TCP) = %d, %v; want 4242, nil", got, err)
+	}
+	if _, err := tcpPort(&net.UnixAddr{Name: "/run/x.sock", Net: "unix"}); err == nil {
+		t.Fatal("tcpPort(unix address) returned no error")
+	}
+	if port, err := freePort(); err != nil || port <= 0 {
+		t.Fatalf("freePort() = %d, %v; want a positive port", port, err)
 	}
 }
 

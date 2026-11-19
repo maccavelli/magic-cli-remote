@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
+	"github.com/maccavelli/magic-cli-remote/internal/cliout"
 )
 
 // setup-service --from-installer (MADR 0054 amendment S7, H1; PLAN S7a). The
@@ -253,21 +254,21 @@ func RunInstallerHook(out io.Writer, opts Options) (bool, error) {
 func PrintInstallerHook(out io.Writer, plan HookPlan, res HookResult) {
 	switch plan.Action {
 	case HookNone:
-		fmt.Fprintf(out, "no %s service is set up, so there is nothing to refresh\n", plan.Product)
-		fmt.Fprintf(out, "set one up with: %s setup-service, or %s=1 on mcremote's\n", plan.Product, EnvWithRelayService)
+		cliout.Fprintf(out, "no %s service is set up, so there is nothing to refresh\n", plan.Product)
+		cliout.Fprintf(out, "set one up with: %s setup-service, or %s=1 on mcremote's\n", plan.Product, EnvWithRelayService)
 	case HookForeign:
-		fmt.Fprintf(out, "left alone: %s %s service %s — %s\n", plan.Product, plan.Item.Kind, plan.Item.Path, plan.Item.Reason)
+		cliout.Fprintf(out, "left alone: %s %s service %s — %s\n", plan.Product, plan.Item.Kind, plan.Item.Path, plan.Item.Reason)
 	case HookUpgrade:
 		if res.Refresh.Verdict != "" {
 			_ = PrintRefreshResult(out, res.Refresh, plan.Product, false)
 		}
 		switch res.Cycle {
 		case CycleRestarted:
-			fmt.Fprintf(out, "%s service restarted on the new binary\n", plan.Product)
+			cliout.Fprintf(out, "%s service restarted on the new binary\n", plan.Product)
 		case CycleStarted:
-			fmt.Fprintf(out, "%s service started on the new binary (it was stopped and is enabled)\n", plan.Product)
+			cliout.Fprintf(out, "%s service started on the new binary (it was stopped and is enabled)\n", plan.Product)
 		case CycleLeftStopped:
-			fmt.Fprintf(out, "%s service left stopped: it is not enabled\n", plan.Product)
+			cliout.Fprintf(out, "%s service left stopped: it is not enabled\n", plan.Product)
 		}
 		printHealth(out, Result{Health: res.Health, Warnings: res.Warnings})
 	}

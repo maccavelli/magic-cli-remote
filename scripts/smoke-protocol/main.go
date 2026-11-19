@@ -121,7 +121,7 @@ func main() {
 	if err != nil {
 		fail("websocket dial", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Read loop in background; request() correlates by id.
 	inbox := make(chan envelope, 64)
@@ -307,7 +307,7 @@ func checkHealthz(ctx context.Context, client *http.Client, url string) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != 200 {
 		return fmt.Errorf("HTTP %d", res.StatusCode)
 	}
@@ -329,7 +329,7 @@ func checkHello(ctx context.Context, client *http.Client, url, token string) err
 	if err != nil {
 		return err
 	}
-	res.Body.Close()
+	_ = res.Body.Close()
 	if res.StatusCode != http.StatusUnauthorized {
 		return fmt.Errorf("unauthenticated GET returned HTTP %d, want 401", res.StatusCode)
 	}
@@ -343,7 +343,7 @@ func checkHello(ctx context.Context, client *http.Client, url, token string) err
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != 200 {
 		return fmt.Errorf("authenticated GET returned HTTP %d", res.StatusCode)
 	}

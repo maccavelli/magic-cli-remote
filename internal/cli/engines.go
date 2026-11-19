@@ -7,6 +7,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
+	"github.com/maccavelli/magic-cli-remote/internal/cliout"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/spf13/cobra"
 )
@@ -167,13 +168,13 @@ func renderEngineRows(out io.Writer, rows []engineRow) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "PID\tOWNER\tSTATE\tPROVIDER\tENGINE ID")
+	cliout.Fprintln(tw, "PID\tOWNER\tSTATE\tPROVIDER\tENGINE ID")
 	orphanCount := 0
 	for _, r := range rows {
 		if r.state == engineStateOrphan {
 			orphanCount++
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.pid, r.owner, r.state, r.provider, r.id)
+		cliout.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.pid, r.owner, r.state, r.provider, r.id)
 	}
 	if err := tw.Flush(); err != nil {
 		return err

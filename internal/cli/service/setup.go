@@ -1431,7 +1431,7 @@ func writeUnitAtomic(unitDir, unitPath string, body []byte, mode os.FileMode) er
 	}
 	tmp := f.Name()
 	cleanup := func() {
-		f.Close()
+		_ = f.Close()
 		_ = os.Remove(tmp)
 	}
 	if _, err := f.Write(body); err != nil {

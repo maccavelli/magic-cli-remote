@@ -2,11 +2,11 @@ package service
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"path/filepath"
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
+	"github.com/maccavelli/magic-cli-remote/internal/cliout"
 )
 
 // PrintRemoveResult writes what --remove did, for mcremote ("daemon") or
@@ -15,19 +15,19 @@ import (
 // service stopped. A stop that failed is said so: the definition is gone, but
 // the process may still run (MADR 0207 PLAN U6b).
 func PrintRemoveResult(out io.Writer, res Result, what string) {
-	fmt.Fprintf(out, "Removed:           %s\n", res.UnitPath)
+	cliout.Fprintf(out, "Removed:           %s\n", res.UnitPath)
 	if res.RemovedBackup != "" {
-		fmt.Fprintf(out, "Removed backup:    %s\n", res.RemovedBackup)
+		cliout.Fprintf(out, "Removed backup:    %s\n", res.RemovedBackup)
 	}
 	if res.KeptLogs != "" {
-		fmt.Fprintf(out, "Logs kept:         %s (delete them yourself when no longer needed)\n", res.KeptLogs)
+		cliout.Fprintf(out, "Logs kept:         %s (delete them yourself when no longer needed)\n", res.KeptLogs)
 	}
 	if res.StopFailure != "" {
-		fmt.Fprintf(out, "The %s could not be stopped: %s. Its definition is removed; end the process yourself if it still runs.\n",
+		cliout.Fprintf(out, "The %s could not be stopped: %s. Its definition is removed; end the process yourself if it still runs.\n",
 			what, res.StopFailure)
 		return
 	}
-	fmt.Fprintf(out, "The %s was stopped and the service disabled.\n", what)
+	cliout.Fprintf(out, "The %s was stopped and the service disabled.\n", what)
 }
 
 // PrintRefreshResult writes the outcome of a --refresh. Every verdict is a
@@ -41,21 +41,21 @@ func PrintRefreshResult(out io.Writer, res RefreshResult, product string, asJSON
 	}
 	switch res.Verdict {
 	case VerdictNone:
-		fmt.Fprintf(out, "no service definition installed for %s — nothing to refresh\n", product)
+		cliout.Fprintf(out, "no service definition installed for %s — nothing to refresh\n", product)
 	case VerdictUnchanged:
-		fmt.Fprintf(out, "service definition unchanged: %s\n", res.Path)
+		cliout.Fprintf(out, "service definition unchanged: %s\n", res.Path)
 	case VerdictRefreshed:
 		if res.BackupPath != "" {
-			fmt.Fprintf(out, "service definition refreshed: %s (previous kept at %s)\n", res.Path, res.BackupPath)
+			cliout.Fprintf(out, "service definition refreshed: %s (previous kept at %s)\n", res.Path, res.BackupPath)
 		} else {
-			fmt.Fprintf(out, "service definition would be refreshed: %s\n", res.Path)
+			cliout.Fprintf(out, "service definition would be refreshed: %s\n", res.Path)
 		}
 	case VerdictKept:
-		fmt.Fprintf(out, "service definition kept: %s — %s; refresh it with: %s setup-service --force\n",
+		cliout.Fprintf(out, "service definition kept: %s — %s; refresh it with: %s setup-service --force\n",
 			res.Path, res.Reason, product)
 	}
 	for _, w := range res.Warnings {
-		fmt.Fprintf(out, "warning: %s\n", w)
+		cliout.Fprintf(out, "warning: %s\n", w)
 	}
 	return nil
 }
@@ -70,7 +70,7 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 	}
 	if res.NotConfigured {
 		for _, line := range res.Advice {
-			fmt.Fprintln(out, line)
+			cliout.Fprintln(out, line)
 		}
 		return
 	}
@@ -79,120 +79,120 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		printScriptResult(out, res, product)
 		return
 	}
-	fmt.Fprintf(out, "ExecStart binary:  %s\n", res.Binary)
+	cliout.Fprintf(out, "ExecStart binary:  %s\n", res.Binary)
 	switch res.Scope {
 	case string(KindLaunchdAgent):
-		fmt.Fprintf(out, "Plist:             %s\n", res.UnitPath)
-		fmt.Fprintf(out, "Label:             %s\n", res.Label)
-		fmt.Fprintln(out, "Scope:             launchd-agent (session — stops on logout)")
+		cliout.Fprintf(out, "Plist:             %s\n", res.UnitPath)
+		cliout.Fprintf(out, "Label:             %s\n", res.Label)
+		cliout.Fprintln(out, "Scope:             launchd-agent (session — stops on logout)")
 	case string(KindWindowsTask):
-		fmt.Fprintf(out, "Task:              %s\n", res.UnitPath)
-		fmt.Fprintln(out, "Scope:             per-user Task Scheduler task (at logon, no elevation)")
+		cliout.Fprintf(out, "Task:              %s\n", res.UnitPath)
+		cliout.Fprintln(out, "Scope:             per-user Task Scheduler task (at logon, no elevation)")
 	default:
-		fmt.Fprintf(out, "Unit file:         %s\n", res.UnitPath)
-		fmt.Fprintf(out, "Unit name:         %s.service\n", res.UnitName)
-		fmt.Fprintln(out, "Scope:             systemd-user")
+		cliout.Fprintf(out, "Unit file:         %s\n", res.UnitPath)
+		cliout.Fprintf(out, "Unit name:         %s.service\n", res.UnitName)
+		cliout.Fprintln(out, "Scope:             systemd-user")
 	}
 	if res.ConfigPath != "" {
 		if res.ConfigCreated {
-			fmt.Fprintf(out, "Config:            %s (default written)\n", res.ConfigPath)
+			cliout.Fprintf(out, "Config:            %s (default written)\n", res.ConfigPath)
 			switch res.Scope {
 			case string(KindLaunchdAgent):
 				svc := res.Domain + "/" + res.Label
 				if res.Domain == "" {
 					svc = "gui/$(id -u)/" + res.Label
 				}
-				fmt.Fprintf(out, "                   Edit this file, then: launchctl kickstart -k %s\n", svc)
+				cliout.Fprintf(out, "                   Edit this file, then: launchctl kickstart -k %s\n", svc)
 			case string(KindWindowsTask):
-				fmt.Fprintf(out, "                   Edit this file, then: schtasks /end /tn %s and schtasks /run /tn %s\n", res.Label, res.Label)
+				cliout.Fprintf(out, "                   Edit this file, then: schtasks /end /tn %s and schtasks /run /tn %s\n", res.Label, res.Label)
 			default:
-				fmt.Fprintln(out, "                   Edit this file, then: systemctl --user restart "+res.UnitName)
+				cliout.Fprintln(out, "                   Edit this file, then: systemctl --user restart "+res.UnitName)
 			}
 		} else {
-			fmt.Fprintf(out, "Config:            %s\n", res.ConfigPath)
+			cliout.Fprintf(out, "Config:            %s\n", res.ConfigPath)
 		}
 	}
 	if res.Enabled {
 		switch res.Scope {
 		case string(KindLaunchdAgent):
-			fmt.Fprintln(out, "Enabled:           yes (launchctl enable)")
+			cliout.Fprintln(out, "Enabled:           yes (launchctl enable)")
 		case string(KindWindowsTask):
-			fmt.Fprintln(out, "Enabled:           yes (registered in Task Scheduler)")
+			cliout.Fprintln(out, "Enabled:           yes (registered in Task Scheduler)")
 		default:
-			fmt.Fprintln(out, "Enabled:           yes (systemctl --user enable)")
+			cliout.Fprintln(out, "Enabled:           yes (systemctl --user enable)")
 		}
 	} else {
-		fmt.Fprintln(out, "Enabled:           skipped")
+		cliout.Fprintln(out, "Enabled:           skipped")
 	}
 	if res.Started {
 		// What setup did, through the backend the update uses (MADR 0207 D4,
 		// D43; PLAN U6b).
 		switch res.Scope {
 		case string(KindLaunchdAgent):
-			fmt.Fprintln(out, "Started:           yes (booted out, then bootstrapped and kickstarted)")
+			cliout.Fprintln(out, "Started:           yes (booted out, then bootstrapped and kickstarted)")
 		case string(KindWindowsTask):
-			fmt.Fprintln(out, "Started:           yes (enabled, then started; --force stops it first)")
+			cliout.Fprintln(out, "Started:           yes (enabled, then started; --force stops it first)")
 		default:
-			fmt.Fprintln(out, "Started:           yes (stopped, then started)")
+			cliout.Fprintln(out, "Started:           yes (stopped, then started)")
 		}
 	} else {
-		fmt.Fprintln(out, "Started:           skipped")
+		cliout.Fprintln(out, "Started:           skipped")
 	}
 	switch res.Scope {
 	case string(KindLaunchdAgent):
-		fmt.Fprintln(out, "Linger:            n/a on macOS (LaunchAgent is session-bound; no sudo system daemon)")
+		cliout.Fprintln(out, "Linger:            n/a on macOS (LaunchAgent is session-bound; no sudo system daemon)")
 		if res.LogDir != "" {
-			fmt.Fprintf(out, "Logs dir:          %s\n", res.LogDir)
+			cliout.Fprintf(out, "Logs dir:          %s\n", res.LogDir)
 		}
 	case string(KindWindowsTask):
 		// No linger concept: the task starts at logon and stops at logoff.
 	default:
 		if res.LingerEnabled {
-			fmt.Fprintln(out, "Linger:            yes (survives logout)")
+			cliout.Fprintln(out, "Linger:            yes (survives logout)")
 		} else if !noLinger {
-			fmt.Fprintln(out, "Linger:            not enabled (run: loginctl enable-linger $USER)")
+			cliout.Fprintln(out, "Linger:            not enabled (run: loginctl enable-linger $USER)")
 		} else {
-			fmt.Fprintln(out, "Linger:            skipped")
+			cliout.Fprintln(out, "Linger:            skipped")
 		}
 	}
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Note: setup-service does not install the binary.")
+	cliout.Fprintln(out)
+	cliout.Fprintln(out, "Note: setup-service does not install the binary.")
 	if res.Scope == string(KindWindowsTask) {
-		fmt.Fprintln(out, "      Install/update it with: install.ps1")
+		cliout.Fprintln(out, "      Install/update it with: install.ps1")
 	} else {
-		fmt.Fprintln(out, "      Install/update it with: make install")
+		cliout.Fprintln(out, "      Install/update it with: make install")
 	}
 	if res.Scope == string(KindLaunchdAgent) {
-		fmt.Fprintln(out, "Note: macOS 13+ may show a Background Items notification;")
-		fmt.Fprintln(out, "      System Settings → General → Login Items can disable the agent.")
+		cliout.Fprintln(out, "Note: macOS 13+ may show a Background Items notification;")
+		cliout.Fprintln(out, "      System Settings → General → Login Items can disable the agent.")
 	}
-	fmt.Fprintln(out)
+	cliout.Fprintln(out)
 	switch res.Scope {
 	case string(KindLaunchdAgent):
 		svc := res.Domain + "/" + res.Label
 		if res.Domain == "" {
 			svc = "gui/$(id -u)/" + res.Label
 		}
-		fmt.Fprintf(out, "Status:  launchctl print %s\n", svc)
+		cliout.Fprintf(out, "Status:  launchctl print %s\n", svc)
 		if res.LogDir != "" {
-			fmt.Fprintf(out, "Logs:    tail -f %s/%s.err.log\n", res.LogDir, product)
+			cliout.Fprintf(out, "Logs:    tail -f %s/%s.err.log\n", res.LogDir, product)
 		}
-		fmt.Fprintf(out, "Stop:    launchctl bootout %s\n", svc)
-		fmt.Fprintf(out, "Remove:  %s setup-service --remove\n", product)
+		cliout.Fprintf(out, "Stop:    launchctl bootout %s\n", svc)
+		cliout.Fprintf(out, "Remove:  %s setup-service --remove\n", product)
 	case string(KindWindowsTask):
 		// MADR 0159 D2. Stop is written for D5's semantics: once the task
 		// carries a repeating trigger, /end alone is undone within a minute, so
 		// stopping means disabling first. Until then /disable is harmless.
-		fmt.Fprintf(out, "Status:  schtasks /query /tn %s\n", res.Label)
-		fmt.Fprintf(out, "Start:   schtasks /run /tn %s\n", res.Label)
-		fmt.Fprintf(out, "Stop:    schtasks /change /tn %s /disable  then  schtasks /end /tn %s\n", res.Label, res.Label)
-		fmt.Fprintln(out, "Logs:    not yet written to a file on Windows (MADR 0157)")
-		fmt.Fprintf(out, "Remove:  %s setup-service --remove\n", product)
+		cliout.Fprintf(out, "Status:  schtasks /query /tn %s\n", res.Label)
+		cliout.Fprintf(out, "Start:   schtasks /run /tn %s\n", res.Label)
+		cliout.Fprintf(out, "Stop:    schtasks /change /tn %s /disable  then  schtasks /end /tn %s\n", res.Label, res.Label)
+		cliout.Fprintln(out, "Logs:    not yet written to a file on Windows (MADR 0157)")
+		cliout.Fprintf(out, "Remove:  %s setup-service --remove\n", product)
 	default:
-		fmt.Fprintf(out, "Status:  systemctl --user status %s\n", res.UnitName)
-		fmt.Fprintf(out, "Logs:    journalctl --user -u %s -f\n", res.UnitName)
-		fmt.Fprintf(out, "Stop:    systemctl --user stop %s\n", res.UnitName)
-		fmt.Fprintf(out, "Disable: systemctl --user disable --now %s\n", res.UnitName)
+		cliout.Fprintf(out, "Status:  systemctl --user status %s\n", res.UnitName)
+		cliout.Fprintf(out, "Logs:    journalctl --user -u %s -f\n", res.UnitName)
+		cliout.Fprintf(out, "Stop:    systemctl --user stop %s\n", res.UnitName)
+		cliout.Fprintf(out, "Disable: systemctl --user disable --now %s\n", res.UnitName)
 	}
 }
 
@@ -205,59 +205,59 @@ func printScriptResult(out io.Writer, res Result, product string) {
 	if kind == KindOpenRCUser {
 		def = scriptDefFor(kind, res.UnitName, filepath.Dir(res.UnitPath))
 	}
-	fmt.Fprintf(out, "Serve binary:      %s\n", res.Binary)
-	fmt.Fprintf(out, "Definition:        %s\n", res.UnitPath)
-	fmt.Fprintf(out, "Scope:             %s (user service)\n", kind)
+	cliout.Fprintf(out, "Serve binary:      %s\n", res.Binary)
+	cliout.Fprintf(out, "Definition:        %s\n", res.UnitPath)
+	cliout.Fprintf(out, "Scope:             %s (user service)\n", kind)
 	if res.ConfigPath != "" {
 		if res.ConfigCreated {
-			fmt.Fprintf(out, "Config:            %s (default written)\n", res.ConfigPath)
+			cliout.Fprintf(out, "Config:            %s (default written)\n", res.ConfigPath)
 		} else {
-			fmt.Fprintf(out, "Config:            %s\n", res.ConfigPath)
+			cliout.Fprintf(out, "Config:            %s\n", res.ConfigPath)
 		}
 	}
 	if res.Enabled {
-		fmt.Fprintln(out, "Enabled:           yes")
+		cliout.Fprintln(out, "Enabled:           yes")
 	} else {
-		fmt.Fprintln(out, "Enabled:           skipped")
+		cliout.Fprintln(out, "Enabled:           skipped")
 	}
 	if res.Started {
-		fmt.Fprintln(out, "Started:           yes")
+		cliout.Fprintln(out, "Started:           yes")
 	} else {
-		fmt.Fprintln(out, "Started:           skipped")
+		cliout.Fprintln(out, "Started:           skipped")
 	}
 	switch {
 	case res.SupervisorStarted && kind == KindOpenRCUser:
-		fmt.Fprintln(out, "Supervisor:        started your OpenRC user session for this login")
-		fmt.Fprintln(out, "At boot:           NOT configured unless pam_openrc starts user sessions at login")
+		cliout.Fprintln(out, "Supervisor:        started your OpenRC user session for this login")
+		cliout.Fprintln(out, "At boot:           NOT configured unless pam_openrc starts user sessions at login")
 	case res.SupervisorStarted:
 		scanner := toolRunsvdir
 		if kind == KindS6 {
 			scanner = toolS6Svscan
 		}
-		fmt.Fprintf(out, "Supervisor:        started %s for this login session (pid %d)\n", scanner, res.SupervisorPID)
-		fmt.Fprintln(out, "At boot:           NOT configured — arrange for your supervisor to start at boot")
+		cliout.Fprintf(out, "Supervisor:        started %s for this login session (pid %d)\n", scanner, res.SupervisorPID)
+		cliout.Fprintln(out, "At boot:           NOT configured — arrange for your supervisor to start at boot")
 	case kind == KindOpenRCUser:
-		fmt.Fprintln(out, "At boot:           in the user default runlevel (rc-update --user)")
+		cliout.Fprintln(out, "At boot:           in the user default runlevel (rc-update --user)")
 	default:
-		fmt.Fprintln(out, "Supervisor:        your own, already watching "+def.ScanDir)
-		fmt.Fprintln(out, "At boot:           as your supervisor is started at boot")
+		cliout.Fprintln(out, "Supervisor:        your own, already watching "+def.ScanDir)
+		cliout.Fprintln(out, "At boot:           as your supervisor is started at boot")
 	}
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Note: setup-service does not install the binary.")
-	fmt.Fprintln(out, "      Install/update it with: make install")
-	fmt.Fprintln(out)
+	cliout.Fprintln(out)
+	cliout.Fprintln(out, "Note: setup-service does not install the binary.")
+	cliout.Fprintln(out, "      Install/update it with: make install")
+	cliout.Fprintln(out)
 	switch kind {
 	case KindRunit:
-		fmt.Fprintf(out, "Status:  sv status %s\n", def.Dir)
-		fmt.Fprintf(out, "Stop:    sv down %s\n", def.Dir)
+		cliout.Fprintf(out, "Status:  sv status %s\n", def.Dir)
+		cliout.Fprintf(out, "Stop:    sv down %s\n", def.Dir)
 	case KindS6:
-		fmt.Fprintf(out, "Status:  s6-svstat %s\n", def.Dir)
-		fmt.Fprintf(out, "Stop:    s6-svc -d %s\n", def.Dir)
+		cliout.Fprintf(out, "Status:  s6-svstat %s\n", def.Dir)
+		cliout.Fprintf(out, "Stop:    s6-svc -d %s\n", def.Dir)
 	case KindOpenRCUser:
-		fmt.Fprintf(out, "Status:  rc-service --user %s status\n", res.UnitName)
-		fmt.Fprintf(out, "Stop:    rc-service --user %s stop\n", res.UnitName)
+		cliout.Fprintf(out, "Status:  rc-service --user %s status\n", res.UnitName)
+		cliout.Fprintf(out, "Stop:    rc-service --user %s stop\n", res.UnitName)
 	}
-	fmt.Fprintf(out, "Remove:  %s setup-service --remove\n", product)
+	cliout.Fprintf(out, "Remove:  %s setup-service --remove\n", product)
 }
 
 // printHealth closes a setup result with the verified start's outcome and any
@@ -265,13 +265,13 @@ func printScriptResult(out io.Writer, res Result, product string) {
 func printHealth(out io.Writer, res Result) {
 	switch res.Health {
 	case HealthRunning:
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "Running:           yes, confirmed after the start")
+		cliout.Fprintln(out)
+		cliout.Fprintln(out, "Running:           yes, confirmed after the start")
 	case HealthStarting:
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "Running:           not yet confirmed — still starting when the wait ended")
+		cliout.Fprintln(out)
+		cliout.Fprintln(out, "Running:           not yet confirmed — still starting when the wait ended")
 	}
 	for _, w := range res.Warnings {
-		fmt.Fprintf(out, "warning: %s\n", w)
+		cliout.Fprintf(out, "warning: %s\n", w)
 	}
 }

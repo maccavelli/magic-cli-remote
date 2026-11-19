@@ -11,6 +11,20 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Changed
 
+- An engine that exits while the daemon is starting it is now reported with how it ended, for example "kilo server
+  exited during startup (exit status 1)", where the message gave no status. The daemon now logs a warning if its admin
+  socket ends with an error during shutdown, and mcrelay if its HTTP server does; and a failed close of a receipt file
+  is reported instead of being dropped, with the log line "receipt: appended, but closing its file failed" (the receipt is
+  in the chain; any other failure still logs "receipt: append failed"). See
+  [0131-PLAN-replace-golint-with-golangci-lint.md](docs/decisions/0131-PLAN-replace-golint-with-golangci-lint.md).
+- A command whose output could not be written now exits non-zero instead of exiting 0. This covers what a script sends to a
+  file or a pipe, or shows once: `setup-service --print-only` and `--refresh --print-only` (mcremote and mcrelay), `receipts
+  show`, `receipts verify` (a broken chain still fails with "chain broken at line N", with the failed write added to it; the exit status is 1 either way, so a
+  script tells a broken chain from an unprintable result by the error text),
+  `auth recovery status`, and the token and pairing URI of `pair create` and the code and URI of `pair code`. When the pairing token or code
+  was already minted, the error says so and says what is true of it: a token stays valid until it is revoked and cannot be
+  shown again (`mcremote pair revoke <id>`), a code stays valid until it expires or is used. See
+  [0131-PLAN-replace-golint-with-golangci-lint.md](docs/decisions/0131-PLAN-replace-golint-with-golangci-lint.md).
 - Example addresses in `--help` output, the phone's Host field hint and the guides were replaced with placeholders. See
   [0248-PLAN-bring-the-docs-current-and-keep-them-so.md](docs/decisions/0248-PLAN-bring-the-docs-current-and-keep-them-so.md).
 

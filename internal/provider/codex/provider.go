@@ -732,7 +732,7 @@ func (p *Provider) launchEngineProcess(ctx context.Context, identity BinaryIdent
 	}
 	if err != nil {
 		killTree()
-		<-waitCh
+		p.awaitExit(waitCh)
 		cleanup()
 		if lease != nil {
 			p.stopManagedLease(context.Background(), lease)
@@ -783,6 +783,15 @@ func (p *Provider) stopManagedLease(ctx context.Context, lease *managedDaemonLea
 	}
 }
 
+// awaitExit waits for the engine process that was just killed to be reaped and
+// logs how it ended. The status is expected to be a kill, so it is a debug line:
+// the caller is already returning its own error or tearing the engine down.
+func (p *Provider) awaitExit(waitCh <-chan error) {
+	if err := <-waitCh; err != nil {
+		p.log.Debug("codex: engine process ended", slog.String("err", err.Error()))
+	}
+}
+
 func (p *Provider) reapAttempt(att *engineAttempt) {
 	if att == nil || att.cmd == nil || att.cmd.Process == nil {
 		return
@@ -792,7 +801,7 @@ func (p *Provider) reapAttempt(att *engineAttempt) {
 	if att.release != nil {
 		att.release()
 	}
-	<-att.waitCh
+	p.awaitExit(att.waitCh)
 	_ = att.conn.transport.Close()
 	if att.cleanup != nil {
 		att.cleanup()

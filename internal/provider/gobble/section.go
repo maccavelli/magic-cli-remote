@@ -64,7 +64,11 @@ func Descriptor() provider.Descriptor {
 		Name:    string(provider.IDGobble),
 		Section: func() config.ProviderSection { return defaultSection() },
 		New: func(b provider.Build) provider.Provider {
-			cfg := b.Section.(*Section).providerConfig()
+			sec, ok := b.Section.(*Section)
+			if !ok {
+				panic(fmt.Sprintf("interface conversion: config.ProviderSection is %T, not %T", b.Section, (*Section)(nil)))
+			}
+			cfg := sec.providerConfig()
 			cfg.SavedCatalogs = b.SavedCatalogs
 			return New(cfg, b.Log)
 		},

@@ -560,10 +560,7 @@ func Run(ctx context.Context, opts Options) error {
 		wsServer.CloseClients()
 		mgr.CloseAll(shutdownCtx)
 		// Drain admin serve (ctx already cancelled closes the listener).
-		select {
-		case <-adminErrCh:
-		case <-time.After(2 * time.Second):
-		}
+		drainAdmin(log, adminErrCh, 2*time.Second)
 		return <-errCh
 	}
 	causeStr := func() string {
@@ -641,6 +638,20 @@ func prewarmPlan(cfg config.Config) []provider.ID {
 
 func prewarmWants(cfg config.Config, id provider.ID) bool {
 	return slices.Contains(prewarmPlan(cfg), id)
+}
+
+// drainAdmin waits up to wait for the admin serve goroutine to report, after
+// the daemon has begun to shut down, and logs a failure it reports. A clean
+// stop is nil; an error at that point is not what shutdown looks like, even
+// though the daemon is going down regardless.
+func drainAdmin(log *slog.Logger, adminErrCh <-chan error, wait time.Duration) {
+	select {
+	case err := <-adminErrCh:
+		if err != nil {
+			log.Warn("admin socket ended with an error during shutdown", slog.String("err", err.Error()))
+		}
+	case <-time.After(wait):
+	}
 }
 
 // newHTTPServer builds the daemon's HTTP server.

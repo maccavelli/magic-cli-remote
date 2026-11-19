@@ -320,11 +320,11 @@ func writeFile(path string, data []byte) error {
 		return fmt.Errorf("certs: write %s: %w", path, err)
 	}
 	if _, err := f.Write(data); err != nil {
-		f.Close()
+		_ = f.Close()
 		return fmt.Errorf("certs: write %s: %w", path, err)
 	}
 	if err := f.Sync(); err != nil {
-		f.Close()
+		_ = f.Close()
 		return fmt.Errorf("certs: sync %s: %w", path, err)
 	}
 	if err := f.Close(); err != nil {

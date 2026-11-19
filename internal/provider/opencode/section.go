@@ -1,6 +1,8 @@
 package opencode
 
 import (
+	"fmt"
+
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
@@ -78,7 +80,11 @@ func Descriptor() provider.Descriptor {
 		Section: func() config.ProviderSection { return defaultSection() },
 		Floor:   &provider.VersionFloor{Min: MinVersion, UpgradeURL: UpgradeURL},
 		New: func(b provider.Build) provider.Provider {
-			cfg := b.Section.(*Section).providerConfig()
+			sec, ok := b.Section.(*Section)
+			if !ok {
+				panic(fmt.Sprintf("interface conversion: config.ProviderSection is %T, not %T", b.Section, (*Section)(nil)))
+			}
+			cfg := sec.providerConfig()
 			cfg.SavedCatalogs = b.SavedCatalogs
 			return NewACPWithLogger(cfg, b.Log)
 		},

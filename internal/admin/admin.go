@@ -173,7 +173,7 @@ func handleConn(conn net.Conn, d Disconnector, log *slog.Logger, shutdown func()
 			log.Error("admin handleConn panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
 		}
 	}()
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(DefaultDialTimeout))
 
 	var req Request
@@ -247,7 +247,7 @@ func Call(socketPath string, req Request) (Response, error) {
 	if err != nil {
 		return Response{}, fmt.Errorf("%w: %v", ErrDaemonNotRunning, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(DefaultDialTimeout))
 
 	if err := json.NewEncoder(conn).Encode(req); err != nil {

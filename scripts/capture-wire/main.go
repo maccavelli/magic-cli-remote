@@ -166,7 +166,7 @@ func captureSSE(url string, dur time.Duration) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("sse status %d from %s", res.StatusCode, url)
 	}

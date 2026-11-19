@@ -26,6 +26,14 @@ import (
 // (MADR 0077 D6/§8 risk table).
 const seekChunkSize = 4096
 
+// ErrCloseAfterSync is wrapped by the error [Store.Append] returns when the
+// receipt line was written and synced to the device's file, the chain's
+// last-hash cache has advanced onto it, and only the close of the file then
+// failed. The receipt is in the chain: the next entry chains onto it. It is
+// not wrapped for a failure to open, write or sync, where the line may not have
+// been written, and the cache has not advanced. Test for it with errors.Is.
+var ErrCloseAfterSync = errors.New("receipt written and synced")
+
 // Store is an append-only, per-device, backward-chained store of
 // signed receipts (MADR 0077 D6): one JSON Lines file per device
 // (<dir>/<deviceID>.jsonl), each line a JWS compact string, never rewritten.
@@ -35,6 +43,18 @@ type Store struct {
 	// lastHash caches each device's last stored line's SHA-256 (hex), so a
 	// hot sequence of Appends for the same device never re-reads disk.
 	lastHash map[string]string
+	// openAppend opens a device's file for appending. Nil means the real
+	// file; a test sets it to make the file misbehave.
+	openAppend func(path string) (appendFile, error)
+}
+
+// openAppendFile opens path for appending, creating it at 0600.
+func openAppendFile(path string) (appendFile, error) {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
 }
 
 // NewStore opens (creating if needed) the receipts store rooted at
@@ -189,7 +209,7 @@ func readLastLine(path string) ([]byte, bool, error) {
 		}
 		return nil, false, fmt.Errorf("open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
 	if err != nil {
@@ -244,22 +264,50 @@ func (s *Store) Append(deviceID, jwsCompact string) error {
 	}
 
 	p := s.path(deviceID)
-	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	open := s.openAppend
+	if open == nil {
+		open = openAppendFile
+	}
+	f, err := open(p)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", p, err)
 	}
-	defer f.Close()
 
-	if _, err := f.WriteString(jwsCompact + "\n"); err != nil {
-		return fmt.Errorf("write %s: %w", p, err)
+	durable, err := appendLine(f, p, jwsCompact+"\n")
+	if durable {
+		// The line is on disk whether or not the close that followed reported
+		// an error, so the next entry must chain onto it.
+		sum := sha256.Sum256([]byte(jwsCompact))
+		s.lastHash[deviceID] = hex.EncodeToString(sum[:])
+	}
+	return err
+}
+
+// appendFile is the part of *os.File that appendLine uses.
+type appendFile interface {
+	io.StringWriter
+	Sync() error
+	Close() error
+}
+
+// appendLine writes line to f, syncs it and closes it. The file was written,
+// so the error of its Close is returned too: on some file systems a write that
+// was accepted is reported lost only there. It reports whether the line is
+// durable, which is whether the sync succeeded; a close error after that still
+// fails the call but leaves the line in the chain.
+func appendLine(f appendFile, p, line string) (durable bool, err error) {
+	if _, err := f.WriteString(line); err != nil {
+		_ = f.Close() // the write's error is the one to report
+		return false, fmt.Errorf("write %s: %w", p, err)
 	}
 	if err := f.Sync(); err != nil {
-		return fmt.Errorf("sync %s: %w", p, err)
+		_ = f.Close() // the sync's error is the one to report
+		return false, fmt.Errorf("sync %s: %w", p, err)
 	}
-
-	sum := sha256.Sum256([]byte(jwsCompact))
-	s.lastHash[deviceID] = hex.EncodeToString(sum[:])
-	return nil
+	if err := f.Close(); err != nil {
+		return true, fmt.Errorf("close %s: %w: %w", p, err, ErrCloseAfterSync)
+	}
+	return true, nil
 }
 
 // peekPredicateType reads compact's predicateType without verifying its
@@ -303,7 +351,7 @@ func (s *Store) Verify(deviceID string, devicePub, daemonPub *ecdsa.PublicKey) (
 		}
 		return 0, fmt.Errorf("open %s: %w", p, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)

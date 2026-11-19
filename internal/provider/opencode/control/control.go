@@ -302,7 +302,7 @@ func (p *Plane) send(ctx context.Context, eng *engine, req Request) (Response, e
 	if err != nil {
 		return Response{}, fmt.Errorf("control plane %s %s: %w", req.Method, req.Path, err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	contentType := res.Header.Get("Content-Type")
 	if req.Raw {
 		return p.readRaw(req, res, contentType)

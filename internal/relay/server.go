@@ -95,6 +95,17 @@ var spliceBufPool = sync.Pool{
 	},
 }
 
+// poolBuf takes a scratch buffer from pool. The pool's New returns only
+// *[]byte, so the assertion holds; if something else ever came out, a fresh
+// buffer of size is the answer, not a panic in a copy goroutine.
+func poolBuf(pool *sync.Pool, size int) *[]byte {
+	if b, ok := pool.Get().(*[]byte); ok {
+		return b
+	}
+	b := make([]byte, size)
+	return &b
+}
+
 // New creates a relay server. Call [Server.ListenAndServe] or [Server.Serve].
 func New(cfg Config, log *slog.Logger) *Server {
 	// Field-wise defaults only (MADR 0016 R4): never replace a partially set Limits.
@@ -297,7 +308,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		shCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = s.http.Shutdown(shCtx)
-		<-errCh
+		s.logServeEnd(<-errCh)
 		return ctx.Err()
 	case err := <-errCh:
 		s.cfg.Notify.Notify(s.log, "STOPPING=1")
@@ -306,6 +317,16 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 			return nil
 		}
 		return err
+	}
+}
+
+// logServeEnd logs how Serve's http server ended after it was shut down.
+// http.ErrServerClosed is what a shutdown looks like; anything else (a panic
+// the serve goroutine recovered, a listener failure) is worth a warning, though
+// Serve returns ctx.Err() regardless.
+func (s *Server) logServeEnd(err error) {
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		s.log.Warn("http serve ended with an error during shutdown", slog.String("err", err.Error()))
 	}
 }
 
@@ -611,7 +632,7 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		}()
 		defer cancel()
 		defer s.hub.unregister(reg.HostID, conn)
-		defer conn.Close(websocket.StatusNormalClosure, "")
+		defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 		if idle := s.cfg.Limits.RegisterIdle; idle > 0 {
 			go s.pingHostControl(hostCtx, conn, cancel, idle)
 		}
@@ -946,7 +967,7 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions, log *
 			}
 		}()
 		defer cancel()
-		bufPtr := spliceBufPool.Get().(*[]byte)
+		bufPtr := poolBuf(&spliceBufPool, spliceCopyBufSize)
 		buf := *bufPtr
 		defer func() {
 			clear(*bufPtr)

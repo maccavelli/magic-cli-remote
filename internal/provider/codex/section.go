@@ -318,10 +318,18 @@ func Descriptor() provider.Descriptor {
 		Name:    string(provider.IDCodex),
 		Section: func() config.ProviderSection { return defaultSection() },
 		Credentials: func(sec config.ProviderSection) providerauth.Adapter {
-			return NewCredentialAdapter(string(provider.IDCodex), sec.(*Section).Bin)
+			s, ok := sec.(*Section)
+			if !ok {
+				panic(fmt.Sprintf("interface conversion: config.ProviderSection is %T, not %T", sec, (*Section)(nil)))
+			}
+			return NewCredentialAdapter(string(provider.IDCodex), s.Bin)
 		},
 		New: func(b provider.Build) provider.Provider {
-			conf := b.Section.(*Section).providerConfig(b.RuntimeDir)
+			sec, ok := b.Section.(*Section)
+			if !ok {
+				panic(fmt.Sprintf("interface conversion: config.ProviderSection is %T, not %T", b.Section, (*Section)(nil)))
+			}
+			conf := sec.providerConfig(b.RuntimeDir)
 			conf.SavedCatalogs = b.SavedCatalogs
 			// The coordinated constructor differs only by carrying a credential
 			// coordinator; every other behaviour is identical, which keeps the

@@ -36,6 +36,17 @@ var bridgeBufPool = sync.Pool{
 	},
 }
 
+// poolBuf takes a scratch buffer from pool. The pool's New returns only
+// *[]byte, so the assertion holds; if something else ever came out, a fresh
+// buffer of size is the answer, not a panic in a copy goroutine.
+func poolBuf(pool *sync.Pool, size int) *[]byte {
+	if b, ok := pool.Get().(*[]byte); ok {
+		return b
+	}
+	b := make([]byte, size)
+	return &b
+}
+
 // Config drives the host registration client.
 type Config struct {
 	// URL is the mcrelay base (wss://host[:port]).
@@ -160,7 +171,7 @@ func (c *Client) session(ctx context.Context, backoff *time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("dial host control: %w", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	reg, err := relay.NewEnvelope(relay.TypeRegister, "1", relay.RegisterPayload{
 		HostID: c.cfg.HostID,
@@ -239,7 +250,7 @@ func (c *Client) openTunnel(ctx context.Context, base, sessionID, tunnelToken st
 		return
 	}
 	// After auth, bridge runs until either side closes; use parent ctx.
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Prefer short-lived dial token (MADR 0016 R12); fall back to registration
 	// secret only if the relay omitted the token (older mcrelay).
@@ -281,7 +292,7 @@ func (c *Client) openTunnel(ctx context.Context, base, sessionID, tunnelToken st
 		log.Warn("local dial failed", slog.String("addr", localAddr), slog.String("err", err.Error()))
 		return
 	}
-	defer local.Close()
+	defer func() { _ = local.Close() }()
 
 	log.Info("tunnel bridged to local listener", slog.String("local", localAddr))
 	limit := int64(c.cfg.MaxFrameBytes)
@@ -317,7 +328,7 @@ func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn, readLimit
 			}
 		}()
 		defer cancel()
-		bufPtr := bridgeBufPool.Get().(*[]byte)
+		bufPtr := poolBuf(&bridgeBufPool, bridgeBufSize)
 		buf := *bufPtr
 		defer bridgeBufPool.Put(bufPtr)
 		for {
@@ -341,7 +352,7 @@ func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn, readLimit
 			}
 		}()
 		defer cancel()
-		bufPtr := bridgeBufPool.Get().(*[]byte)
+		bufPtr := poolBuf(&bridgeBufPool, bridgeBufSize)
 		buf := *bufPtr
 		defer bridgeBufPool.Put(bufPtr)
 		for {
@@ -359,8 +370,25 @@ func bridge(ctx context.Context, wsConn *websocket.Conn, tcp net.Conn, readLimit
 	_ = wsConn.Close(websocket.StatusNormalClosure, "")
 }
 
+// cloneTransport is a copy of base to configure, base being http.DefaultTransport.
+// If something that is not a *http.Transport has replaced it, the copy is a
+// transport with the standard library's own defaults instead of a panic.
+func cloneTransport(base http.RoundTripper) *http.Transport {
+	if t, ok := base.(*http.Transport); ok {
+		return t.Clone()
+	}
+	return &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
+}
+
 func (c *Client) httpClient() *http.Client {
-	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr := cloneTransport(http.DefaultTransport)
 	// Kernel keepalive on the outbound control/tunnel legs (MADR 0068 P1),
 	// matching the listeners' 25/5/4 shape: a relay that vanished without a
 	// FIN is detected at ~45 s instead of the OS default (hours).

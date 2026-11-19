@@ -3148,8 +3148,7 @@ func (m *Manager) signReceipt(rs ReceiptSupport, deviceID, sessionID, correlatio
 			break
 		}
 		if err := rs.Store.Append(deviceID, jws); err != nil {
-			m.log.Warn("receipt: append failed",
-				slog.String("device_id", deviceID), slog.String("err", err.Error()))
+			m.logReceiptAppendFailure(msgReceiptAppendFailed, msgReceiptAppendedCloseFailed, deviceID, err)
 		}
 		return
 	}
@@ -3176,9 +3175,30 @@ func (m *Manager) signReceipt(rs ReceiptSupport, deviceID, sessionID, correlatio
 		return
 	}
 	if err := rs.Store.Append(deviceID, daemonJWS); err != nil {
-		m.log.Warn("receipt: append unavailable marker failed",
-			slog.String("device_id", deviceID), slog.String("err", err.Error()))
+		m.logReceiptAppendFailure(msgMarkerAppendFailed, msgMarkerAppendedCloseFailed, deviceID, err)
 	}
+}
+
+// The warnings a failed receipt Append logs. A receipt that was written and
+// synced, with only the close of its file failing (receipt.ErrCloseAfterSync),
+// is in the chain, so it gets the second text of its pair.
+const (
+	msgReceiptAppendFailed        = "receipt: append failed"
+	msgReceiptAppendedCloseFailed = "receipt: appended, but closing its file failed"
+	msgMarkerAppendFailed         = "receipt: append unavailable marker failed"
+	msgMarkerAppendedCloseFailed  = "receipt: appended unavailable marker, but closing its file failed"
+)
+
+// logReceiptAppendFailure logs a failed receipt Append as a warning. If the
+// receipt was written and synced and only the close of its file failed
+// (receipt.ErrCloseAfterSync), it is in the chain, so the log says that
+// (closedAfterSync) and not that the append failed (failed).
+func (m *Manager) logReceiptAppendFailure(failed, closedAfterSync, deviceID string, err error) {
+	msg := failed
+	if errors.Is(err, receipt.ErrCloseAfterSync) {
+		msg = closedAfterSync
+	}
+	m.log.Warn(msg, slog.String("device_id", deviceID), slog.String("err", err.Error()))
 }
 
 // maybeCreateHandoffReceipt fires a background handoff receipt round trip
