@@ -242,6 +242,11 @@ Files: `internal/provider/httpagent/provider.go`, `session.go`, `provider_test.g
    (`:641-647`) each become `stderrtail.Wrap(fmt.Errorf("%s server did not become healthy in %s",
    …), scrubbed)` and `stderrtail.Wrap(fmt.Errorf("%s server exited during startup", …), scrubbed)`.
    `LogStderrTail` stays. `TestStartServerBailsWhenEngineExitsImmediately` passes unchanged.
+   *Note, 2026-11-19 (an annotation; the step stands):* P5 of
+   [0131-PLAN-replace-golint-with-golangci-lint.md](0131-PLAN-replace-golint-with-golangci-lint.md) added the engine's exit
+   status to the early-exit message, `"%s server exited during startup (exit status 1)"`, with the tail after it. This step's
+   `fmt.Errorf("%s server exited during startup", …)` must keep that suffix, and
+   `TestStartServerBailsWhenEngineExitsImmediately` now asserts `(exit status 1)`, so it no longer "passes unchanged".
 4. **Death** (the monitor, `provider.go:694-721`).
    * `msg := stderrtail.Message(fmt.Sprintf("%s server exited: %v", p.cfg.Bin, err), scrubbed)`.
    * `LogStderrTail` runs beside `"engine exited"`.

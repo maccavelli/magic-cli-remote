@@ -1406,3 +1406,288 @@ scope creep", and recorded as the coordinator's decision and not as the owner's 
 literal-beside-constant pairs this phase did not touch, and the two lists in `internal/provider/codex/items.go` that mix constants and
 literals, are **left as they are**, known and not pursued; `goconst` does not flag them and they are outside P4. The 2,877 line
 citations in the dated records (2,590 in the decision records and 287 in the reports) stay untouched: records are history.
+
+### Tests for the bound script, close-out, 2026-11-19
+
+The step is committed and pushed on `master`: the record as `34b87b81`, the six changed files as `fa032e7f` and the test file as
+`23b95c6c`. The coordinator's gate on the tree as handed back: `make test-scripts` 0, `make lint` 0, `make check-records` 0, `make
+pre-add-check` with the vulnerability check 0, `make preflight` 0, the tree unchanged by the gate.
+
+**A slip, recorded as the coordinator's and not the agent's.** The coordinator's commit script listed the change files with `git diff
+--name-only`, which omits untracked files, so `scripts/check_staticcheck_ignored_test.py` was left out of `fa032e7f`. It was pushed alone
+as `23b95c6c` minutes later, and GitHub cancelled the CI run on `fa032e7f` when the next push arrived (its "Docs" run succeeded).
+
+CI on `23b95c6c`, as the coordinator reported it: "CI", attempt 1, succeeded: Go (test) with 24 steps (one more than before, the new
+script-tests step); Go on darwin/arm64, linux/arm64 and windows/amd64 with 12 steps each; Live supervisors; both Flutter jobs; the APK and
+the self-update jobs skipped, there being no tag. That answers the step's "not verified" item: the new step ran on the runner's own
+`python3` and passed.
+
+### P5. `errcheck`, 2026-11-19
+
+Run by a mainstream-tier agent at high effort, on the coordinator's brief, from `master` at `23b95c6c` (clean at the start), and corrected
+the same day after an independent verifier and the owner's rulings (the correction round, below). The changes are in the working tree,
+unstaged, for the owner to commit; only this PLAN is staged. The governing ruling is Q3 A, label "Allow the explicit `_ =` discards here;
+fix the 332 bare calls (Recommended)", with `errcheck.check-blank: false` already in the file from P1.
+
+**A departure from the PLAN's stop rule, on the coordinator's instruction; the owner ruled afterwards.** The PLAN's P5 step says that a site
+where handling the error is a behaviour change stops the phase for the owner, and the MADR says the same of an exported rename. The
+coordinator's brief told the agent instead to make such changes and list them. The agent followed the brief. That was the coordinator's
+error, and the first version of this entry, which said "No departure from the PLAN was needed", was wrong and is corrected here. The
+independent verifier found it, read all ten class (a) changes (it judged them correct), and the owner then ruled on each. R1: "Accept the
+nine real changes; replace `SectionOf` with plain checked assertions at its six sites (Recommended)". R2: "Fix it in this phase: those
+sites return the write error" (not the option the coordinator recommended). R3, on the three outputs this entry first put to the owner:
+"`auth recovery status` and `receipts verify` return it; `choose` is left (Recommended)". R4, on the receipt log's message: "Build it: a new
+exported error and an exact log message" (not the option the agent or the coordinator recommended). All four are recorded below as
+deviations from the stop rule, accepted by the owner. **This phase therefore adds one exported name, `receipt.ErrCloseAfterSync` (R4);**
+the first version of this entry said it added none, and after R1 it said so again; both statements are superseded.
+
+**Re-measured first**, on a scratch copy of `HEAD` with `errcheck` switched on, four passes, limits raised: darwin 305, linux 305,
+windows 318, linux with every opt-in tag 305, **319 in the union** (the PLAN expected about 332; the 13 fewer are the part of its
+estimate that was not `fmt.Fprint*`). All 319 are in non-test code: the fleet's own exclusion (`.golangci.yml`, `exclusions.rules`) removes
+`errcheck` from `_test.go`. By callee: `fmt.Fprint*` 257 (`Fprintln` 129, `Fprintf` 123, `Fprint` 5), the PLAN's 257; `Close` 31 (response
+bodies 9, files 7, websocket and network connections 7, temporary files 3, registry keys 2, a token, a directory and a listener 1 each);
+`windows.CloseHandle` 10; a receive from a `chan error` that drops the value 9; a single-value type assertion 11 (`check-type-assertions`
+is on); `procFreeConsole.Call` 1. By package: `internal/cli` 126, `internal/cli/service` 108, `internal/relay` 30, `internal/procutil` 10,
+`internal/provider/httpagent` 10, `internal/relayhost` 6, `internal/provider/codex` 5, `scripts/smoke-protocol` 4, `internal/receipt`,
+`internal/admin` and `internal/provider/credstore` 3 each, `internal/certs` 2, and 12 packages with 1. After the phase: **0 on all four
+passes** with the tree's own `.golangci.yml`. The verifier re-measured `HEAD` independently and got the same 319 (305, 305, 318, 305),
+matching `sites.tsv` site for site.
+
+**The rule, applied to every site.** An ignored error is an explicit discard (`_ =`), never a bare call, and each is a decision:
+
+1. A file that was **written** is closed with its error checked and returned, unless an earlier error is already being returned, in which
+   case `_ = f.Close()`. Every written-file close in the tree already followed that on its success path (`certs.writeFile`,
+   `setup.writeUnitAtomic`, `credstore.writeFileAtomic`); what `errcheck` found there were the error-path closes, which are the second
+   half of the rule. The one written file whose close was dropped is `receipt.Store.Append`, class (a) below.
+2. A handle that was only **read**, a response body, a socket, a directory opened to fsync it, a registry key, a process or job handle:
+   `defer func() { _ = x.Close() }()` (or `_ = x.Close()` on an error path). A close error there cannot mean lost data. A reason comment
+   is added only where the reason is not evident from the line.
+3. A command's **status lines**: through one helper, `internal/cliout` (`Fprintf`, `Fprintln`, `Fprint`), which drops the write error in
+   one place, with the reason in its package comment. A command's **result** (a generated file body, a JSON document, a statement of
+   record, a value shown once) is not a status line: it returns its write error (R2, below).
+4. A receive from a channel that carries an error, or a single-value type assertion: **handled**, class (a).
+
+**Classes, after the correction round.** (a) the error matters, or the assertion could panic, and is handled: **35 sites**, 21 in the first
+round's ten changes and 14 that are data output (R2 and R3). (b) the error cannot matter, an explicit discard or the helper: **284 sites**,
+243 through `cliout` and 41 `_ =`. (c) test code: **0**, the fleet's exclusion. No site fit none of the classes. Every site is in `sites.tsv` in
+the scratch results (path, HEAD line, working-tree line, callee, class, reason, and for (a) the test).
+
+**Class (b), the 243 status lines.** The 31 functions of the 257 were read: all print to a cobra command's writer (`cmd.OutOrStdout()`,
+`ErrOrStderr()`, a buffer a test passes) or to a `text/tabwriter` over one, whose own `Flush` is checked (`engines.go`, `receipts.go`).
+That reading looked at what the writer is when a command runs, and missed that a writer can be a file or a pipe the operator chose, so a
+function that prints a result is not a status function; the 14 data sites, found by the verifier and the owner's rulings, are the correction (R2, R3). The
+status sites became `cliout.Fprint*` by a checked script (the text at errcheck's reported column asserted before each replace);
+`goimports` then fixed the imports. Calls `errcheck` does not report (`os.Stderr`, a `bytes.Buffer`) were left as they were.
+
+**Class (a), the first round's changes, each listed.** Lines are HEAD's; the working tree's are in `sites.tsv`.
+
+| Where | Before | Now | Test |
+| :--- | :--- | :--- | :--- |
+| `internal/receipt/store.go:251` `Store.Append` | `defer f.Close()` on a file just written and fsynced; the close error was dropped | the file is closed by `appendLine`, which returns the close error (`close <path>: ...`); if the sync had succeeded the line is on disk, so the chain's last-hash cache is still updated and the next entry chains onto it. The callers (`session.Manager`) do not retry and log a warning: `receipt: appended, but closing its file failed` for this case (R4, below), `receipt: append failed` for any other failure, so the effect is a warning where there was none | `TestAppendLine` (four cases), and, through a new unexported opener seam on `Store`, `TestAppendWhoseCloseFailsAfterAGoodSyncStillChainsTheNextEntry` (E4, below) |
+| `internal/provider/httpagent/provider.go:666` `startServer` | `case <-waitCh:` dropped the engine's exit status | `exited during startup (exit status 1)`; the status is in the returned error, which the phone shows | `TestStartServerBailsWhenEngineExitsImmediately`, now asserting `(exit status 1)` |
+| `provider.go:1315` `freePort` | `l.Addr().(*net.TCPAddr)`, a panic if the address were not TCP | `tcpPort` returns an error for any other address | `TestTCPPort` |
+| `provider.go:623, 647, 653, 686` `startServer`; `internal/provider/codex/provider.go:735, 795` | a bare `<-waitCh` after killing the engine: the exit status vanished | `p.awaitExit(waitCh)` receives and logs a non-nil status at debug level (`engine process ended`); these paths return their own error | `TestAwaitExitLogsHowTheKilledEngineEnded` in both packages |
+| `internal/daemon/daemon.go:564` shutdown | the drain of the admin socket's result was a bare receive | `drainAdmin` logs a non-nil result as a warning (`admin socket ended with an error during shutdown`) | `TestDrainAdminLogsAFailure...`, `...IsSilentForACleanStop`, `...GivesUpAfterTheWait` |
+| `internal/relay/server.go:300` `Serve` shutdown | `<-errCh` after `Shutdown` | `logServeEnd` warns on anything but `http.ErrServerClosed` | `TestLogServeEnd` |
+| `internal/relay/server.go:949`, `internal/relayhost/client.go:320, 344` | `pool.Get().(*[]byte)`, a panic in a copy goroutine if the pool held another type | `poolBuf` answers a fresh buffer of the right size | `TestPoolBuf...` in both packages |
+| `internal/relayhost/client.go:363` `httpClient` | `http.DefaultTransport.(*http.Transport).Clone()`, a panic if something else replaced it | `cloneTransport` falls back to a transport with the standard library's defaults | `TestCloneTransport...` |
+| `codex/section.go:321, 324`, `gobble/section.go:67`, `grok/section.go:147`, `kilo/section.go:102`, `opencode/section.go:81` | `b.Section.(*Section)`, a single-value assertion: a panic with the runtime's text, `interface conversion: config.ProviderSection is <got>, not <want>`, which names both types | the two-value assertion, panicking on `!ok` with that text (R1, below) | `TestProvidersPanicNamingBothTypesWhenBuiltFromAnotherSection`, `TestCodexCredentialsPanicNamingBothTypesForAnotherSection` (`internal/provider/registered`) |
+
+The changes that can be seen are the first three and the log lines; the assertion fallbacks are not reachable by construction. The first
+version of this entry said a bare assertion "named only the interface" and proposed an exported helper to name both; both statements were
+wrong, and the helper is gone (R1).
+
+**R1. The six section assertions, and `provider.SectionOf` removed.** The owner accepted the nine real changes and replaced the helper
+with plain checked assertions: `provider.SectionOf`, its test file and its doc comment are deleted (`internal/provider/descriptor.go` is
+byte-identical to `HEAD`), so R1 adds no exported name; `internal/cliout` is a new package, and its functions are the helper the PLAN
+names. This sentence stood before R4; see the header: R4 adds one exported name. The form, settled with evidence on a scratch copy through `make lint`'s command: a **two-value assertion that panics on `!ok`
+with `fmt.Sprintf("interface conversion: config.ProviderSection is %T, not %T", x, (*Section)(nil))`**, the same at all six sites. Evidence:
+
+* A bare `s.(*A)` is rejected by `errcheck` (`check-type-assertions`); the two-value form with that panic passes all four passes.
+* Run on a throwaway program, the bare assertion panics with a `*runtime.TypeAssertionError` whose text is `interface conversion:
+  main.Iface is *main.B, not *main.A`; the explicit panic carries **the same text** for every non-nil section. Its value is a string, not a
+  `*runtime.TypeAssertionError`; nothing in this repository inspects the panic value (the recovers log it). The one other difference is a nil
+  interface: the runtime says `is nil, not *codex.Section` and the explicit panic, through `%T`, says `is <nil>, not *codex.Section`. A nil
+  section looks unreachable, because each provider's `Section` function returns a default section, but that was not proven by tracing the
+  config loading.
+* The only way to keep the runtime's own error type is to re-assert in the failed branch (`_ = s.(*A)`); `errcheck` rejects that too, so
+  it is not available without a `//nolint`.
+
+*Notes from the verifier on R1.* Reverting one of the six sites to the bare assertion does not fail the wrong-section test, because the
+texts are identical for a non-nil section: that is the equivalence the ruling asked for, not a gap in the test.
+
+**R2. Data output returns its write error.** The owner ruled that the sites that write a command's result stop using the helper and return a
+failed write, so the command exits non-zero. Built as ruled: at each site `fmt.Fprint*` is called and its error returned, wrapped with what was
+being written and **never with the data**; a healthy writer gets the same bytes as before (the same format and arguments). The sites, 11 of
+the 257, by HEAD line: `internal/cli/setup_service.go:158` (`--refresh --print-only`, the refreshed definition) returns "write the refreshed
+service definition: ..." and `:196` (`--print-only`) "write the service definition: ..."; `internal/relay/cli.go:492` and `:524` the same two
+for mcrelay; `internal/cli/receipts.go:264, 266` (`receipts show`, the signature verdict) and `:268` (the statement's JSON) "write the receipt:
+..."; `internal/cli/pair.go:88` (`pair create`, the token), `:97` (its pairing URI), `:157` (`pair code`, the code) and `:167` (its URI), each
+with the sentence below. The verifier's list was nine; the two `receipts show` verdict lines are added here because they qualify the statement
+the same command prints (a verdict a script reads next to the JSON), and are named so the owner can strike them.
+
+*What `pair create` and `pair code` do when the print fails, exactly.* The credential is minted and stored before it is printed, and nothing is
+revoked or minted again. For a token, the error is: "device `<id>` was created but its token could not be written, and only its hash is stored,
+so it cannot be shown again; it stays valid until revoked (mcremote pair revoke `<id>`): `<write error>`". For a failed URI after the token
+was written: "device `<id>` was created and its token was written, but the pairing URI that carries it could not be: ...". For a code: "the
+pair code for `<name>` was created but could not be written; it stays valid for `<remaining time>` or until used (run the command again for
+another): ...", and for its URI "... was written, but the pairing URI that carries it could not be: ...". The token or code stays valid;
+the user is told so, and told the way out; the exit status is non-zero. Today the same failure exits 0 and says nothing. That is better,
+not worse, in every case the agent could find, so there was no stop; the one consequence to know is that a token that could not be shown is
+a live credential nobody has until it is revoked, and the error names the command that does that.
+
+*The trace for other data sites.* The verifier's `tools/writers.py` groups the 243 remaining helper sites by function and writer
+expression (`out`, `w`, `cmd.OutOrStdout()`, `tw`, `errOut`). Every remaining function was read for a result rather than a status line:
+`--json` outputs (`PrintRefreshResult`'s and `printPaths`' return the encoder's error already; they are not among the helper's sites), a
+generated file body, a secret or a value shown once. None of the rest prints a token, key, secret or generated file; the repository's own
+`printPaths` already uses `_, _ =` for its text report and returns the JSON's error, the same line this ruling draws. What was judged a status
+line and left, so the owner can overrule: `mcremote doctor`'s reports, the install, uninstall, remove and refresh result lines, the device
+and engine tables (their `tabwriter.Flush` is checked), `pair list`, `pair revoke` and `pair prune` lines, the QR and the OSC 52 copy
+sequence, and the host, fingerprint and relay lines of the pairing commands.
+
+**R3. The three outputs that were put to the owner.** The owner ruled "`auth recovery status` and `receipts verify` return it; `choose` is
+left (Recommended)". Built: `auth recovery status` (`auth_recovery.go`, HEAD line 147) returns "write the recovery status: ...", as an
+`exitCodeError` with the failed-command code 3, like the command's other failures; `receipts verify` (HEAD lines 195 and 198, the OK and
+the BROKEN line, one output) returns "write the verification result: ..." on the OK path. With these, the data outputs are 13 (14 call
+sites). `auth recovery choose`'s confirmation (`:192`) stays through `cliout` and is judged status: its outcome is in its exit status.
+
+*Does `receipts verify`'s exit status already carry OK or BROKEN?* Yes: `receipts.go` returns `fmt.Errorf("chain broken at line %d", broken)`
+for a broken chain, which the root turns into exit status 1 (`ExitCode`'s default), and returns nil for an intact one. *A failed write and
+a BROKEN result, so neither masks the other.* On a broken chain the error is `chain broken at line N, and the verification result could not
+be written: <write error>`: it begins with the broken-chain sentence, wraps the write error (`errors.Is` finds it), and the exit status is
+1 as it is when the write works. A broken chain is never reported as merely "could not write". On an intact chain a failed write is an error,
+`write the verification result: ...`, and the text does not mention a broken chain. With a healthy writer both outputs and errors are
+byte-for-byte what they were (the broken error is exactly `chain broken at line 2`). Tests, in `internal/cli/verdict_output_test.go`:
+`TestAuthRecoveryStatusReturnsAFailedWrite` (and the exit code 3), `TestReceiptsVerifyIntactChainReturnsAFailedWrite`,
+`TestReceiptsVerifyBrokenChainStaysBrokenWhenTheWriteFails` (both fail) and
+`TestReceiptsVerifyBrokenChainWithAHealthyWriterIsUnchanged` (only the broken chain). Plants: the write check removed at each of the two
+sites, the broken error replaced by the write error alone, the broken error without the write error, and the intact error made to say
+"broken": each fails a named test.
+
+*A consequence of the ruling, stated.* An audit script can no longer tell "the chain is intact but the result could not be printed" from
+"the chain is broken" by `receipts verify`'s exit status alone: both exit 1. The error text tells them apart (`chain broken at line N...`
+against `write the verification result: ...`). The behaviour is as ruled and is left as it is.
+
+
+**R4. `receipt.ErrCloseAfterSync`, an exact log message.** The owner ruled "Build it: a new exported error and an exact log message", the agent's
+E5 proposal, built as proposed:
+
+* `internal/receipt/store.go` exports `ErrCloseAfterSync`, its doc stating exactly when it is returned: the receipt line was written and synced,
+  the chain's last-hash cache advanced onto it, and only the close then failed; not for a failure to open, write or sync. `appendLine` wraps it
+  around the close error, so `Append`'s error is `close <path>: <close error>: receipt written and synced` and `errors.Is` finds the sentinel.
+* The two `internal/session/manager.go` callers go through `logReceiptAppendFailure`, which logs, at the existing line's level (Warn), `receipt:
+  appended, but closing its file failed` (a receipt) or `receipt: appended unavailable marker, but closing its file failed` (the marker) when
+  `errors.Is(err, receipt.ErrCloseAfterSync)` holds, and the old text (`receipt: append failed`, `receipt: append unavailable marker failed`)
+  otherwise. The four texts are constants so a test holds their wording.
+* Tests: `TestAppendWrapsErrCloseAfterSyncOnlyWhenTheLineIsInTheChain` (`Append`, through E4's opener seam: the sentinel holds when the close
+  fails and not when the write or the sync does), the `TestAppendLine` table (with the sentinel column), and in
+  `internal/session/receiptlog_internal_test.go` the manager's two tests (the exact message and level for each of the four cases, and the
+  constants' exact text). Plants: the wrap removed (two tests fail), the wrap added to a write or to a sync failure, the `errors.Is` branch
+  inverted, the new message shortened, the level changed.
+* **One thing to know, not a stop.** The manager's tests cannot hand the manager a store whose file misbehaves (its `Store` is the concrete
+  type with an unexported opener, in another package), and the seam's visibility was not widened. So the manager is tested through
+  `logReceiptAppendFailure` given an error that wraps the sentinel and one that does not, which is the logic the callers use; which message
+  pair each caller passes is read, not run, and the end-to-end path, a real `Append` failing its close inside the manager, is covered by the
+  `receipt` test and this one together, not by one run. The verifier tried swapping the first caller's message pair and the whole `session`
+  package still passed; that is this gap, and it accepted it by judgement: the pair is read from two adjacent lines with named constants,
+  and both halves are tested.
+
+*What the healthy-writer test holds.* `TestPairOutputIsUnchangedForAHealthyWriter` checks the labels of `pair create`'s lines and its closing
+notice, not the bytes; a one-byte change to the token line is caught by the URI test's check instead. Recorded as it is.
+
+**Candidates left through `cliout`, not decided.** The coordinator decided, under the owner's scope instruction ("we need to limit scope
+creep"), that these are recorded and not pursued, to be told to the owner: the empty-list lines of `receipts list` ("No receipts for device
+...", "No devices have a receipts chain.") and of `pair list` ("No devices paired."), which exit 0 on a failed write while the non-empty
+forms return the tabwriter's flush error; the setup, uninstall, remove and refresh result lines; `doctor`'s report; and, in the pairing
+commands, the host, URL and fingerprint lines and the clipboard copy.
+
+**Not covered by a test, reported.** The call of `drainAdmin` inside `daemon.Run`'s closure, the call sites of `awaitExit`, `poolBuf` and
+`cloneTransport`, which ride the existing suites, and which message pair each receipt caller passes (R4, above); the helpers they call are
+each tested. The wiring of `appendLine`'s `durable` result
+into `Store.Append`, which was reported as an untested gap in the first version, is now tested (E4).
+
+**E4. The chain after a close that fails.** `Store` has an unexported opener (`openAppend`, nil meaning the real file). The new test makes
+the close fail after a real, synced write, and asserts that `Append` returns the close error, that `LastHash` is the hash of the line that was
+written, and that a second `Append` followed by `Verify` reports an intact chain. The verifier's mutant `if durable && err == nil` survived
+the whole package before; with it the new test goes red at the `LastHash` assertion (the chain forks, which is what the comment above `durable`
+warns about).
+
+**E6.** Record 0216's PLAN, P4 step 3, now carries a dated pointer note: P5 of this plan added the exit status to the start-up error, and that
+step must keep it (and its test no longer "passes unchanged"). An annotation; the step stands.
+
+**E7.** The guide said a receive's value "is used" as if the linters forced it. They force only that the receive is not bare and not `_ =`;
+`err := <-ch; _ = err` would pass both. The guide now says it is a choice, and that these sites log.
+
+**E9. A defect that was there before and is not addressed here.** After a failed `fsync` the line may already be in the file (it was written)
+while the chain's last-hash cache does not advance, so the next entry names the previous line as its parent and the chain forks. `appendLine`'s
+`durable` result and name concern the sync, not whether the bytes are in the file, and the name suggests otherwise. It was true of `Append`
+before this phase and is unchanged by it.
+
+**Hidden by the fleet's exclusion, recorded and not pursued.** With the `_test.go` exclusion removed on a scratch copy of `HEAD`, one linux
+pass reports 255 bare calls in 93 test files; the verifier confirmed the number and the classes. They are outside the PLAN, which keeps the
+fleet's exclusions, and the coordinator decided, under the owner's instruction "we need to limit scope creep", not to pursue them. Class (c)
+is empty for that reason.
+
+**What the PLAN did not say.**
+
+* *Two classes it does not discuss:* 9 bare receives from an error channel and 11 single-value type assertions (`check-type-assertions` was
+  kept from the fleet). They are 20 of the 319 and are class (a).
+* *`errcheck` and `staticcheck` disagree about `_ = <-ch`.* `errcheck` rejects the bare receive; `staticcheck` S1005 rejects the
+  explicit blank. Both are on, and no `//nolint` is allowed, so the receive had to be taken into a variable; these sites log it. A plant of
+  `_ = <-ch` fails with S1005 (below).
+* *Test code.* The fleet's `_test.go` exclusion applies to `errcheck`, so a bare call planted in a test passes (above).
+
+**Seen to fail, on scratch copies** (through `scripts/lint.py`, `make lint`'s own command): a bare `os.Remove(x)` in non-test code fails with
+"Error return value of `os.Remove` is not checked (errcheck)"; `_ = os.Remove(x)` passes; a bare `os.Remove(x)` in a `_test.go` passes (the
+exclusion); a single-value `v.(string)` fails (errcheck); `_ = <-ch` fails with S1005; a planted finding of two still-disabled linters
+(`os.ReadFile` of an unvalidated name, gosec; `err == io.EOF`, errorlint) passes; the clean tree passes. The 37 new and extended test
+functions were each seen to fail: 47 breaks of the code they cover, one at a time on a scratch tree, the named test red on each: a close
+error dropped, a durable flag inverted or gated on `err == nil`, the exit status removed, an assertion inverted, a panic message changed, the
+pool and transport fallbacks removed, a logged error not logged, a clean stop logged, the helper's output changed, and, for R2, the error
+dropped again at each of the fourteen data sites, a token put in an error, a line of the healthy output removed, and, for R3 and R4, a
+broken chain's error replaced by the write error, the sentinel's wrap removed or added to the wrong failures, and the log branch inverted. The plants were run
+after the tests were written, so "red first" is shown by the break going red, not by the order of writing.
+
+**Configuration.** `.golangci.yml` enables `errcheck`; it is removed from the disabled list. `check-blank: false` and
+`check-type-assertions: true` are as P1 left them. No `//nolint:errcheck` (the tree has 44 `//nolint` before and after), no
+`exclude-functions`, no new path exclusion. Still disabled, each with its phase: `errorlint` and `nilerr` P6, `gosec` P7, and `bodyclose`,
+`gocognit`, `gocyclo`, `unparam` and `confusing-naming` P8. `scripts/lint.py` is unchanged.
+
+**The verifier's checker, re-run on the tree as handed back** (fresh `old/` from `HEAD` and `new/` from the working tree, `GOPROXY=off`, darwin,
+linux, windows and linux with every opt-in tag): exit 0; the shape sites are 283 (12 explicit discards, 28 deferred closures, 243 helper calls), the first round's 297 less the 14 data sites, and the
+comparison by file and line shows exactly those 14 left the set and nothing entered it. The remaining 212 (57 file and function groups) differences (the union over the
+four configurations) are each one of: the imports the shapes cause (`cliout` added, `fmt` removed or added), a reason comment, the body of a class (a)
+function (the listed ones), the six constructors of R1, the functions of R2 and R3 (`newPairCmd`, `newReceiptsShowCmd`, the two `runSetupService`,
+the verify and status commands), the `receipt` store of E4 and R4, or the session manager's `logReceiptAppendFailure` and its two callers (R4);
+the `signalBreak` difference is the three-blank discard of `procFreeConsole.Call`, which the verifier had already proved equivalent. Nothing
+else.
+
+**Docs.** `docs/guides/standards/go/logging.md` (Errors) states the rule, the allowance, the data-output rule, the S1005 conflict as a choice,
+and the checked assertion; `internal/cliout`'s package comment says it is for status lines, lists the data sites and says `choose` stays a status line; `CHANGELOG.md`
+(Unreleased, Changed) names the visible changes: the engine's exit status, the logged shutdown warnings, the receipt close and its new log
+line, and the non-zero exit when `--print-only`, `receipts show`, `receipts verify`, `auth recovery status` or the pairing output could not
+be written. The PLAN's own sentence, "`logging.md` is
+unchanged (Q3 A)", is superseded by this.
+
+**Tests and host.** `go test -race -count=1 ./...` on a clean copy of the tree as handed back, through `run-on-host --race`: on the Windows laptop, exit 0, 50 packages `ok`, 0 failures or races; on the Linux host, exit 0, 51 packages `ok`, 0 failures or races (no WSL result is used for a race run). The macOS race run is the one inside `make preflight`. `make ci-windows`, because six `_windows.go` files differ from `HEAD`, ran on the Windows host: exit 0.
+
+**Gates** (start, end, exit status, each recorded before any filter):
+
+| Gate | Start | End | Exit |
+| :--- | :--- | :--- | ---: |
+| `make lint` (four passes, `errcheck` on) through `run-heavy` | 16:11:56 | 16:13:00 | 0 |
+| `make staticcheck` (with the bound script, three GOOS) through `run-heavy` | 16:13:00 | 16:13:37 | 0 |
+| `make test-scripts` (55 tests) | 16:13:37 | 16:13:37 | 0 |
+| `go vet ./...` | 16:13:37 | 16:13:39 | 0 |
+| `make vet-tags` through `run-heavy` | 16:13:39 | 16:14:02 | 0 |
+| `go mod tidy -diff` | 16:14:02 | 16:14:03 | 0 |
+| `gofmt -l` over `cmd`, `internal`, `scripts`, `test` | 16:14:03 | 16:14:03 | 0 |
+| `make pre-add-check` on the 55 changed and new Go files, with the vulnerability check, through `run-heavy` | 16:14:03 | 16:14:13 | 0 |
+| `make preflight` through `run-heavy` | 16:14:13 | 16:17:23 | 0 |
+| `make check-records` | 16:18:20 | 16:18:22 | 0 |
+| `make markdownlint-docs` (offline, from the npx cache) | 16:18:22 | 16:18:25 | 0 |
+| the lint plants (`p5test`), through `run-heavy` | 16:17:31 | 16:18:12 | 0 |
+| the verifier's checker, four configurations, through `run-heavy` | 16:13:01 | 16:13:20 | 0 |
+| `go test -race -count=1 ./...`, Windows laptop, through `run-on-host --race` | 16:11:55 | 16:14:19 | 0 |
+| `go test -race -count=1 ./...`, Linux host, through `run-on-host --race` | 16:11:53 | 16:16:53 | 0 |
+| `make ci-windows`, Windows host, through `run-on-host` | 16:14:19 | 16:16:00 | 0 |
