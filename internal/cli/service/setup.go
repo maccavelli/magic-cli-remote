@@ -27,6 +27,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// subcommandServe: the mcremote and mcrelay subcommand a service runs.
+	subcommandServe = "serve"
+)
+
 //go:embed mcremote.user.service.tmpl
 var unitTemplateMcremote string
 
@@ -301,10 +307,10 @@ func RenderUnit(opts Options) (string, error) {
 // Other bare names become com.magiccliremote.<unitName>.
 func LaunchdLabel(product, unitName string) (string, error) {
 	if product == "" {
-		product = "mcremote"
+		product = appdirs.ProductMcremote.Name
 	}
 	switch product {
-	case "mcremote", "mcrelay":
+	case appdirs.ProductMcremote.Name, appdirs.ProductMcrelay.Name:
 	default:
 		return "", fmt.Errorf("product must be mcremote or mcrelay (got %q)", product)
 	}
@@ -460,13 +466,13 @@ func Setup(opts Options) (Result, error) {
 
 	var body string
 	switch installOS {
-	case "darwin":
+	case osDarwin:
 		body, err = renderPlist(opts)
-		res.Scope = "launchd-agent"
+		res.Scope = string(KindLaunchdAgent)
 		if label, lerr := LaunchdLabel(opts.Product, opts.UnitName); lerr == nil {
 			res.Label = label
 		}
-	case "linux":
+	case osLinux:
 		if kind.isScriptKind() {
 			body, err = renderScript(kind, opts, nil)
 		} else {
@@ -474,15 +480,15 @@ func Setup(opts Options) (Result, error) {
 		}
 		res.Scope = string(kind)
 		res.Label = opts.UnitName
-	case "windows":
+	case osWindows:
 		body, err = renderTaskXML(opts, currentTaskUser())
-		res.Scope = "windows-task"
+		res.Scope = string(KindWindowsTask)
 		res.Label = taskNameFor(opts.Product)
 	default:
 		if opts.PrintOnly {
 			// Preview systemd unit text on unsupported install platforms.
 			body, err = render(opts)
-			res.Scope = "systemd-user"
+			res.Scope = string(KindSystemdUser)
 			res.Label = opts.UnitName
 		} else {
 			return res, fmt.Errorf("setup-service install is only supported on Linux, macOS and Windows (running on %s); use --print-only to preview", installOS)
@@ -502,15 +508,15 @@ func Setup(opts Options) (Result, error) {
 	// task under the product's name whatever --unit-name says.
 	recorded := opts.UnitName
 	switch installOS {
-	case "linux":
+	case osLinux:
 		if kind.isScriptKind() {
 			res, err = setupScript(kind, opts, body, res)
 		} else {
 			res, err = setupSystemd(opts, body, res)
 		}
-	case "darwin":
+	case osDarwin:
 		res, err = setupLaunchdAgent(opts, body, res)
-	case "windows":
+	case osWindows:
 		recorded = taskNameFor(opts.Product)
 		res, err = setupSchtasks(opts, body, res)
 	default:
@@ -551,7 +557,7 @@ func setupSystemd(opts Options, body string, res Result) (Result, error) {
 	}
 	unitPath := filepath.Join(unitDir, opts.UnitName+".service")
 	res.UnitPath = unitPath
-	res.Scope = "systemd-user"
+	res.Scope = string(KindSystemdUser)
 	res.Label = opts.UnitName
 
 	mode := os.FileMode(0o644)
@@ -622,7 +628,7 @@ func setupLaunchdAgent(opts Options, body string, res Result) (Result, error) {
 		return res, err
 	}
 	res.Label = label
-	res.Scope = "launchd-agent"
+	res.Scope = string(KindLaunchdAgent)
 	res.LingerEnabled = false
 
 	logDir := filepath.Join(home, "Library", "Logs", opts.Product)
@@ -787,7 +793,7 @@ func currentUID() (string, error) {
 // Stop/disable failures are tolerated; binary, config, and logs are left intact.
 func Remove(opts Options) (Result, error) {
 	if opts.Product == "" {
-		opts.Product = "mcremote"
+		opts.Product = appdirs.ProductMcremote.Name
 	}
 	if opts.UnitName == "" {
 		// The name setup-service recorded, else the product (MADR 0201 D30).
@@ -807,7 +813,7 @@ func Remove(opts Options) (Result, error) {
 	)
 	recorded := opts.UnitName
 	switch installOS {
-	case "linux":
+	case osLinux:
 		kind, kerr := ResolveBackend(opts.Product)
 		if kerr != nil {
 			return Result{}, kerr
@@ -817,9 +823,9 @@ func Remove(opts Options) (Result, error) {
 		} else {
 			res, err = removeSystemd(opts)
 		}
-	case "darwin":
+	case osDarwin:
 		res, err = removeLaunchdAgent(opts)
-	case "windows":
+	case osWindows:
 		recorded = taskNameFor(opts.Product)
 		res, err = removeSchtasks(opts)
 	default:
@@ -855,7 +861,7 @@ func removeSystemd(opts Options) (Result, error) {
 		unitDir = filepath.Join(xdgConfigHome(), "systemd", "user")
 	}
 	unitPath := filepath.Join(unitDir, opts.UnitName+".service")
-	res := Result{UnitName: opts.UnitName, UnitPath: unitPath, Scope: "systemd-user", Label: opts.UnitName}
+	res := Result{UnitName: opts.UnitName, UnitPath: unitPath, Scope: string(KindSystemdUser), Label: opts.UnitName}
 
 	svc := opts.UnitName + ".service"
 	var err error
@@ -923,7 +929,7 @@ func removeLaunchdAgent(opts Options) (Result, error) {
 		UnitPath: plistPath,
 		Label:    label,
 		Domain:   domain,
-		Scope:    "launchd-agent",
+		Scope:    string(KindLaunchdAgent),
 	}
 
 	// The same Job.Stop as setup and the update: one teardown path to reason
@@ -945,7 +951,7 @@ func removeLaunchdAgent(opts Options) (Result, error) {
 
 // preflightLinux fails fast when systemd --user cannot work.
 func preflightLinux() error {
-	if installOS != "linux" {
+	if installOS != osLinux {
 		return fmt.Errorf("setup-service systemd path requires Linux (running on %s); use --print-only to preview", installOS)
 	}
 	if _, err := exec.LookPath("systemctl"); err != nil {
@@ -953,7 +959,7 @@ func preflightLinux() error {
 		// systemctl cannot exist. Symmetric to preflightDarwin, which already
 		// tolerates a missing launchctl off Darwin. A real Linux host with no
 		// systemctl still fails below.
-		if runtime.GOOS != "linux" {
+		if runtime.GOOS != osLinux {
 			return nil
 		}
 		return fmt.Errorf("systemctl not found in PATH — this host does not appear to run systemd; use --print-only to preview the unit")
@@ -971,13 +977,13 @@ func preflightLinux() error {
 
 // preflightDarwin fails fast when launchctl is missing.
 func preflightDarwin() error {
-	if installOS != "darwin" {
+	if installOS != osDarwin {
 		return fmt.Errorf("setup-service launchd path requires macOS (running on %s); use --print-only to preview", installOS)
 	}
 	if _, err := exec.LookPath("launchctl"); err != nil {
 		// Allow tests that inject runLaunchctl without a real launchctl binary
 		// only when installOS was overridden on a non-darwin host.
-		if runtime.GOOS != "darwin" {
+		if runtime.GOOS != osDarwin {
 			return nil
 		}
 		return fmt.Errorf("launchctl not found in PATH — cannot manage LaunchAgents")
@@ -987,17 +993,17 @@ func preflightDarwin() error {
 
 func normalize(opts Options) (Options, error) {
 	if opts.Product == "" {
-		opts.Product = "mcremote"
+		opts.Product = appdirs.ProductMcremote.Name
 	}
 	switch opts.Product {
-	case "mcremote", "mcrelay":
+	case appdirs.ProductMcremote.Name, appdirs.ProductMcrelay.Name:
 	default:
 		return opts, fmt.Errorf("product must be mcremote or mcrelay (got %q)", opts.Product)
 	}
 	if opts.UnitName == "" {
 		opts.UnitName = opts.Product
 	}
-	if installOS == "windows" {
+	if installOS == osWindows {
 		// The task is always named after the product, and every lifecycle
 		// probe looks it up by product, so a different name cannot be honoured
 		// (MADR 0159 F17, D13). Refuse rather than accept and ignore it.
@@ -1013,7 +1019,7 @@ func normalize(opts Options) (Options, error) {
 	}
 	if opts.Description == "" {
 		switch opts.Product {
-		case "mcrelay":
+		case appdirs.ProductMcrelay.Name:
 			opts.Description = "mcrelay outbound join-plane relay for mcremote"
 		default:
 			opts.Description = "mcremote multi-CLI remote control daemon"
@@ -1085,10 +1091,10 @@ func normalize(opts Options) (Options, error) {
 	for _, f := range []struct{ name, val string }{
 		{"--binary", opts.Binary},
 		{"--service-config", opts.ConfigPath},
-		{"--data-dir", opts.DataDir},
-		{"--listen-host", opts.ListenHost},
-		{"--log-level", opts.LogLevel},
-		{"--log-format", opts.LogFormat},
+		{flagDataDir, opts.DataDir},
+		{flagListenHost, opts.ListenHost},
+		{flagLogLevel, opts.LogLevel},
+		{flagLogFormat, opts.LogFormat},
 		{"--working-directory", opts.WorkingDirectory},
 	} {
 		if strings.ContainsAny(f.val, "\n\r\x00") {
@@ -1131,10 +1137,10 @@ func isEphemeralBuildPath(path string) bool {
 // user tool prefixes and Homebrew to the ambient PATH (deduplicated).
 func servicePathEnv(home, product string) string {
 	extras := servicePathExtras(home, product)
-	if product == "mcrelay" {
+	if product == appdirs.ProductMcrelay.Name {
 		return strings.Join(extras, ":")
 	}
-	pathEnv := os.Getenv("PATH")
+	pathEnv := os.Getenv(envPath)
 	for _, e := range extras {
 		if e != "" && !strings.Contains(":"+pathEnv+":", ":"+e+":") {
 			pathEnv = e + ":" + pathEnv
@@ -1148,7 +1154,7 @@ func servicePathEnv(home, product string) string {
 // ambient one. A refresh compares them against the installed definition to
 // report what a new release would add (MADR 0100 F4).
 func servicePathExtras(home, product string) []string {
-	if product == "mcrelay" {
+	if product == appdirs.ProductMcrelay.Name {
 		return []string{
 			filepath.Join(home, ".local", "bin"),
 			"/usr/local/bin",
@@ -1173,7 +1179,7 @@ func servicePathExtras(home, product string) []string {
 }
 
 func unitTemplateFor(product string) string {
-	if product == "mcrelay" {
+	if product == appdirs.ProductMcrelay.Name {
 		return unitTemplateMcrelay
 	}
 	return unitTemplateMcremote
@@ -1215,7 +1221,7 @@ func currentRenderEnv(product string) renderEnv {
 		XDGDataHome:   xdgDataHome(),
 		XDGStateHome:  xdgStateHome(),
 		XDGCacheHome:  xdgCacheHome(),
-		XDGRuntimeDir: os.Getenv("XDG_RUNTIME_DIR"),
+		XDGRuntimeDir: os.Getenv(envXDGRuntimeDir),
 	}
 }
 
@@ -1293,7 +1299,7 @@ func defaultConfigPath(product string) (string, error) {
 // resolveProductPaths returns appdirs.Paths for product and optional dataDir.
 func resolveProductPaths(product, dataDir string) (appdirs.Paths, error) {
 	if product == "" {
-		product = "mcremote"
+		product = appdirs.ProductMcremote.Name
 	}
 	prod, ok := appdirs.ProductByName(product)
 	if !ok {
@@ -1313,7 +1319,7 @@ func resolveProductPaths(product, dataDir string) (appdirs.Paths, error) {
 // defaultConfigBody returns the embedded default YAML for product.
 func defaultConfigBody(product string) []byte {
 	switch product {
-	case "mcrelay":
+	case appdirs.ProductMcrelay.Name:
 		return defaultConfigMcrelay
 	default:
 		return defaultConfigMcremote
@@ -1533,7 +1539,7 @@ func userRuntimeDir() (string, bool) {
 
 // xdgConfigHome returns the absolute XDG config home (not product leaf).
 func xdgConfigHome() string {
-	p, err := resolveProductPaths("mcremote", "")
+	p, err := resolveProductPaths(appdirs.ProductMcremote.Name, "")
 	if err != nil {
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, ".config")
@@ -1542,7 +1548,7 @@ func xdgConfigHome() string {
 }
 
 func xdgDataHome() string {
-	p, err := resolveProductPaths("mcremote", "")
+	p, err := resolveProductPaths(appdirs.ProductMcremote.Name, "")
 	if err != nil {
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, ".local", "share")
@@ -1551,7 +1557,7 @@ func xdgDataHome() string {
 }
 
 func xdgCacheHome() string {
-	p, err := resolveProductPaths("mcremote", "")
+	p, err := resolveProductPaths(appdirs.ProductMcremote.Name, "")
 	if err != nil {
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, ".cache")
@@ -1560,7 +1566,7 @@ func xdgCacheHome() string {
 }
 
 func xdgStateHome() string {
-	p, err := resolveProductPaths("mcremote", "")
+	p, err := resolveProductPaths(appdirs.ProductMcremote.Name, "")
 	if err != nil {
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, ".local", "state")
@@ -1580,7 +1586,7 @@ func xdgStateHome() string {
 // happened to invoke into the scheduled task — a downloads folder, a temp
 // extract — and the task would break the moment that file moved.
 func defaultInstalledBinary(home, product string) string {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		base := os.Getenv("LOCALAPPDATA")
 		if base == "" {
 			base = filepath.Join(home, "AppData", "Local")

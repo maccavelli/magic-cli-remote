@@ -15,22 +15,22 @@ import (
 func reviewTargetJSON(t provider.ReviewTarget) (map[string]any, error) {
 	switch t.Kind {
 	case provider.ReviewUncommitted:
-		return map[string]any{"type": provider.ReviewUncommitted}, nil
+		return map[string]any{fieldType: provider.ReviewUncommitted}, nil
 	case provider.ReviewBaseBranch:
 		if strings.TrimSpace(t.Branch) == "" {
 			return nil, provider.ErrReviewInvalid
 		}
-		return map[string]any{"type": provider.ReviewBaseBranch, "branch": t.Branch}, nil
+		return map[string]any{fieldType: provider.ReviewBaseBranch, "branch": t.Branch}, nil
 	case provider.ReviewCommit:
 		if strings.TrimSpace(t.SHA) == "" {
 			return nil, provider.ErrReviewInvalid
 		}
-		return map[string]any{"type": provider.ReviewCommit, "sha": t.SHA, "title": nil}, nil
+		return map[string]any{fieldType: provider.ReviewCommit, "sha": t.SHA, fieldTitle: nil}, nil
 	case provider.ReviewCustom:
 		if strings.TrimSpace(t.Instructions) == "" {
 			return nil, provider.ErrReviewInvalid
 		}
-		return map[string]any{"type": provider.ReviewCustom, "instructions": t.Instructions}, nil
+		return map[string]any{fieldType: provider.ReviewCustom, "instructions": t.Instructions}, nil
 	default:
 		return nil, provider.ErrReviewInvalid
 	}
@@ -77,7 +77,7 @@ func (s *session) StartReview(ctx context.Context, target provider.ReviewTarget)
 		Type:      event.TypeSessionStatus,
 		SessionID: s.localID,
 		Timestamp: time.Now().UTC(),
-		Status:    "running",
+		Status:    statusRunning,
 	})
 
 	baseCtx := context.WithoutCancel(ctx)
@@ -103,9 +103,9 @@ func (s *session) runReview(ctx context.Context, cancel context.CancelFunc, fr *
 	s.lastActivity.Store(time.Now().UnixNano())
 
 	params := map[string]any{
-		"threadId": threadID,
-		"target":   target,
-		"delivery": "inline",
+		fieldThreadID: threadID,
+		"target":      target,
+		"delivery":    "inline",
 	}
 	raw, err := fr.sendRequest(ctx, "review/start", params)
 	if err != nil {
@@ -122,7 +122,7 @@ func (s *session) runReview(ctx context.Context, cancel context.CancelFunc, fr *
 		if errors.Is(err, errConnLost) || errors.Is(err, context.Canceled) {
 			s.emitTurnComplete("cancelled", "")
 		} else {
-			s.emitTurnComplete("error", err.Error())
+			s.emitTurnComplete(stopReasonError, err.Error())
 		}
 		return
 	}
@@ -136,7 +136,7 @@ func (s *session) runReview(ctx context.Context, cancel context.CancelFunc, fr *
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		s.finishReview()
 		s.clearTurnBusy()
-		s.emitTurnComplete("error", "review/start: decode")
+		s.emitTurnComplete(stopReasonError, "review/start: decode")
 		return
 	}
 	s.mu.Lock()
@@ -206,7 +206,7 @@ func (s *session) noteReviewAssistant() {
 
 func (s *session) handleReviewItem(itemType string, item json.RawMessage, started bool) bool {
 	switch itemType {
-	case "enteredReviewMode":
+	case itemEnteredReviewMode:
 		if started {
 			s.emit(event.Event{
 				Type:           event.TypeNotice,
@@ -217,7 +217,7 @@ func (s *session) handleReviewItem(itemType string, item json.RawMessage, starte
 			})
 		}
 		return true
-	case "exitedReviewMode":
+	case itemExitedReviewMode:
 		if started {
 			s.emit(event.Event{
 				Type:           event.TypeNotice,
@@ -262,7 +262,7 @@ func reviewFallbackText(item json.RawMessage) string {
 	var p struct {
 		Review json.RawMessage `json:"review"`
 	}
-	if json.Unmarshal(item, &p) != nil || len(p.Review) == 0 || string(p.Review) == "null" {
+	if json.Unmarshal(item, &p) != nil || len(p.Review) == 0 || string(p.Review) == jsonNull {
 		return ""
 	}
 	var s string

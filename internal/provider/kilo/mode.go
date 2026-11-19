@@ -14,6 +14,22 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// modeAsk: the id of a Kilo agent mode.
+	modeAsk = "ask"
+	// modeCode: the id of a Kilo agent mode.
+	modeCode = "code"
+	// modeDebug: the id of a Kilo agent mode.
+	modeDebug = "debug"
+	// modeKindPrimary: a Kilo agent's mode kind.
+	modeKindPrimary = "primary"
+	// modeOrchestrator: the id of a Kilo agent mode.
+	modeOrchestrator = "orchestrator"
+	// modePlan: the id of a Kilo agent mode.
+	modePlan = "plan"
+)
+
 // Kilo, like the OpenCode it forks, has no ACP-style mode list: the agent is
 // chosen per message on prompt_async, so a session's switchable modes are its
 // primary agents (code/ask/debug/plan/orchestrator) and switching one means
@@ -57,7 +73,7 @@ func (a agentInfo) startable() bool {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(a.Mode)) {
-	case "", "primary", "all":
+	case "", modeKindPrimary, "all":
 		return true
 	default:
 		return false
@@ -136,12 +152,12 @@ func withAutoMode(modes []event.SessionMode) []event.SessionMode {
 // two cannot disagree.
 func normalAgentID(modes []event.SessionMode) string {
 	for _, m := range modes {
-		if strings.EqualFold(m.ID, "code") {
+		if strings.EqualFold(m.ID, modeCode) {
 			return m.ID
 		}
 	}
 	for _, m := range modes {
-		if !strings.EqualFold(m.ID, "plan") && !strings.EqualFold(m.ID, autoModeID) {
+		if !strings.EqualFold(m.ID, modePlan) && !strings.EqualFold(m.ID, autoModeID) {
 			return m.ID
 		}
 	}
@@ -152,11 +168,11 @@ func normalAgentID(modes []event.SessionMode) string {
 // mode strip and /plan keep working when the engine catalog is unreachable.
 func staticModes() []event.SessionMode {
 	return withAutoMode([]event.SessionMode{
-		{ID: "code", Name: "code", Description: "Default full agent"},
-		{ID: "ask", Name: "ask", Description: "Q&A, no edits"},
-		{ID: "debug", Name: "debug", Description: "Diagnostics"},
-		{ID: "plan", Name: "plan", Description: "Plan files only"},
-		{ID: "orchestrator", Name: "orchestrator", Description: "Multi-agent coordination"},
+		{ID: modeCode, Name: modeCode, Description: "Default full agent"},
+		{ID: modeAsk, Name: modeAsk, Description: "Q&A, no edits"},
+		{ID: modeDebug, Name: modeDebug, Description: "Diagnostics"},
+		{ID: modePlan, Name: modePlan, Description: "Plan files only"},
+		{ID: modeOrchestrator, Name: modeOrchestrator, Description: "Multi-agent coordination"},
 	})
 }
 
@@ -192,7 +208,7 @@ func (o *httpSession) currentMode(modes []event.SessionMode) string {
 		return cur
 	}
 	for _, m := range modes {
-		if m.ID == "code" {
+		if m.ID == modeCode {
 			return m.ID
 		}
 	}

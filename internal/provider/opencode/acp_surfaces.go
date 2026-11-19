@@ -18,6 +18,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode/control"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// paramLimit: a query parameter of the control plane.
+	paramLimit = "limit"
+)
+
 // The workspace, diagnostics and diff of an ACP session, served by the control
 // plane in the session's directory (0214 MADR D10, as amended at P6d):
 //   - workspace on fs.list, fs.read and fs.find, behind the 1.x path guards
@@ -252,7 +258,7 @@ func (s *acpSurfaces) searchWorkspace(ctx context.Context, h acpagent.Host, kind
 	var out struct {
 		Data []fsEntry `json:"data"`
 	}
-	params := url.Values{"query": {q}, "limit": {fmt.Sprint(fileSearchLimit)}}
+	params := url.Values{"query": {q}, paramLimit: {fmt.Sprint(fileSearchLimit)}}
 	if err := s.get(ctx, h, "/api/fs/find", params, &out); err != nil {
 		return provider.WorkspaceSearch{}, err
 	}
@@ -438,7 +444,7 @@ func (s *acpSurfaces) userMessage(ctx context.Context, h acpagent.Host, sid, ord
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	q := url.Values{"type": {"user"}, "order": {order}, "limit": {"1"}}
+	q := url.Values{"type": {"user"}, "order": {order}, paramLimit: {"1"}}
 	if err := s.get(ctx, h, "/api/session/"+url.PathEscape(sid)+"/message", q, &out); err != nil {
 		return "", err
 	}

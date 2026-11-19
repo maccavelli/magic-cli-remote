@@ -21,6 +21,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/fsutil"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// defaultDeviceName: the name a device gets when it supplies none.
+	defaultDeviceName = "device"
+)
+
 const deviceNameMaxLen = 64
 
 // sanitizeDeviceName makes a client- or CLI-supplied device name safe to store,
@@ -38,7 +44,7 @@ const deviceNameMaxLen = 64
 func sanitizeDeviceName(name string) string {
 	name = strings.Join(strings.Fields(safetext.Clean(name, safetext.Line())), " ")
 	if name == "" {
-		return "device"
+		return defaultDeviceName
 	}
 	if len(name) > deviceNameMaxLen {
 		cut := deviceNameMaxLen
@@ -48,7 +54,7 @@ func sanitizeDeviceName(name string) string {
 		name = strings.TrimSpace(name[:cut])
 	}
 	if name == "" {
-		return "device"
+		return defaultDeviceName
 	}
 	if _, err := uuid.Parse(name); err == nil {
 		name = "device-" + name

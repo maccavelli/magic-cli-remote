@@ -10,6 +10,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// metaConnectedTrue: the picker.MetaConnected value of a connected model.
+	metaConnectedTrue = "true"
+)
+
 // The model picker's vendor step for an ACP agent (MADR 0079; 0214 PLAN P6c
 // Deviation 1). Spec.ModelProviders builds the vendors; one vendor's models,
 // and a session's own, are the models whose Group is that vendor. A Spec
@@ -58,7 +64,7 @@ func (p *Provider) ListModelProviders(ctx context.Context) (picker.Catalog, erro
 		return picker.SingleCatalog(picker.SourceStatic, []picker.Option{{
 			ID:    id,
 			Label: id,
-			Meta:  map[string]string{picker.MetaConnected: "true"},
+			Meta:  map[string]string{picker.MetaConnected: metaConnectedTrue},
 		}}, id, false), nil
 	}
 	models, err := p.ListModels(ctx)

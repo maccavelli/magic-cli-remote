@@ -11,6 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// engineStateOrphan: the state `mcremote engines` prints for an engine whose daemon is gone.
+	engineStateOrphan = "ORPHAN"
+)
+
 func newEnginesCmd() *cobra.Command {
 	var reap bool
 	cmd := &cobra.Command{
@@ -93,7 +99,7 @@ func newEnginesCmd() *cobra.Command {
 					}
 					state := "live"
 					if orphans[pid] {
-						state = "ORPHAN"
+						state = engineStateOrphan
 					}
 					// The environment marks an engine but does not name its
 					// provider; only a registry record does.
@@ -164,7 +170,7 @@ func renderEngineRows(out io.Writer, rows []engineRow) error {
 	fmt.Fprintln(tw, "PID\tOWNER\tSTATE\tPROVIDER\tENGINE ID")
 	orphanCount := 0
 	for _, r := range rows {
-		if r.state == "ORPHAN" {
+		if r.state == engineStateOrphan {
 			orphanCount++
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.pid, r.owner, r.state, r.provider, r.id)

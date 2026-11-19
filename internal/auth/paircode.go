@@ -87,7 +87,7 @@ func (s *PairCodeStore) Create(name string, ttl time.Duration) (PairCodeInfo, er
 		ttl = MaxPairCodeTTL
 	}
 	if name == "" {
-		name = "device"
+		name = defaultDeviceName
 	}
 	code, err := generatePairCode()
 	if err != nil {

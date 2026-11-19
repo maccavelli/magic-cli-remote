@@ -6,6 +6,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
 // codexRateWindow is one window of account/rateLimits/updated: codex's
@@ -87,7 +88,7 @@ func (w *codexRateWindow) limitError(sessionID string, now time.Time) event.Even
 		RetryAt:            w.resetAt(),
 		LimitScope:         scope,
 		LimitWindowMinutes: minutes,
-		LimitProvider:      "codex",
+		LimitProvider:      string(provider.IDCodex),
 		Error: fmt.Sprintf("Codex %s limit reached (%d%% used). Wait for it to reset, or try again later.",
 			w.name(), w.UsedPercent),
 	}

@@ -10,6 +10,28 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// wireLayerProject: a config layer type of the app-server protocol.
+	wireLayerProject = "project"
+	// wireLayerUser: a config layer type of the app-server protocol.
+	wireLayerUser = "user"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// keyDefaultPermissions: the config key of the default permissions profile.
+	keyDefaultPermissions = "default_permissions"
+	// layerProject: a config layer's kind.
+	layerProject = "project"
+	// layerSession: a config layer's projected kind.
+	layerSession = "session"
+	// layerUnknown: a config layer's projected kind when the layer type is not known.
+	layerUnknown = "unknown"
+	// layerUser: a config layer's kind.
+	layerUser = "user"
+)
+
 // ConfigLayerProjection names a sanitized provenance class and version only.
 type ConfigLayerProjection struct {
 	Kind     string `json:"kind"`
@@ -81,7 +103,7 @@ func projectConfigState(raw []byte) (ConfigPolicyState, error) {
 	// explicitly to avoid "silently dropping part of its instructions"
 	// (core/src/context/world_state/managed_developer_instructions.rs:13,53-77).
 	state := ConfigPolicyState{}
-	_ = json.Unmarshal(input.Config["default_permissions"], &state.EffectiveProfileID)
+	_ = json.Unmarshal(input.Config[keyDefaultPermissions], &state.EffectiveProfileID)
 	_ = json.Unmarshal(input.Config["approvals_reviewer"], &state.EffectiveReviewer)
 	state.EffectiveProfileID = boundedPermissionText(state.EffectiveProfileID, 256)
 	state.EffectiveReviewer = normalizeReviewer(state.EffectiveReviewer)
@@ -89,12 +111,12 @@ func projectConfigState(raw []byte) (ConfigPolicyState, error) {
 		kind, managed := configLayerKind(layer.Name.Type)
 		projection := ConfigLayerProjection{Kind: kind, Version: boundedPermissionText(layer.Version, 128), Managed: managed, Disabled: layer.DisabledReason != nil}
 		state.Layers = append(state.Layers, projection)
-		if kind == "user" {
+		if kind == layerUser {
 			state.UserVersion = projection.Version
 		}
 		if !managed {
 			var profile, reviewer string
-			_ = json.Unmarshal(layer.Config["default_permissions"], &profile)
+			_ = json.Unmarshal(layer.Config[keyDefaultPermissions], &profile)
 			_ = json.Unmarshal(layer.Config["approvals_reviewer"], &reviewer)
 			if profile != "" && state.RequestedProfileID == "" {
 				state.RequestedProfileID = boundedPermissionText(profile, 256)
@@ -110,7 +132,7 @@ func projectConfigState(raw []byte) (ConfigPolicyState, error) {
 	if state.RequestedReviewer == "" {
 		state.RequestedReviewer = state.EffectiveReviewer
 	}
-	for _, key := range []string{"default_permissions", "approvals_reviewer"} {
+	for _, key := range []string{keyDefaultPermissions, "approvals_reviewer"} {
 		origin, ok := input.Origins[key]
 		if !ok {
 			continue
@@ -128,16 +150,16 @@ func configLayerKind(raw string) (string, bool) {
 	switch raw {
 	case "mdm", "system", "enterpriseManaged", "legacyManagedConfigTomlFromFile", "legacyManagedConfigTomlFromMdm":
 		return "managed", true
-	case "project":
-		return "project", false
-	case "user":
-		return "user", false
+	case wireLayerProject:
+		return layerProject, false
+	case wireLayerUser:
+		return layerUser, false
 	case "sessionFlags":
-		return "session", false
+		return layerSession, false
 	case "packagedDefaults":
 		return "default", false
 	default:
-		return "unknown", false
+		return layerUnknown, false
 	}
 }
 
@@ -151,7 +173,7 @@ func buildPermissionConfigWrite(profileID, reviewer, expectedVersion string) (ma
 		return nil, provider.ErrReviewerInvalid
 	}
 	edits := []map[string]any{
-		{"keyPath": "default_permissions", "value": profileID, "mergeStrategy": "replace"},
+		{"keyPath": keyDefaultPermissions, "value": profileID, "mergeStrategy": "replace"},
 		{"keyPath": "approvals_reviewer", "value": reviewer, "mergeStrategy": "replace"},
 	}
 	params := map[string]any{"edits": edits, "reloadUserConfig": true}

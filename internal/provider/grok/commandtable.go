@@ -2,6 +2,12 @@ package grok
 
 import "github.com/maccavelli/magic-cli-remote/internal/command"
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// commandPlan: the /plan command.
+	commandPlan = "plan"
+)
+
 // commandTable is how grok satisfies the canonical slash-command vocabulary
 // (MADR 0023). Every entry is what grok 1.0.5 was observed to do over ACP
 // stdio, not what it advertises: its available_commands list is really its TUI's
@@ -10,12 +16,12 @@ import "github.com/maccavelli/magic-cli-remote/internal/command"
 // `/compact`, `/context` and `/always-approve` produced zero session/update
 // frames and zero tokens.
 var commandTable = command.Table{
-	"help":     {Kind: command.KindDaemon},
-	"plan":     {Kind: command.KindMode, ModeID: "plan"},
-	"mode":     {Kind: command.KindMode},
-	"clear":    {Kind: command.KindDaemon},
-	"new":      {Kind: command.KindDaemon},
-	"sessions": {Kind: command.KindDaemon},
+	"help":      {Kind: command.KindDaemon},
+	commandPlan: {Kind: command.KindMode, ModeID: modePlan},
+	"mode":      {Kind: command.KindMode},
+	"clear":     {Kind: command.KindDaemon},
+	"new":       {Kind: command.KindDaemon},
+	"sessions":  {Kind: command.KindDaemon},
 	// model switches the live model mid-session via ACP session/set_model
 	// (verified live against grok 0.2.112; MADR 0039 D1). grok validates
 	// the id against its live model list and rejects unknown ids.

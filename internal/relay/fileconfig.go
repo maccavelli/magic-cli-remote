@@ -177,7 +177,7 @@ type LimitsConfig struct {
 func DefaultsFile() FileConfig {
 	d := DefaultLimits()
 	return FileConfig{
-		Listen: ListenConfig{Host: "0.0.0.0", Port: 8443},
+		Listen: ListenConfig{Host: wildcardHost, Port: 8443},
 		TLS:    TLSConfig{Mode: ""},
 		Log:    LogConfig{Level: "info", Format: "text"},
 		Limits: LimitsConfig{

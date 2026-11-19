@@ -20,6 +20,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// eventError: the event name of a failed sign-in step.
+	eventError = "error"
+)
+
 // Phone provider-auth through gobble's own CLI (MADR 0179 D3, A4): gobble's
 // store is written by `gobble auth login` and `logout`, with a key on the
 // child's stdin and never in its argv, and read by `gobble auth status
@@ -125,7 +131,7 @@ type auth struct {
 
 func newAuth(bin string, log *slog.Logger) *auth {
 	if bin == "" {
-		bin = "gobble"
+		bin = binName
 	}
 	if log == nil {
 		log = slog.Default()
@@ -295,7 +301,7 @@ func failure(stdout, stderr []byte, err error) error {
 	sc := bufio.NewScanner(bytes.NewReader(stdout))
 	for sc.Scan() {
 		var ev loginEvent
-		if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Event == "error" && ev.Message != "" {
+		if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Event == eventError && ev.Message != "" {
 			return errors.New(ev.Message)
 		}
 	}
@@ -406,7 +412,7 @@ func (a *auth) startDeviceAuth(ctx context.Context, bin, upstreamID, methodID st
 		var failed error
 		for events.Scan() {
 			var ev loginEvent
-			if json.Unmarshal(events.Bytes(), &ev) == nil && ev.Event == "error" {
+			if json.Unmarshal(events.Bytes(), &ev) == nil && ev.Event == eventError {
 				failed = errors.New(ev.Message)
 			}
 		}
@@ -464,7 +470,7 @@ func scanDeviceCode(events *bufio.Scanner) (provider.DeviceFlow, error) {
 				flow.ExpiresIn = max(0, int(time.Until(t).Seconds()))
 			}
 			return flow, nil
-		case "error":
+		case eventError:
 			return provider.DeviceFlow{}, errors.New(ev.Message)
 		}
 	}

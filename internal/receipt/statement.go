@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// digestSHA256: the digest algorithm key of a Statement's subject.
+	digestSHA256 = "sha256"
+)
+
 // StatementType is the fixed in-toto-style envelope type this package emits
 // (MADR 0077 D5). New receipt kinds are new PredicateType values inside this
 // same Statement shape, not a new top-level type.
@@ -148,7 +154,7 @@ func BuildPermissionDecisionStatement(sessionID, permissionID, deviceID, optionI
 		Type: StatementType,
 		Subject: []ResourceDescriptor{{
 			Name:   "session:" + sessionID + "/permission:" + permissionID,
-			Digest: map[string]string{"sha256": subjectDigest(toolName, detail)},
+			Digest: map[string]string{digestSHA256: subjectDigest(toolName, detail)},
 		}},
 		PredicateType: PredicateTypePermissionDecision,
 		Predicate:     predicate,
@@ -174,7 +180,7 @@ func BuildReceiptUnavailableStatement(permissionID, deviceID, reason, chainScope
 		Type: StatementType,
 		Subject: []ResourceDescriptor{{
 			Name:   "permission:" + permissionID,
-			Digest: map[string]string{"sha256": hex.EncodeToString(sum[:])},
+			Digest: map[string]string{digestSHA256: hex.EncodeToString(sum[:])},
 		}},
 		PredicateType: PredicateTypeReceiptUnavailable,
 		Predicate:     predicate,
@@ -200,7 +206,7 @@ func BuildHandoffReleaseStatement(sessionID, fromDeviceID, toDeviceID, nonce str
 		Type: StatementType,
 		Subject: []ResourceDescriptor{{
 			Name:   handoffSubjectName(sessionID, nonce),
-			Digest: map[string]string{"sha256": handoffDigest(fromDeviceID, toDeviceID, sessionID)},
+			Digest: map[string]string{digestSHA256: handoffDigest(fromDeviceID, toDeviceID, sessionID)},
 		}},
 		PredicateType: PredicateTypeSessionHandoffRelease,
 		Predicate:     predicate,
@@ -226,7 +232,7 @@ func BuildHandoffClaimStatement(sessionID, claimedByDeviceID, fromDeviceID, nonc
 		Type: StatementType,
 		Subject: []ResourceDescriptor{{
 			Name:   handoffSubjectName(sessionID, nonce),
-			Digest: map[string]string{"sha256": handoffDigest(fromDeviceID, claimedByDeviceID, sessionID)},
+			Digest: map[string]string{digestSHA256: handoffDigest(fromDeviceID, claimedByDeviceID, sessionID)},
 		}},
 		PredicateType: PredicateTypeSessionHandoffClaim,
 		Predicate:     predicate,

@@ -13,7 +13,50 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// fieldRows: a JSON member name of the app-server protocol.
+	fieldRows = "rows"
+	// fieldTimeoutMs: a JSON member name of the app-server protocol.
+	fieldTimeoutMs = "timeoutMs"
+	// fieldText: a JSON member name of the app-server protocol.
+	fieldText = "text"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// fieldCols: a JSON member name of the app-server protocol.
+	fieldCols = "cols"
+	// fieldCommand: a JSON member name of the app-server protocol.
+	fieldCommand = "command"
+	// fieldEnvironmentID: a JSON member name of the app-server protocol.
+	fieldEnvironmentID = "environmentId"
+	// fieldLimit: a JSON member name of the app-server protocol.
+	fieldLimit = "limit"
+	// fieldMethod: a JSON member name of the app-server protocol.
+	fieldMethod = "method"
+	// fieldName: a JSON member name of the app-server protocol.
+	fieldName = "name"
+	// fieldProcessHandle: a JSON member name of the app-server protocol.
+	fieldProcessHandle = "processHandle"
+	// fieldProcessID: a JSON member name of the app-server protocol.
+	fieldProcessID = "processId"
+	// fieldProjectID: a JSON member name of the app-server protocol.
+	fieldProjectID = "projectId"
+	// fieldStatus: a JSON member name of the app-server protocol.
+	fieldStatus = "status"
+	// fieldThreadID: a JSON member name of the app-server protocol.
+	fieldThreadID = "threadId"
+	// fieldTitle: a JSON member name of the app-server protocol.
+	fieldTitle = "title"
+	// fieldType: a JSON member name of the app-server protocol.
+	fieldType = "type"
+	// jsonNull: the JSON null literal, compared against a raw message.
+	jsonNull = "null"
 )
 
 var errConnLost = errors.New("engine connection lost")
@@ -54,7 +97,7 @@ func boundRPCErrorData(raw json.RawMessage) json.RawMessage {
 		return json.RawMessage(`{"truncated":true}`)
 	}
 	bounded := map[string]any{"truncated": true}
-	for _, key := range []string{"capability", "method", "reason", "code", "retryAfterMs"} {
+	for _, key := range []string{"capability", fieldMethod, "reason", "code", "retryAfterMs"} {
 		value, ok := fields[key]
 		if !ok {
 			continue
@@ -136,7 +179,7 @@ func newTransportConn(tr transport, log *slog.Logger) *conn {
 	return &conn{
 		transport: tr,
 		log:       log,
-		wire:      wirecap.For("codex"),
+		wire:      wirecap.For(string(provider.IDCodex)),
 		pending:   make(map[int64]chan rpcResponse),
 		closed:    make(chan struct{}),
 	}
@@ -156,9 +199,9 @@ func (c *conn) sendRequest(ctx context.Context, method string, params any) (json
 	}()
 
 	msg := map[string]any{
-		"method": method,
-		"id":     id,
-		"params": params,
+		fieldMethod: method,
+		"id":        id,
+		"params":    params,
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -188,8 +231,8 @@ func (c *conn) sendReadOnlyRequest(ctx context.Context, method string, params an
 
 func (c *conn) sendNotification(ctx context.Context, method string, params any) error {
 	msg := map[string]any{
-		"method": method,
-		"params": params,
+		fieldMethod: method,
+		"params":    params,
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -283,7 +326,7 @@ func (c *conn) readPump(onNotif notificationHandler, onRequest serverRequestHand
 			c.log.Debug("codex: unparseable frame", slog.String("err", err.Error()))
 			continue
 		}
-		hasID := len(msg.ID) > 0 && string(msg.ID) != "null"
+		hasID := len(msg.ID) > 0 && string(msg.ID) != jsonNull
 		if hasID && msg.Method == "" && (msg.Result != nil || msg.Error != nil) {
 			var id int64
 			if err := json.Unmarshal(msg.ID, &id); err == nil {

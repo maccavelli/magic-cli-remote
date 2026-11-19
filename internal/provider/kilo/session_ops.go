@@ -161,7 +161,7 @@ func (o *httpSession) Compact(ctx context.Context) error {
 	if mp == "" || mid == "" {
 		return fmt.Errorf("kilo compact: no model resolved for this session")
 	}
-	body := map[string]any{"providerID": mp, "modelID": mid}
+	body := map[string]any{fieldProviderID: mp, "modelID": mid}
 	callCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	return o.h.API()(callCtx, "POST",
@@ -179,7 +179,7 @@ func (o *httpSession) SetModel(ctx context.Context, model string) error {
 	}
 	// ModelRef is {providerID, id} here — the same shape session create uses,
 	// not the {providerID, modelID} that prompt and summarize take.
-	body := map[string]any{"model": map[string]string{"providerID": mp, "id": mid}}
+	body := map[string]any{"model": map[string]string{fieldProviderID: mp, "id": mid}}
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	// No ?directory=: unlike the legacy routes, this v2 endpoint declares only
@@ -210,7 +210,7 @@ func (o *httpSession) UndoLast(ctx context.Context) (string, error) {
 	}
 	last := ""
 	for _, m := range msgs {
-		if m.Info.Role == "user" && m.Info.ID != "" {
+		if m.Info.Role == roleUser && m.Info.ID != "" {
 			last = m.Info.ID
 		}
 	}

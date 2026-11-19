@@ -15,6 +15,18 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// authMethodAPIKey: the auth method id for an xAI API key.
+	authMethodAPIKey = "xai.api_key"
+	// binName: the grok binary name.
+	binName = "grok"
+	// modeDefault: the id of Grok's default mode.
+	modeDefault = "default"
+	// modePlan: the id of Grok's plan mode.
+	modePlan = "plan"
+)
+
 // Config configures the Grok Build ACP provider.
 type Config = acpagent.Config
 
@@ -66,27 +78,27 @@ func floorDefault() string {
 // request, because grok's own auto is `--permission-mode auto` — a flag on the
 // process, not an ACP mode id, and not switchable per session (MADR 0049).
 var staticModes = []event.SessionMode{
-	{ID: "default", Name: "Build", Description: "Full tool access; edits allowed"},
-	{ID: "plan", Name: "Plan", Description: "Research and plan only; no edits"},
+	{ID: modeDefault, Name: "Build", Description: "Full tool access; edits allowed"},
+	{ID: modePlan, Name: "Plan", Description: "Research and plan only; no edits"},
 }
 
 // spec describes how to launch grok in ACP-stdio mode.
 var spec = acpagent.Spec{
 	ID:                provider.IDGrok,
-	DefaultBin:        "grok",
+	DefaultBin:        binName,
 	KnownGoodVersion:  KnownGoodVersion,
 	DefaultArgs:       defaultArgs,
 	AuthStatus:        authStatus,
 	SetCredential:     setCredential,
 	ClearCredential:   clearCredential,
 	CredentialModel:   resolveCredentialModel,
-	SafeAuthMethodIDs: []string{"cached_token", "xai.api_key"},
+	SafeAuthMethodIDs: []string{"cached_token", authMethodAPIKey},
 	// CredentialEnv is unset: XAI_API_KEY ends in _API_KEY, which
 	// stderrtail.Secrets already knows (MADR 0216 D27).
 	// A cached token first, then a key, as grok's own login prefers
 	// (MADR 0085 D2).
-	AuthPreference:        []string{"cached_token", "xai.api_key"},
-	KeyAuthMethodID:       "xai.api_key",
+	AuthPreference:        []string{"cached_token", authMethodAPIKey},
+	KeyAuthMethodID:       authMethodAPIKey,
 	HasHeadlessCredential: grokHasAPIKey,
 	KeyNotAdvertisedHint:  keyNotAdvertisedHint,
 	StartDeviceAuth:       startDeviceAuth,
@@ -114,7 +126,7 @@ var spec = acpagent.Spec{
 	StaticModels:        staticModels,
 	StaticDefaultModel:  floorDefault(),
 	StaticModes:         staticModes,
-	DefaultModeID:       "default",
+	DefaultModeID:       modeDefault,
 	SynthesizeAutoMode:  true,
 	Commands:            commandTable,
 	CommandCaveat:       commandCaveat,

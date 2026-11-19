@@ -126,7 +126,7 @@ func (p *Provider) refreshPermissionState(ctx context.Context, cwd string) error
 		var all []provider.PermissionProfile
 		cursor := ""
 		for len(all) < maxPermissionProfiles {
-			params := map[string]any{"limit": maxPermissionProfiles}
+			params := map[string]any{fieldLimit: maxPermissionProfiles}
 			if cwd != "" {
 				params["cwd"] = cwd
 			}
@@ -180,7 +180,7 @@ func (p *Provider) refreshPermissionState(ctx context.Context, cwd string) error
 					allowsNever := false
 					for _, rawPolicy := range *requirements.Requirements.AllowedApprovalPolicies {
 						var policy string
-						if json.Unmarshal(rawPolicy, &policy) == nil && policy == "never" {
+						if json.Unmarshal(rawPolicy, &policy) == nil && policy == approvalNever {
 							allowsNever = true
 						}
 					}
@@ -224,7 +224,7 @@ func (s *session) applyInitialPermissionParams(params map[string]any) {
 	reviewer := s.approvalsReviewer
 	s.mu.Unlock()
 	if strings.HasPrefix(profileID, ":") || (!isLegacyModeID(profileID) && profileID != "") {
-		params["config"] = map[string]any{"default_permissions": profileID}
+		params["config"] = map[string]any{keyDefaultPermissions: profileID}
 	}
 	if validReviewer(reviewer) {
 		params["approvalsReviewer"] = reviewer
@@ -297,7 +297,7 @@ func (s *session) updatePermissionSetting(ctx context.Context, key string, value
 	if fr == nil {
 		return errors.New("engine not running")
 	}
-	if _, err := fr.sendRequest(ctx, "thread/settings/update", map[string]any{"threadId": threadID, key: value}); err != nil {
+	if _, err := fr.sendRequest(ctx, "thread/settings/update", map[string]any{fieldThreadID: threadID, key: value}); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -380,7 +380,7 @@ func (s *session) ApproveGuardianDenied(ctx context.Context) error {
 	if err := json.Unmarshal(denial.event, &eventValue); err != nil {
 		return provider.ErrGuardianApprovalUnavailable
 	}
-	_, err := fr.sendRequest(ctx, "thread/approveGuardianDeniedAction", map[string]any{"threadId": threadID, "event": eventValue})
+	_, err := fr.sendRequest(ctx, "thread/approveGuardianDeniedAction", map[string]any{fieldThreadID: threadID, "event": eventValue})
 	return err
 }
 

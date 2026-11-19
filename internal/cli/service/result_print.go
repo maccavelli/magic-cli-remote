@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 )
 
 // PrintRemoveResult writes what --remove did, for mcremote ("daemon") or
@@ -63,7 +65,7 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 	if product == "" {
 		product = res.UnitName
 		if product == "" {
-			product = "mcremote"
+			product = appdirs.ProductMcremote.Name
 		}
 	}
 	if res.NotConfigured {
@@ -79,11 +81,11 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 	}
 	fmt.Fprintf(out, "ExecStart binary:  %s\n", res.Binary)
 	switch res.Scope {
-	case "launchd-agent":
+	case string(KindLaunchdAgent):
 		fmt.Fprintf(out, "Plist:             %s\n", res.UnitPath)
 		fmt.Fprintf(out, "Label:             %s\n", res.Label)
 		fmt.Fprintln(out, "Scope:             launchd-agent (session — stops on logout)")
-	case "windows-task":
+	case string(KindWindowsTask):
 		fmt.Fprintf(out, "Task:              %s\n", res.UnitPath)
 		fmt.Fprintln(out, "Scope:             per-user Task Scheduler task (at logon, no elevation)")
 	default:
@@ -95,13 +97,13 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		if res.ConfigCreated {
 			fmt.Fprintf(out, "Config:            %s (default written)\n", res.ConfigPath)
 			switch res.Scope {
-			case "launchd-agent":
+			case string(KindLaunchdAgent):
 				svc := res.Domain + "/" + res.Label
 				if res.Domain == "" {
 					svc = "gui/$(id -u)/" + res.Label
 				}
 				fmt.Fprintf(out, "                   Edit this file, then: launchctl kickstart -k %s\n", svc)
-			case "windows-task":
+			case string(KindWindowsTask):
 				fmt.Fprintf(out, "                   Edit this file, then: schtasks /end /tn %s and schtasks /run /tn %s\n", res.Label, res.Label)
 			default:
 				fmt.Fprintln(out, "                   Edit this file, then: systemctl --user restart "+res.UnitName)
@@ -112,9 +114,9 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 	}
 	if res.Enabled {
 		switch res.Scope {
-		case "launchd-agent":
+		case string(KindLaunchdAgent):
 			fmt.Fprintln(out, "Enabled:           yes (launchctl enable)")
-		case "windows-task":
+		case string(KindWindowsTask):
 			fmt.Fprintln(out, "Enabled:           yes (registered in Task Scheduler)")
 		default:
 			fmt.Fprintln(out, "Enabled:           yes (systemctl --user enable)")
@@ -126,9 +128,9 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		// What setup did, through the backend the update uses (MADR 0207 D4,
 		// D43; PLAN U6b).
 		switch res.Scope {
-		case "launchd-agent":
+		case string(KindLaunchdAgent):
 			fmt.Fprintln(out, "Started:           yes (booted out, then bootstrapped and kickstarted)")
-		case "windows-task":
+		case string(KindWindowsTask):
 			fmt.Fprintln(out, "Started:           yes (enabled, then started; --force stops it first)")
 		default:
 			fmt.Fprintln(out, "Started:           yes (stopped, then started)")
@@ -137,12 +139,12 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		fmt.Fprintln(out, "Started:           skipped")
 	}
 	switch res.Scope {
-	case "launchd-agent":
+	case string(KindLaunchdAgent):
 		fmt.Fprintln(out, "Linger:            n/a on macOS (LaunchAgent is session-bound; no sudo system daemon)")
 		if res.LogDir != "" {
 			fmt.Fprintf(out, "Logs dir:          %s\n", res.LogDir)
 		}
-	case "windows-task":
+	case string(KindWindowsTask):
 		// No linger concept: the task starts at logon and stops at logoff.
 	default:
 		if res.LingerEnabled {
@@ -155,18 +157,18 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Note: setup-service does not install the binary.")
-	if res.Scope == "windows-task" {
+	if res.Scope == string(KindWindowsTask) {
 		fmt.Fprintln(out, "      Install/update it with: install.ps1")
 	} else {
 		fmt.Fprintln(out, "      Install/update it with: make install")
 	}
-	if res.Scope == "launchd-agent" {
+	if res.Scope == string(KindLaunchdAgent) {
 		fmt.Fprintln(out, "Note: macOS 13+ may show a Background Items notification;")
 		fmt.Fprintln(out, "      System Settings → General → Login Items can disable the agent.")
 	}
 	fmt.Fprintln(out)
 	switch res.Scope {
-	case "launchd-agent":
+	case string(KindLaunchdAgent):
 		svc := res.Domain + "/" + res.Label
 		if res.Domain == "" {
 			svc = "gui/$(id -u)/" + res.Label
@@ -177,7 +179,7 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		}
 		fmt.Fprintf(out, "Stop:    launchctl bootout %s\n", svc)
 		fmt.Fprintf(out, "Remove:  %s setup-service --remove\n", product)
-	case "windows-task":
+	case string(KindWindowsTask):
 		// MADR 0159 D2. Stop is written for D5's semantics: once the task
 		// carries a repeating trigger, /end alone is undone within a minute, so
 		// stopping means disabling first. Until then /disable is harmless.
@@ -228,9 +230,9 @@ func printScriptResult(out io.Writer, res Result, product string) {
 		fmt.Fprintln(out, "Supervisor:        started your OpenRC user session for this login")
 		fmt.Fprintln(out, "At boot:           NOT configured unless pam_openrc starts user sessions at login")
 	case res.SupervisorStarted:
-		scanner := "runsvdir"
+		scanner := toolRunsvdir
 		if kind == KindS6 {
-			scanner = "s6-svscan"
+			scanner = toolS6Svscan
 		}
 		fmt.Fprintf(out, "Supervisor:        started %s for this login session (pid %d)\n", scanner, res.SupervisorPID)
 		fmt.Fprintln(out, "At boot:           NOT configured — arrange for your supervisor to start at boot")

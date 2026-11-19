@@ -26,6 +26,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/pairuri"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// envelopeError: the type of an error envelope.
+	envelopeError = "error"
+)
+
 const protocolV = 1
 
 type envelope struct {
@@ -195,10 +201,10 @@ func main() {
 	if err != nil {
 		fail("session.prompt", err)
 	}
-	if promptEnv.Type != "ok" && promptEnv.Type != "error" {
+	if promptEnv.Type != "ok" && promptEnv.Type != envelopeError {
 		// May only have seen events if server order differs; still ok if we got events.
 		fmt.Printf("  ! prompt response type=%q payload=%s\n", promptEnv.Type, string(promptEnv.Payload))
-	} else if promptEnv.Type == "error" {
+	} else if promptEnv.Type == envelopeError {
 		fail("session.prompt", fmt.Errorf("%s", string(promptEnv.Payload)))
 	} else {
 		ok("prompt accepted")
@@ -226,7 +232,7 @@ func main() {
 	if err != nil {
 		// Non-fatal if the agent turn already completed: conn may be racing shutdown.
 		fmt.Printf("  ! session.close: %v (ignored; core smoke already succeeded)\n", err)
-	} else if closeEnv.Type == "error" {
+	} else if closeEnv.Type == envelopeError {
 		fmt.Printf("  ! session.close error payload %s (ignored)\n", string(closeEnv.Payload))
 	} else {
 		ok("session closed")

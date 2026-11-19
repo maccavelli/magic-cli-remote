@@ -115,22 +115,22 @@ func (s *session) ApplyGoal(ctx context.Context, mut provider.GoalMutation) (pro
 	)
 	switch mut.Kind {
 	case provider.GoalClear:
-		raw, err = fr.sendRequest(ctx, "thread/goal/clear", map[string]any{"threadId": threadID})
+		raw, err = fr.sendRequest(ctx, "thread/goal/clear", map[string]any{fieldThreadID: threadID})
 	case provider.GoalReplace:
 		raw, err = fr.sendRequest(ctx, "thread/goal/set", map[string]any{
-			"threadId": threadID, "objective": mut.Objective, "status": provider.GoalStatusActive,
+			fieldThreadID: threadID, "objective": mut.Objective, fieldStatus: provider.GoalStatusActive,
 		})
 	case provider.GoalEdit:
 		raw, err = fr.sendRequest(ctx, "thread/goal/set", map[string]any{
-			"threadId": threadID, "objective": mut.Objective,
+			fieldThreadID: threadID, "objective": mut.Objective,
 		})
 	case provider.GoalPause:
 		raw, err = fr.sendRequest(ctx, "thread/goal/set", map[string]any{
-			"threadId": threadID, "status": provider.GoalStatusPaused,
+			fieldThreadID: threadID, fieldStatus: provider.GoalStatusPaused,
 		})
 	case provider.GoalResume:
 		raw, err = fr.sendRequest(ctx, "thread/goal/set", map[string]any{
-			"threadId": threadID, "status": provider.GoalStatusActive,
+			fieldThreadID: threadID, fieldStatus: provider.GoalStatusActive,
 		})
 	default:
 		return provider.Goal{}, provider.ErrGoalInvalid
@@ -187,7 +187,7 @@ func (s *session) HydrateGoal(ctx context.Context) error {
 	if fr == nil {
 		return fmt.Errorf("engine not running")
 	}
-	raw, err := fr.sendRequest(ctx, "thread/goal/get", map[string]any{"threadId": threadID})
+	raw, err := fr.sendRequest(ctx, "thread/goal/get", map[string]any{fieldThreadID: threadID})
 	if err != nil {
 		return fmt.Errorf("goal get failed")
 	}
@@ -238,7 +238,7 @@ func decodeGoalResult(raw json.RawMessage, cleared bool) (provider.Goal, bool) {
 }
 
 func decodeGoalGet(raw json.RawMessage) (provider.Goal, bool) {
-	if string(raw) == "null" || strings.TrimSpace(string(raw)) == "null" {
+	if string(raw) == jsonNull || strings.TrimSpace(string(raw)) == jsonNull {
 		return provider.Goal{}, false
 	}
 	var resp struct {
@@ -292,10 +292,10 @@ func (s *session) emitGoal() {
 
 func (s *session) applyGoalNotification(method string, params json.RawMessage) {
 	switch method {
-	case "thread/goal/cleared":
+	case methodGoalCleared:
 		s.rememberGoal(provider.Goal{}, false)
 		s.emitGoal()
-	case "thread/goal/updated":
+	case methodGoalUpdated:
 		var p struct {
 			Goal *engineGoal `json:"goal"`
 		}

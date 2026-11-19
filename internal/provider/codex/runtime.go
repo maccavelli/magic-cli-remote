@@ -11,6 +11,14 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// provenanceProject: the provenance of a setting that came from the project's config layer.
+	provenanceProject = "project"
+	// provenanceUser: the provenance of a setting that came from the user's config layer.
+	provenanceUser = "user"
+)
+
 // MaxRuntimeSnapshotBytes is the hard response target for runtime status.
 const MaxRuntimeSnapshotBytes = 262144
 
@@ -144,12 +152,12 @@ func (p *Provider) RuntimeSnapshot() RuntimeSnapshot {
 		provenance = "managed"
 	} else {
 		for _, layer := range configState.Layers {
-			if layer.Kind == "project" {
-				provenance = "project"
+			if layer.Kind == layerProject {
+				provenance = provenanceProject
 				break
 			}
-			if layer.Kind == "user" {
-				provenance = "user"
+			if layer.Kind == layerUser {
+				provenance = provenanceUser
 			}
 		}
 	}
@@ -219,7 +227,7 @@ func (p *Provider) noteRuntimeProviderNotification(method string, params json.Ra
 		if json.Unmarshal(params, &body) == nil {
 			p.runtime.account = RuntimeAccount{Kind: clipRuntime(firstNonEmpty(body.AuthMode, body.Account.Type)), Plan: clipRuntime(firstNonEmpty(body.PlanType, body.Account.Plan))}
 		}
-	case "account/rateLimits/updated":
+	case methodRateLimitsUpdated:
 		var body struct {
 			RateLimits struct {
 				Primary, Secondary *struct {
@@ -237,7 +245,7 @@ func (p *Provider) noteRuntimeProviderNotification(method string, params json.Ra
 				p.runtime.rates.Secondary = RuntimeWindow{UsedPercent: body.RateLimits.Secondary.UsedPercent, ResetsAt: body.RateLimits.Secondary.ResetsAt, WindowMins: body.RateLimits.Secondary.WindowMins}
 			}
 		}
-	case "mcpServer/startupStatus/updated":
+	case methodMCPStartupStatusUpdated:
 		var body struct{ Name, Status, Error string }
 		if json.Unmarshal(params, &body) == nil && strings.TrimSpace(body.Name) != "" {
 			p.runtime.mcp[clipRuntime(body.Name)] = RuntimeMCPServer{Name: clipRuntime(body.Name), Status: clipRuntime(body.Status), Error: clipRuntime(body.Error)}
@@ -268,8 +276,8 @@ func (p *Provider) RefreshRuntime(ctx context.Context) error {
 	read(CapabilityAccountRateLimits, "account/rateLimits/read", map[string]any{}, p.applyRateLimitsRead)
 	read(CapabilityAccountUsage, "account/usage/read", map[string]any{}, p.applyAccountUsageRead)
 	read(CapabilityWorkspaceMessages, "account/workspaceMessages/read", map[string]any{}, p.applyWorkspaceMessagesRead)
-	read(CapabilityExperimentalFeature, "experimentalFeature/list", map[string]any{"limit": 100}, p.applyFeatureList)
-	read(CapabilityMCPServerStatus, "mcpServerStatus/list", map[string]any{"limit": maxRuntimeMCPServers, "detail": "toolsAndAuthOnly"}, p.applyMCPStatusList)
+	read(CapabilityExperimentalFeature, "experimentalFeature/list", map[string]any{fieldLimit: 100}, p.applyFeatureList)
+	read(CapabilityMCPServerStatus, "mcpServerStatus/list", map[string]any{fieldLimit: maxRuntimeMCPServers, "detail": "toolsAndAuthOnly"}, p.applyMCPStatusList)
 	_ = p.refreshPermissionState(ctx, "")
 	return nil
 }
@@ -469,5 +477,5 @@ func (s *session) RuntimeUsage(context.Context) (provider.Result, error) {
 	if len(body) == 0 {
 		return provider.Result{Text: "Codex has reported no usage for this session yet."}, nil
 	}
-	return provider.Result{Method: "thread/tokenUsage/updated", Body: body}, nil
+	return provider.Result{Method: methodTokenUsageUpdated, Body: body}, nil
 }

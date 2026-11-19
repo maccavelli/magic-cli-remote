@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 )
 
 // The installer's per-run options, as environment variables setup-service
@@ -62,8 +64,8 @@ func ApplyInstallerEnv(opts Options) (Options, error) {
 // as `mcrelay setup-service` confirms it (MADR 0207 D40). When the relay fails,
 // mcremote is left as it is, and the error says so.
 func SetupRelayBeside(remote Result, base Options, relay HealthOptions) (Result, error) {
-	exe := "mcrelay"
-	if runtime.GOOS == "windows" || installOS == "windows" {
+	exe := appdirs.ProductMcrelay.Name
+	if runtime.GOOS == osWindows || installOS == osWindows {
 		exe += ".exe"
 	}
 	bin := filepath.Join(filepath.Dir(remote.Binary), exe)
@@ -71,7 +73,7 @@ func SetupRelayBeside(remote Result, base Options, relay HealthOptions) (Result,
 		return Result{}, fmt.Errorf("%s=1, but there is no mcrelay beside mcremote at %s; mcremote is set up, mcrelay is not", EnvWithRelayService, bin)
 	}
 	res, err := Setup(Options{
-		Product:  "mcrelay",
+		Product:  appdirs.ProductMcrelay.Name,
 		Binary:   bin,
 		UnitDir:  base.UnitDir,
 		Force:    base.Force,

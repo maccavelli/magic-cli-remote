@@ -23,6 +23,34 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// attachmentImage: the kind of an image attachment.
+	attachmentImage = "image"
+	// verbCompleted: the verb of the credential-recovery notice when recovery has finished.
+	verbCompleted = "completed"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// contentImage: the type of an image content item.
+	contentImage = "image"
+	// contentText: the type of a text content item.
+	contentText = "text"
+	// statusCompleted: an event Status.
+	statusCompleted = "completed"
+	// statusDisconnected: the session Status of a thread that is gone.
+	statusDisconnected = "disconnected"
+	// statusIdle: the session Status when no turn is running.
+	statusIdle = "idle"
+	// statusPending: an event Status.
+	statusPending = "pending"
+	// statusRunning: an event Status.
+	statusRunning = "running"
+	// stopReasonError: the stop reason of a turn that ended in error.
+	stopReasonError = "error"
+)
+
 const (
 	maxPromptQueue  = 4
 	turnCooldown    = 500 * time.Millisecond
@@ -207,7 +235,7 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 		log:                 log.With(slog.String("session", localID)),
 		approvalPolicy:      approval,
 		sandboxMode:         sandbox,
-		autoApprove:         approval == "never",
+		autoApprove:         approval == approvalNever,
 		collabMode:          collaborationModeDefault,
 		permissionProfileID: strings.TrimSpace(opts.PermissionProfileID),
 		approvalsReviewer:   normalizeReviewer(opts.ApprovalsReviewer),
@@ -426,7 +454,7 @@ func (s *session) startNew(ctx context.Context, fr *conn) error {
 	// MADR 0035 D4: advertise the session's capabilities so the phone can
 	// gate UI (e.g. the image-attach button) without a probe.
 	//   Image:     the provider implements image input end-to-end
-	//              (session.go:26,1183-1217) and all six codex models
+	//              (buildPrompt, with its dataURL/MIME handling) and all six codex models
 	//              advertise inputModalities [text,image] (MADR 0028 §16.3).
 	//   Audio:     codex advertises no audio modality.
 	//   LoadSession: thread/resume verified OK (MADR 0028 §16.3).
@@ -443,7 +471,7 @@ func (s *session) startNew(ctx context.Context, fr *conn) error {
 		Type:           event.TypeSessionStatus,
 		SessionID:      s.localID,
 		Timestamp:      time.Now().UTC(),
-		Status:         "idle",
+		Status:         statusIdle,
 		AgentSessionID: s.agentID,
 	})
 	return nil
@@ -479,7 +507,7 @@ func (s *session) resume(ctx context.Context, fr *conn) error {
 	s.mu.Unlock()
 
 	params := map[string]any{
-		"threadId": s.opts.AgentSessionID,
+		fieldThreadID: s.opts.AgentSessionID,
 	}
 	if s.cwd != "" {
 		params["cwd"] = s.cwd
@@ -543,7 +571,7 @@ func (s *session) resume(ctx context.Context, fr *conn) error {
 		Type:           event.TypeSessionStatus,
 		SessionID:      s.localID,
 		Timestamp:      time.Now().UTC(),
-		Status:         "idle",
+		Status:         statusIdle,
 		AgentSessionID: s.agentID,
 	})
 	return nil
@@ -597,7 +625,7 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 	s.mu.Lock()
 	s.approvalPolicy = m.approvalPolicy
 	s.sandboxMode = m.sandbox
-	s.autoApprove = m.approvalPolicy == "never"
+	s.autoApprove = m.approvalPolicy == approvalNever
 	s.permissionProfileID = m.mode.ID
 	auto := s.autoApprove
 	s.mu.Unlock()
@@ -626,7 +654,7 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 		CurrentModeID: m.mode.ID,
 	})
 	// MADR 0048: arming a sandboxed mode while the host cannot write.
-	if s.p != nil && m.sandbox != "danger-full-access" {
+	if s.p != nil && m.sandbox != sandboxDangerFullAccess {
 		s.emitSandboxBrokenNotice(s.p.sandboxHealth())
 	}
 	return nil
@@ -659,7 +687,7 @@ func (s *session) sweepPendingApprovals() {
 		p := pending[permID]
 		if send != nil {
 			if err := send(context.Background(), p.rpcID,
-				map[string]any{"decision": "accept"}, nil); err != nil {
+				map[string]any{"decision": decisionAccept}, nil); err != nil {
 				s.log.Warn("auto-approve sweep failed",
 					slog.String("permission_id", permID), slog.String("err", err.Error()))
 			}
@@ -742,7 +770,7 @@ func (s *session) steerTurn(ctx context.Context, parts []provider.Content) error
 			}
 		}()
 		_, err := fr.sendRequest(turnCtx, "turn/steer", map[string]any{
-			"threadId":       s.agentID,
+			fieldThreadID:    s.agentID,
 			"expectedTurnId": expectedTurnID,
 			"input":          blocks,
 		})
@@ -783,7 +811,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 		Type:      event.TypeSessionStatus,
 		SessionID: s.localID,
 		Timestamp: time.Now().UTC(),
-		Status:    "running",
+		Status:    statusRunning,
 	})
 
 	baseCtx := context.WithoutCancel(ctx)
@@ -809,8 +837,8 @@ func (s *session) runTurn(ctx context.Context, cancel context.CancelFunc, fr *co
 	s.lastActivity.Store(time.Now().UnixNano())
 
 	params := map[string]any{
-		"threadId": s.agentID,
-		"input":    blocks,
+		fieldThreadID: s.agentID,
+		"input":       blocks,
 	}
 	s.mu.Lock()
 	model := s.effectiveModelLocked()
@@ -875,7 +903,7 @@ func (s *session) runTurn(ctx context.Context, cancel context.CancelFunc, fr *co
 		}
 		if limitHit {
 			// Stderr scrape aborted a silent provider limit hang.
-			s.emitTurnComplete("error", limitRaw)
+			s.emitTurnComplete(stopReasonError, limitRaw)
 		} else if errors.Is(err, errConnLost) || errors.Is(err, context.Canceled) {
 			s.emitTurnComplete("cancelled", "")
 		} else {
@@ -884,7 +912,7 @@ func (s *session) runTurn(ctx context.Context, cancel context.CancelFunc, fr *co
 			// (the previous code emitted a separate TypeError right
 			// after, which then led to a turn_complete ordering that
 			// put the error after the idle status — fixed here).
-			s.emitTurnComplete("error", err.Error())
+			s.emitTurnComplete(stopReasonError, err.Error())
 		}
 		s.tryDrainQueue()
 		return
@@ -919,8 +947,8 @@ func (s *session) Cancel(ctx context.Context) error {
 	}
 
 	_, err := fr.sendRequest(ctx, "turn/interrupt", map[string]any{
-		"threadId": threadID,
-		"turnId":   turnID,
+		fieldThreadID: threadID,
+		"turnId":      turnID,
 	})
 	if err != nil {
 		var rpcErr *rpcErrorBody
@@ -956,7 +984,7 @@ func (s *session) Close(ctx context.Context) error {
 	fr := s.p.framer()
 	if fr != nil {
 		_, _ = fr.sendRequest(ctx, "thread/unsubscribe", map[string]any{
-			"threadId": s.agentID,
+			fieldThreadID: s.agentID,
 		})
 	}
 
@@ -975,7 +1003,7 @@ func (s *session) Purge(ctx context.Context) error {
 		return fmt.Errorf("engine not running")
 	}
 	_, err := fr.sendRequest(ctx, "thread/delete", map[string]any{
-		"threadId": s.agentID,
+		fieldThreadID: s.agentID,
 	})
 	return err
 }
@@ -997,7 +1025,7 @@ func (s *session) Fork(ctx context.Context, opts provider.ForkOptions) (provider
 		return provider.ForkResult{}, fmt.Errorf("engine not running")
 	}
 	params := map[string]any{
-		"threadId": threadID,
+		fieldThreadID: threadID,
 	}
 	if s.p != nil && s.p.supportsCapability(CapabilityThreadSource) {
 		stampThreadSource(threadFork, params)
@@ -1034,7 +1062,7 @@ func (s *session) Compact(ctx context.Context) error {
 		return fmt.Errorf("engine not running")
 	}
 	_, err := fr.sendRequest(ctx, "thread/compact/start", map[string]any{
-		"threadId": s.agentID,
+		fieldThreadID: s.agentID,
 	})
 	return err
 }
@@ -1045,8 +1073,8 @@ func (s *session) Rename(ctx context.Context, title string) error {
 		return fmt.Errorf("engine not running")
 	}
 	_, err := fr.sendRequest(ctx, "thread/name/set", map[string]any{
-		"threadId": s.agentID,
-		"name":     title,
+		fieldThreadID: s.agentID,
+		fieldName:     title,
 	})
 	return err
 }
@@ -1436,10 +1464,10 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 	case "thread/project/updated":
 		s.emit(event.Event{Type: event.TypeNotice, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Text: "Native project assignment updated"})
 	case "thread/deleted", "thread/closed":
-		s.emit(event.Event{Type: event.TypeSessionStatus, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Status: "disconnected"})
+		s.emit(event.Event{Type: event.TypeSessionStatus, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Status: statusDisconnected})
 	case "thread/settings/updated":
 		s.applySettingsUpdated(params)
-	case "thread/goal/updated", "thread/goal/cleared":
+	case methodGoalUpdated, methodGoalCleared:
 		s.applyGoalNotification(method, params)
 	case "turn/diff/updated":
 		var p struct {
@@ -1486,7 +1514,7 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 		wire := p.Turn.Status
 		stop := codexStopReason(wire)
 		var failure codexTurnFailure
-		if wire == "failed" && p.Turn.Error != nil {
+		if wire == wireFailed && p.Turn.Error != nil {
 			failure.Message = p.Turn.Error.Message
 			failure.AdditionalDetails = p.Turn.Error.AdditionalDetails
 			_ = json.Unmarshal(p.Turn.Error.CodexErrorInfo, &failure.Info)
@@ -1616,14 +1644,14 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 		if s.handleReviewItem(itemType, p.Item, false) {
 			break
 		}
-		if itemType == "agentMessage" {
+		if itemType == itemAgentMessage {
 			var msg struct {
 				Text           string          `json:"text"`
 				MemoryCitation json.RawMessage `json:"memoryCitation"`
 			}
 			if json.Unmarshal(p.Item, &msg) == nil && strings.TrimSpace(msg.Text) != "" {
 				s.noteReviewAssistant()
-				if len(msg.MemoryCitation) > 0 && string(msg.MemoryCitation) != "null" {
+				if len(msg.MemoryCitation) > 0 && string(msg.MemoryCitation) != jsonNull {
 					s.emit(event.Event{Type: event.TypeNotice, SessionID: s.localID, Timestamp: now,
 						AgentSessionID: s.agentID, Text: "Memory: " + truncateRunes(strings.TrimSpace(msg.Text), event.MaxCodexTextBytes)})
 				}
@@ -1649,7 +1677,7 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 		_ = json.Unmarshal(p.Item, &probe)
 		terminal := codexToolStatus(probe.Status)
 		if terminal == "" {
-			terminal = "completed"
+			terminal = statusCompleted
 		}
 		// MADR 0048: promote mid-turn bwrap/userns failures into sticky health.
 		s.maybePromoteSandboxFailure(string(p.Item))
@@ -1674,11 +1702,11 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 				Timestamp:      now,
 				ToolID:         p.ItemID,
 				Text:           p.Delta,
-				Status:         "running",
+				Status:         statusRunning,
 				AgentSessionID: s.agentID,
 			})
 		}
-	case "thread/tokenUsage/updated":
+	case methodTokenUsageUpdated:
 		// `total` and `last` are OBJECTS, and `modelContextWindow` is nested
 		// inside `tokenUsage` — not the flat ints this decoded before
 		// (MADR 0137, second correction). The mismatch made json.Unmarshal
@@ -1738,7 +1766,7 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 			Timestamp: now,
 			Entries:   entries,
 		})
-	case "account/rateLimits/updated":
+	case methodRateLimitsUpdated:
 		// MADR 0035 D9: codex pushes exactly the data the limit-card
 		// contract already wants (error_kind, retry_at). Map primary
 		// usage >= 100 to a rate_limit error; leave a "rate limit
@@ -1776,7 +1804,7 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 				Text:      text,
 			})
 		}
-	case "mcpServer/startupStatus/updated":
+	case methodMCPStartupStatusUpdated:
 		// MADR 0035 D9: a successful MCP startup needs no line; a failed
 		// one is worth a notice so the user can see "tools mysteriously
 		// absent" before they ask.
@@ -1788,7 +1816,7 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 		if err := json.Unmarshal(params, &p); err != nil {
 			break
 		}
-		if p.Status == "failed" {
+		if p.Status == wireFailed {
 			msg := p.Error
 			if msg == "" {
 				msg = "MCP server failed to start"
@@ -1802,7 +1830,7 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 		}
 	case "serverRequest/resolved":
 		s.resolveServerRequest(params)
-	case "modelProvider/authRecoveryStarted", "modelProvider/authRecoveryCompleted":
+	case "modelProvider/authRecoveryStarted", methodAuthRecoveryCompleted:
 		// Codex now reports credential recovery as it happens (MADR 0137 F9).
 		//
 		// This is worth surfacing precisely because MADRs 0133, 0134 and 0136
@@ -1827,8 +1855,8 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 		text := strings.TrimSpace(p.Message)
 		if text == "" {
 			verb := "started"
-			if method == "modelProvider/authRecoveryCompleted" {
-				verb = "completed"
+			if method == methodAuthRecoveryCompleted {
+				verb = verbCompleted
 			}
 			text = fmt.Sprintf("Codex credential recovery %s", verb)
 			if p.Provider != "" {
@@ -1957,7 +1985,7 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 		Options:        opts,
 		ToolName:       cb.tool,
 		Text:           cb.detail,
-		Status:         "pending",
+		Status:         statusPending,
 		AgentSessionID: s.agentID,
 	})
 
@@ -2157,7 +2185,7 @@ func (s *session) engineLost() {
 	s.cancelPendingQuestions("engine lost")
 	s.emit(event.Event{
 		Type: event.TypeSessionStatus, SessionID: s.localID, Timestamp: time.Now().UTC(),
-		Status: "disconnected", AgentSessionID: s.agentID,
+		Status: statusDisconnected, AgentSessionID: s.agentID,
 	})
 	s.emit(event.Event{
 		Type: event.TypeError, SessionID: s.localID, Timestamp: time.Now().UTC(),
@@ -2170,7 +2198,7 @@ func (s *session) resumeAfterReplacement(ctx context.Context, fr *conn, generati
 	threadID := s.agentID
 	cwd := s.cwd
 	s.mu.Unlock()
-	params := map[string]any{"threadId": threadID}
+	params := map[string]any{fieldThreadID: threadID}
 	if cwd != "" {
 		params["cwd"] = cwd
 	}
@@ -2199,7 +2227,7 @@ func (s *session) reconnected(generation int) {
 	s.emitCollaboration(true)
 	s.emit(event.Event{
 		Type: event.TypeSessionStatus, SessionID: s.localID, Timestamp: time.Now().UTC(),
-		Status: "idle", AgentSessionID: s.agentID,
+		Status: statusIdle, AgentSessionID: s.agentID,
 	})
 }
 
@@ -2216,7 +2244,7 @@ func (s *session) reconnectFailed(err error) {
 func (s *session) sandboxConfining() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.sandboxMode == "read-only" || s.sandboxMode == "workspace-write"
+	return s.sandboxMode == sandboxReadOnly || s.sandboxMode == sandboxWorkspaceWrite
 }
 
 func (s *session) clearTurnBusy() {
@@ -2326,7 +2354,7 @@ func (s *session) emitTurnFailure(stop string, failure codexTurnFailure) {
 	if failure.AdditionalDetails != "" {
 		turnErrMsg = strings.TrimSpace(turnErrMsg + ": " + failure.AdditionalDetails)
 	}
-	if stop == "error" && turnErrMsg == "" {
+	if stop == stopReasonError && turnErrMsg == "" {
 		turnErrMsg = genericTurnError
 	}
 	if turnErrMsg != "" {
@@ -2381,7 +2409,7 @@ func (s *session) emitTurnFailure(stop string, failure codexTurnFailure) {
 		Type:           event.TypeSessionStatus,
 		SessionID:      s.localID,
 		Timestamp:      now,
-		Status:         "idle",
+		Status:         statusIdle,
 		AgentSessionID: s.agentID,
 	})
 }
@@ -2396,12 +2424,12 @@ func (s *session) emitTurnFailure(stop string, failure codexTurnFailure) {
 //	failed      -> error      (paired with a TypeError carrying turn.error)
 func codexStopReason(status string) string {
 	switch status {
-	case "completed":
+	case wireCompleted:
 		return "end_turn"
 	case "interrupted":
 		return "cancelled"
-	case "failed":
-		return "error"
+	case wireFailed:
+		return stopReasonError
 	}
 	return status
 }
@@ -2512,7 +2540,7 @@ func (s *session) noteProviderLimit(raw string) {
 		cancel()
 		return
 	}
-	s.emitTurnComplete("error", raw)
+	s.emitTurnComplete(stopReasonError, raw)
 	s.tryDrainQueue()
 }
 
@@ -2677,8 +2705,8 @@ func (s *session) emitUserMessage(parts []provider.Content) {
 	var attachments []event.AttachmentInfo
 	for _, p := range parts {
 		switch p.Type {
-		case "image":
-			attachments = append(attachments, event.AttachmentInfo{Kind: "image", MimeType: p.MimeType})
+		case contentImage:
+			attachments = append(attachments, event.AttachmentInfo{Kind: attachmentImage, MimeType: p.MimeType})
 		default:
 			text.WriteString(p.Text)
 		}
@@ -2699,22 +2727,22 @@ func buildPrompt(parts []provider.Content) (string, []map[string]any, []event.At
 	var attachments []event.AttachmentInfo
 	for _, p := range parts {
 		switch p.Type {
-		case "image":
+		case contentImage:
 			if len(p.Data) > maxDataURLSize {
 				continue
 			}
 			blocks = append(blocks, map[string]any{
-				"type": "image",
+				fieldType: contentImage,
 				"source": map[string]any{
-					"type":     "base64",
+					fieldType:  "base64",
 					"data":     p.Data,
 					"mimeType": p.MimeType,
 				},
 			})
-			attachments = append(attachments, event.AttachmentInfo{Kind: "image", MimeType: p.MimeType})
+			attachments = append(attachments, event.AttachmentInfo{Kind: attachmentImage, MimeType: p.MimeType})
 		default:
 			text.WriteString(p.Text)
-			blocks = append(blocks, map[string]any{"type": "text", "text": p.Text})
+			blocks = append(blocks, map[string]any{fieldType: contentText, fieldText: p.Text})
 		}
 	}
 	return text.String(), blocks, attachments
@@ -2743,7 +2771,7 @@ func clip(s string, limit int) string {
 //
 // Values, each justified rather than assumed:
 //   - Image:       codex implements image input end-to-end (buildPrompt +
-//     dataURL/MIME handling, session.go:26,1183-1217) and all
+//     dataURL/MIME handling) and all
 //     six codex models advertise inputModalities [text,image]
 //     (MADR 0028 §16.3).
 //   - LoadSession: thread/resume verified OK (MADR 0028 §16.3).

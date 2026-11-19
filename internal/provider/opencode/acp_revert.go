@@ -110,7 +110,7 @@ func (s *acpSurfaces) newestMessages(ctx context.Context, h acpagent.Host, typ s
 	var out struct {
 		Data []sessionMessage `json:"data"`
 	}
-	q := url.Values{"type": {typ}, "order": {"desc"}, "limit": {strconv.Itoa(limit)}}
+	q := url.Values{"type": {typ}, "order": {"desc"}, paramLimit: {strconv.Itoa(limit)}}
 	err := s.do(ctx, h, control.Request{Method: http.MethodGet, Path: sessionPath(h.AgentSessionID(), "/message"), Query: q}, &out)
 	return out.Data, err
 }

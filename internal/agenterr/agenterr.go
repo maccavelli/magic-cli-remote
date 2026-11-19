@@ -18,6 +18,16 @@ import (
 	"time"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// codeFreeUsageLimit: provider error code: the free tier's usage limit.
+	codeFreeUsageLimit = "freeusagelimiterror"
+	// codeGoUsageLimit: provider error code: OpenCode Go's hard block.
+	codeGoUsageLimit = "gousagelimiterror"
+	// codeInsufficientQuota: provider error code: no credits left.
+	codeInsufficientQuota = "insufficient_quota"
+)
+
 // Kind labels the error class carried on event.Event.ErrorKind.
 type Kind string
 
@@ -74,7 +84,7 @@ type Classification struct {
 // OpenAI, and Gemini error bodies (see the quota-error research in ADR 0011's
 // lineage): matched as lowercase substrings.
 var quotaWords = []string{
-	"insufficient_quota",
+	codeInsufficientQuota,
 	"insufficient quota",
 	"exceeded your current quota",
 	"usage quota",
@@ -95,8 +105,8 @@ var quotaWords = []string{
 	"billing hard limit",
 	"check your plan and billing",
 	"free usage", // Zen "Free usage exceeded, add credits …"
-	"freeusagelimiterror",
-	"gousagelimiterror", // OpenCode Go weekly/monthly hard block
+	codeFreeUsageLimit,
+	codeGoUsageLimit, // OpenCode Go weekly/monthly hard block
 	"upgrade your plan",
 }
 
@@ -218,9 +228,9 @@ var strongRateWords = []string{
 // substrings "plan" matched "explanation", "spend" "suspended" and "credit"
 // "accredited" (MADR 0201 D21). The phrases here stay substrings.
 var hardQuotaWords = []string{
-	"insufficient_quota",
-	"gousagelimiterror",
-	"freeusagelimiterror",
+	codeInsufficientQuota,
+	codeGoUsageLimit,
+	codeFreeUsageLimit,
 	"usage limit",
 	"daily limit",
 	"weekly limit",

@@ -20,6 +20,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/sessionutil"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// statusIdle: the session Status when no turn is running.
+	statusIdle = "idle"
+)
+
 // session is one server-side session multiplexed over the shared engine.
 // There is no per-session process: Close tears down only local state, which
 // is what makes resume free. All protocol semantics live in s.ds.
@@ -493,13 +499,13 @@ func (s *session) Shell(ctx context.Context, command string) error {
 	if err != nil {
 		if stillActive {
 			s.EndTurn()
-			s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+			s.Emit(event.Event{Type: event.TypeSessionStatus, Status: statusIdle})
 		}
 		return err
 	}
 	if stillActive {
 		s.EndTurn()
-		s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+		s.Emit(event.Event{Type: event.TypeSessionStatus, Status: statusIdle})
 	}
 	return nil
 }
@@ -984,7 +990,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 
 	s.Emit(event.Event{
 		Type:           event.TypeSessionStatus,
-		Status:         "idle",
+		Status:         statusIdle,
 		AgentSessionID: s.agentID,
 	})
 	return s, nil
@@ -1093,7 +1099,7 @@ func (s *session) beginTurn(parts []provider.Content, emitUser bool, messageID s
 		// with a different status (error, idle, etc.) via HandleEvent.
 		if stillActive {
 			s.EndTurn()
-			s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+			s.Emit(event.Event{Type: event.TypeSessionStatus, Status: statusIdle})
 		}
 		// A failed submit must not strand the rest of the queue.
 		s.flushDrain()

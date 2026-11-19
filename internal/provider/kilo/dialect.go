@@ -14,6 +14,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// binName: the kilo binary name.
+	binName = "kilo"
+)
+
 // httpDialect is the engine-level half: launch/health/SSE conventions.
 // Session-level REST and event translation land in MADR 0075 plan P2.
 type httpDialect struct {
@@ -89,7 +95,7 @@ func (d *httpDialect) ParentIDFromProps(props json.RawMessage) string {
 }
 
 func (d *httpDialect) ID() provider.ID    { return provider.IDKilo }
-func (d *httpDialect) DefaultBin() string { return "kilo" }
+func (d *httpDialect) DefaultBin() string { return binName }
 
 // ServeArgs starts the shared engine loopback-only (MADR 0075 §2.3). Never
 // add --mdns here: it rebinds the hostname to 0.0.0.0 and exposes the
@@ -135,7 +141,7 @@ func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
 			}
 		}
 	}
-	providerID, model := "kilo", conn.Default["kilo"]
+	providerID, model := providerKilo, conn.Default[providerKilo]
 	if model == "" {
 		// No Gateway default (e.g. logged out): first connected provider's
 		// default keeps prompts working; else the seed stands.

@@ -35,7 +35,7 @@ func (s *session) handleProjectedNotification(method string, params json.RawMess
 			SummaryIndex int    `json:"summaryIndex"`
 		}
 		if json.Unmarshal(params, &p) == nil {
-			emit(event.TypeCodexProgress, event.CodexPayload{Key: "reasoning:" + p.ItemID, Kind: "reasoning_summary", Status: "running", Title: "Reasoning", Text: "Reasoning summary updated"})
+			emit(event.TypeCodexProgress, event.CodexPayload{Key: "reasoning:" + p.ItemID, Kind: "reasoning_summary", Status: statusRunning, Title: "Reasoning", Text: "Reasoning summary updated"})
 		}
 		return true
 	case "item/reasoning/summaryTextDelta":
@@ -53,7 +53,7 @@ func (s *session) handleProjectedNotification(method string, params json.RawMess
 			Message string `json:"message"`
 		}
 		if json.Unmarshal(params, &p) == nil && p.Message != "" {
-			emit(event.TypeCodexProgress, event.CodexPayload{Key: "item:" + p.ItemID, Kind: "mcp_progress", Status: "running", Title: "Tool progress", Text: p.Message})
+			emit(event.TypeCodexProgress, event.CodexPayload{Key: "item:" + p.ItemID, Kind: "mcp_progress", Status: statusRunning, Title: "Tool progress", Text: p.Message})
 		}
 		return true
 	case "item/fileChange/outputDelta":
@@ -62,7 +62,7 @@ func (s *session) handleProjectedNotification(method string, params json.RawMess
 			Delta  string `json:"delta"`
 		}
 		if json.Unmarshal(params, &p) == nil && p.Delta != "" {
-			s.emit(event.Event{Type: event.TypeToolUpdate, SessionID: s.localID, Timestamp: now, ToolID: p.ItemID, Text: p.Delta, Status: "running", AgentSessionID: s.agentID})
+			s.emit(event.Event{Type: event.TypeToolUpdate, SessionID: s.localID, Timestamp: now, ToolID: p.ItemID, Text: p.Delta, Status: statusRunning, AgentSessionID: s.agentID})
 		}
 		return true
 	case "item/fileChange/patchUpdated":
@@ -79,7 +79,7 @@ func (s *session) handleProjectedNotification(method string, params json.RawMess
 					paths = append(paths, base)
 				}
 			}
-			emit(event.TypeCodexProgress, event.CodexPayload{Key: "item:" + p.ItemID, Kind: "patch_updated", Status: "running", Title: "Patch updated", Text: strings.Join(paths, ", "), Values: paths})
+			emit(event.TypeCodexProgress, event.CodexPayload{Key: "item:" + p.ItemID, Kind: "patch_updated", Status: statusRunning, Title: "Patch updated", Text: strings.Join(paths, ", "), Values: paths})
 		}
 		return true
 	case "item/commandExecution/terminalInteraction":
@@ -89,7 +89,7 @@ func (s *session) handleProjectedNotification(method string, params json.RawMess
 			Stdin     string `json:"stdin"`
 		}
 		if json.Unmarshal(params, &p) == nil {
-			emit(event.TypeCodexTerminalInteraction, event.CodexPayload{Key: "item:" + p.ItemID, Kind: "terminal_interaction", Status: "running", Title: "Terminal interaction", Text: "Input sent to process " + p.ProcessID})
+			emit(event.TypeCodexTerminalInteraction, event.CodexPayload{Key: "item:" + p.ItemID, Kind: "terminal_interaction", Status: statusRunning, Title: "Terminal interaction", Text: "Input sent to process " + p.ProcessID})
 		}
 		return true
 	case "item/autoApprovalReview/started":
@@ -98,7 +98,7 @@ func (s *session) handleProjectedNotification(method string, params json.RawMess
 			TargetItemID string `json:"targetItemId"`
 		}
 		if json.Unmarshal(params, &p) == nil {
-			emit(event.TypeCodexProgress, event.CodexPayload{Key: "review:" + p.ReviewID, Kind: "guardian_review", Status: "running", Title: "Guardian review", Text: "Reviewing " + p.TargetItemID})
+			emit(event.TypeCodexProgress, event.CodexPayload{Key: "review:" + p.ReviewID, Kind: "guardian_review", Status: statusRunning, Title: "Guardian review", Text: "Reviewing " + p.TargetItemID})
 		}
 		return true
 	case "item/autoApprovalReview/completed":
@@ -110,7 +110,7 @@ func (s *session) handleProjectedNotification(method string, params json.RawMess
 			}
 		}
 		if json.Unmarshal(params, &p) == nil {
-			emit(event.TypeCodexProgress, event.CodexPayload{Key: "review:" + p.ReviewID, Kind: "guardian_review", Status: "completed", Title: "Guardian review", Text: firstNonEmpty(p.Review.Status, p.DecisionSource), Resolved: true})
+			emit(event.TypeCodexProgress, event.CodexPayload{Key: "review:" + p.ReviewID, Kind: "guardian_review", Status: statusCompleted, Title: "Guardian review", Text: firstNonEmpty(p.Review.Status, p.DecisionSource), Resolved: true})
 			if p.Review.Status == "denied" {
 				s.mu.Lock()
 				generation := s.engineGeneration
@@ -127,7 +127,7 @@ func (s *session) handleProjectedNotification(method string, params json.RawMess
 			Reason    string `json:"reason"`
 		}
 		if json.Unmarshal(params, &p) == nil {
-			emit(event.TypeCodexModelReroute, event.CodexPayload{Key: "turn:" + p.TurnID + ":model", Kind: "model_reroute", Status: "completed", Title: "Model rerouted", FromModel: p.FromModel, ToModel: p.ToModel, Reason: p.Reason, Text: p.FromModel + " → " + p.ToModel})
+			emit(event.TypeCodexModelReroute, event.CodexPayload{Key: "turn:" + p.TurnID + ":model", Kind: "model_reroute", Status: statusCompleted, Title: "Model rerouted", FromModel: p.FromModel, ToModel: p.ToModel, Reason: p.Reason, Text: p.FromModel + " → " + p.ToModel})
 		}
 		return true
 	case "model/verification":
@@ -136,7 +136,7 @@ func (s *session) handleProjectedNotification(method string, params json.RawMess
 			Verifications []string `json:"verifications"`
 		}
 		if json.Unmarshal(params, &p) == nil {
-			emit(event.TypeCodexModelVerification, event.CodexPayload{Key: "turn:" + p.TurnID + ":verification", Kind: "model_verification", Status: "completed", Title: "Model verification", Text: strings.Join(p.Verifications, ", "), Values: p.Verifications, Resolved: true})
+			emit(event.TypeCodexModelVerification, event.CodexPayload{Key: "turn:" + p.TurnID + ":verification", Kind: "model_verification", Status: statusCompleted, Title: "Model verification", Text: strings.Join(p.Verifications, ", "), Values: p.Verifications, Resolved: true})
 		}
 		return true
 	case "model/safetyBuffering/updated":
@@ -149,7 +149,7 @@ func (s *session) handleProjectedNotification(method string, params json.RawMess
 			Show        bool     `json:"showBufferingUi"`
 		}
 		if json.Unmarshal(params, &p) == nil {
-			status := "completed"
+			status := statusCompleted
 			if p.Show {
 				status = "running"
 			}

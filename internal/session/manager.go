@@ -32,6 +32,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/receipt"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// reasonInvalidSignature: the reason a receipt is refused for a bad device signature.
+	reasonInvalidSignature = "invalid_signature"
+)
+
 // StatusDisconnected is the session status reported once the backing provider
 // process is gone. Sessions in this state are no longer live.
 const StatusDisconnected = "disconnected"
@@ -3120,7 +3126,7 @@ func (m *Manager) signReceipt(rs ReceiptSupport, deviceID, sessionID, correlatio
 		reason = "timeout"
 	default:
 		if devicePubErr != nil {
-			reason = "invalid_signature"
+			reason = reasonInvalidSignature
 			break
 		}
 		signed, verr := receipt.VerifyES256Compact(devicePub, jws)

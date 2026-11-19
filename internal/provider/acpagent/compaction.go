@@ -10,6 +10,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// compactionKindUnknown: the kind of a compaction that names none.
+	compactionKindUnknown = "unknown"
+)
+
 // maxCompactionSummary caps one compaction's summary text. The agent chooses
 // its length, and the phone shows it collapsed (MADR 0190 D1).
 const maxCompactionSummary = 32 << 10
@@ -92,7 +98,7 @@ func blockKind(b acp.ContentBlock) string {
 	if k := b.Kind(); k != "" {
 		return k
 	}
-	return "unknown"
+	return compactionKindUnknown
 }
 
 // onCompactionUpdate applies a compaction_update and emits the compaction's

@@ -8,6 +8,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// rootCommandName: the root command's name.
+	rootCommandName = "mcremote"
+)
+
 var (
 	cfgFile   string
 	logLevel  string
@@ -42,7 +48,7 @@ func newRootCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "mcremote",
+		Use:   rootCommandName,
 		Short: "Multi-CLI remote control orchestrator daemon",
 		Long: `mcremote attaches to coding agent CLIs and exposes a secure remote control plane
 for Flutter clients over Headscale/Tailscale.

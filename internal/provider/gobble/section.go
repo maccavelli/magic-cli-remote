@@ -21,7 +21,7 @@ type Section struct {
 func defaultSection() *Section {
 	return &Section{ACPProviderConfig: config.ACPProviderConfig{AgentCommon: config.AgentCommon{
 		Enabled:                  true,
-		Bin:                      "gobble",
+		Bin:                      binName,
 		AlwaysApprove:            false,
 		PermissionTimeoutSeconds: 120,
 		// Off (MADR 0089 D5): the first session pays the cold start.
@@ -33,10 +33,10 @@ func defaultSection() *Section {
 // Validate checks providers.gobble. auth_method_id, when set, must be one of
 // gobble's agent auth methods, the ids acpext.AuthProviders names (D4).
 func (s *Section) Validate() error {
-	if err := s.ValidateAgent("gobble"); err != nil {
+	if err := s.ValidateAgent(string(provider.IDGobble)); err != nil {
 		return err
 	}
-	if err := config.ValidateACPProvider("gobble", s.ACPProviderConfig); err != nil {
+	if err := config.ValidateACPProvider(string(provider.IDGobble), s.ACPProviderConfig); err != nil {
 		return err
 	}
 	if id := s.AuthMethodID; id != "" {
@@ -61,7 +61,7 @@ func (s *Section) providerConfig() acpagent.Config {
 func Descriptor() provider.Descriptor {
 	return provider.Descriptor{
 		ID:      provider.IDGobble,
-		Name:    "gobble",
+		Name:    string(provider.IDGobble),
 		Section: func() config.ProviderSection { return defaultSection() },
 		New: func(b provider.Build) provider.Provider {
 			cfg := b.Section.(*Section).providerConfig()

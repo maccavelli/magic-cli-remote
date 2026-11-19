@@ -2,6 +2,14 @@ package codex
 
 import "github.com/maccavelli/magic-cli-remote/internal/command"
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// commandStatus: the /status command.
+	commandStatus = "status"
+	// commandPlan: the /plan command.
+	commandPlan = "plan"
+)
+
 var commandTable = command.Table{
 	"help":     {Kind: command.KindDaemon},
 	"new":      {Kind: command.KindDaemon},
@@ -11,24 +19,24 @@ var commandTable = command.Table{
 	// thread/compact/start — verified OK in the 0.145.0 spike (MADR 0028 §16.3).
 	"compact": {Kind: command.KindOp, Op: command.OpCompact},
 	// codex's model is per-turn: SetModel updates opts.Model and beginTurn
-	// sends it on the next turn/start (session.go:310-317), so the thread
+	// sends it on the next turn/start (session.SetModel, session.beginTurn), so the thread
 	// survives. KindDaemon would relaunch the agent and lose the
-	// conversation (commands.go:225,654-675).
+	// conversation (Manager.runCanonical dispatches KindDaemon to dispatchDaemon).
 	"model": {Kind: command.KindOp, Op: command.OpSetModel},
 	// turn/start.effort is per-turn, so /thinking takes effect on the next
 	// message and keeps the thread (MADR 0052 §2.1).
 	"thinking": {Kind: command.KindOp, Op: command.OpSetThinkingLevel},
 	// thread/tokenUsage/updated feeds lastUsage, which gates OpContext
-	// (commands.go:53).
-	"context": {Kind: command.KindOp, Op: command.OpContext},
-	"status":  {Kind: command.KindOp, Op: command.OpStatus},
-	"usage":   {Kind: command.KindOp, Op: command.OpUsage},
+	// (Manager.commandContext offers OpContext once lastUsage is set).
+	"context":     {Kind: command.KindOp, Op: command.OpContext},
+	commandStatus: {Kind: command.KindOp, Op: command.OpStatus},
+	"usage":       {Kind: command.KindOp, Op: command.OpUsage},
 
 	"mode":        {Kind: command.KindMode},
 	"permissions": {Kind: command.KindMode},
 	"reviewer":    {Kind: command.KindOp, Op: command.OpApprovalsReviewer},
 	"approve":     {Kind: command.KindOp, Op: command.OpGuardianApprove},
-	"plan":        {Kind: command.KindCollaborationMode, ModeID: "plan"},
+	commandPlan:   {Kind: command.KindCollaborationMode, ModeID: collaborationModePlan},
 	"goal":        {Kind: command.KindOp, Op: command.OpGoal},
 	"deep-research": {Kind: command.KindNone,
 		Note: "deep-research is a Grok-specific capability"},

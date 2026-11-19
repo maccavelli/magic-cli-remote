@@ -9,6 +9,42 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// methodAuthRecoveryCompleted: a notification or method name of the app-server protocol.
+	methodAuthRecoveryCompleted = "modelProvider/authRecoveryCompleted"
+	// methodConfigWarning: a notification or method name of the app-server protocol.
+	methodConfigWarning = "configWarning"
+	// methodDeprecationNotice: a notification or method name of the app-server protocol.
+	methodDeprecationNotice = "deprecationNotice"
+	// methodEnvironmentConnected: a notification or method name of the app-server protocol.
+	methodEnvironmentConnected = "thread/environment/connected"
+	// methodEnvironmentDisconnected: a notification or method name of the app-server protocol.
+	methodEnvironmentDisconnected = "thread/environment/disconnected"
+	// methodError: the app-server's error notification.
+	methodError = "error"
+	// methodExecOutputDelta: a notification or method name of the app-server protocol.
+	methodExecOutputDelta = "command/exec/outputDelta"
+	// methodGoalCleared: a notification or method name of the app-server protocol.
+	methodGoalCleared = "thread/goal/cleared"
+	// methodGoalUpdated: a notification or method name of the app-server protocol.
+	methodGoalUpdated = "thread/goal/updated"
+	// methodGuardianWarning: a notification or method name of the app-server protocol.
+	methodGuardianWarning = "guardianWarning"
+	// methodMCPStartupStatusUpdated: a notification or method name of the app-server protocol.
+	methodMCPStartupStatusUpdated = "mcpServer/startupStatus/updated"
+	// methodProcessExited: a notification or method name of the app-server protocol.
+	methodProcessExited = "process/exited"
+	// methodProcessOutputDelta: a notification or method name of the app-server protocol.
+	methodProcessOutputDelta = "process/outputDelta"
+	// methodRateLimitsUpdated: a notification or method name of the app-server protocol.
+	methodRateLimitsUpdated = "account/rateLimits/updated"
+	// methodTokenUsageUpdated: a notification or method name of the app-server protocol.
+	methodTokenUsageUpdated = "thread/tokenUsage/updated"
+	// methodWarning: a notification or method name of the app-server protocol.
+	methodWarning = "warning"
+)
+
 type notificationRoute uint8
 
 const (
@@ -26,20 +62,20 @@ const (
 var notificationRoutes = map[string]notificationRoute{
 	"account/gatewayOAuth/changed":              notificationRouteProvider,
 	"account/login/completed":                   notificationRouteProvider,
-	"account/rateLimits/updated":                notificationRouteProvider,
+	methodRateLimitsUpdated:                     notificationRouteProvider,
 	"account/updated":                           notificationRouteProvider,
 	"app/list/updated":                          notificationRouteProvider,
 	"autoApprovalReview/strictReviewRequired":   notificationRouteSession,
-	"command/exec/outputDelta":                  notificationRouteProvider,
-	"configWarning":                             notificationRouteProvider,
-	"deprecationNotice":                         notificationRouteProvider,
-	"error":                                     notificationRouteProvider,
+	methodExecOutputDelta:                       notificationRouteProvider,
+	methodConfigWarning:                         notificationRouteProvider,
+	methodDeprecationNotice:                     notificationRouteProvider,
+	methodError:                                 notificationRouteProvider,
 	"externalAgentConfig/import/completed":      notificationRouteProvider,
 	"externalAgentConfig/import/progress":       notificationRouteProvider,
 	"fs/changed":                                notificationRouteProvider,
 	"fuzzyFileSearch/sessionCompleted":          notificationRouteProvider,
 	"fuzzyFileSearch/sessionUpdated":            notificationRouteProvider,
-	"guardianWarning":                           notificationRouteProvider,
+	methodGuardianWarning:                       notificationRouteProvider,
 	"hook/completed":                            notificationRouteSession,
 	"hook/started":                              notificationRouteSession,
 	"item/agentMessage/delta":                   notificationRouteSession,
@@ -57,12 +93,12 @@ var notificationRoutes = map[string]notificationRoute{
 	"item/reasoning/textDelta":                  notificationRouteSession,
 	"item/started":                              notificationRouteSession,
 	"mcpServer/oauthLogin/completed":            notificationRouteProvider,
-	"mcpServer/startupStatus/updated":           notificationRouteProvider,
+	methodMCPStartupStatusUpdated:               notificationRouteProvider,
 	"model/rerouted":                            notificationRouteSession,
 	"model/safetyBuffering/updated":             notificationRouteSession,
 	"model/verification":                        notificationRouteSession,
-	"process/exited":                            notificationRouteProvider,
-	"process/outputDelta":                       notificationRouteProvider,
+	methodProcessExited:                         notificationRouteProvider,
+	methodProcessOutputDelta:                    notificationRouteProvider,
 	"project/changed":                           notificationRouteProvider,
 	"remoteControl/status/changed":              notificationRouteProvider,
 	"serverRequest/resolved":                    notificationRouteSession,
@@ -71,10 +107,10 @@ var notificationRoutes = map[string]notificationRoute{
 	"thread/closed":                             notificationRouteSession,
 	"thread/compacted":                          notificationRouteSession,
 	"thread/deleted":                            notificationRouteSession,
-	"thread/environment/connected":              notificationRouteProvider,
-	"thread/environment/disconnected":           notificationRouteProvider,
-	"thread/goal/cleared":                       notificationRouteSession,
-	"thread/goal/updated":                       notificationRouteSession,
+	methodEnvironmentConnected:                  notificationRouteProvider,
+	methodEnvironmentDisconnected:               notificationRouteProvider,
+	methodGoalCleared:                           notificationRouteSession,
+	methodGoalUpdated:                           notificationRouteSession,
 	"thread/name/updated":                       notificationRouteSession,
 	"thread/project/updated":                    notificationRouteSession,
 	"thread/queue/changed":                      notificationRouteSession,
@@ -97,16 +133,16 @@ var notificationRoutes = map[string]notificationRoute{
 	"thread/readState/changed":                  notificationRouteProvider,
 	"thread/started":                            notificationRouteSession,
 	"thread/status/changed":                     notificationRouteSession,
-	"thread/tokenUsage/updated":                 notificationRouteSession,
+	methodTokenUsageUpdated:                     notificationRouteSession,
 	"thread/unarchived":                         notificationRouteSession,
 	"turn/completed":                            notificationRouteSession,
 	"turn/diff/updated":                         notificationRouteSession,
 	"turn/moderationMetadata":                   notificationRouteSession,
 	"turn/plan/updated":                         notificationRouteSession,
 	"turn/started":                              notificationRouteSession,
-	"warning":                                   notificationRouteProvider,
+	methodWarning:                               notificationRouteProvider,
 	"mcpServer/event/stream/notification":       notificationRouteProvider,
-	"modelProvider/authRecoveryCompleted":       notificationRouteSession,
+	methodAuthRecoveryCompleted:                 notificationRouteSession,
 	"modelProvider/authRecoveryStarted":         notificationRouteSession,
 	"windows/worldWritableWarning":              notificationRouteProvider,
 	"windowsSandbox/setupCompleted":             notificationRouteProvider,
@@ -130,17 +166,17 @@ func (p *Provider) handleProviderNotification(method string, params json.RawMess
 	p.noteRuntimeProviderNotification(method, params)
 	sessions := p.sessionsSnapshot()
 	switch method {
-	case "command/exec/outputDelta", "process/outputDelta", "process/exited", "thread/environment/connected", "thread/environment/disconnected":
+	case methodExecOutputDelta, methodProcessOutputDelta, methodProcessExited, methodEnvironmentConnected, methodEnvironmentDisconnected:
 		p.handleExecutionNotification(method, params)
-	case "account/rateLimits/updated":
+	case methodRateLimitsUpdated:
 		for _, s := range sessions {
 			s.emitRateLimit(params)
 		}
-	case "mcpServer/startupStatus/updated":
+	case methodMCPStartupStatusUpdated:
 		for _, s := range sessions {
 			s.emitMCPStartup(params)
 		}
-	case "warning", "guardianWarning", "configWarning", "deprecationNotice", "error", "windows/worldWritableWarning":
+	case methodWarning, methodGuardianWarning, methodConfigWarning, methodDeprecationNotice, methodError, "windows/worldWritableWarning":
 		var body struct {
 			Message  string `json:"message"`
 			Text     string `json:"text"`
@@ -157,7 +193,7 @@ func (p *Provider) handleProviderNotification(method string, params json.RawMess
 		if message == "" {
 			message = "Codex reported " + method
 		}
-		kind := map[string]string{"guardianWarning": "guardian", "configWarning": "config", "deprecationNotice": "deprecation"}[method]
+		kind := map[string]string{methodGuardianWarning: "guardian", methodConfigWarning: "config", methodDeprecationNotice: "deprecation"}[method]
 		if kind == "" {
 			kind = "warning"
 		}
@@ -247,7 +283,7 @@ func (s *session) emitMCPStartup(params json.RawMessage) {
 		Status string `json:"status"`
 		Error  string `json:"error"`
 	}
-	if json.Unmarshal(params, &p) != nil || p.Status != "failed" {
+	if json.Unmarshal(params, &p) != nil || p.Status != wireFailed {
 		return
 	}
 	message := firstNonEmpty(p.Error, "MCP server failed to start")

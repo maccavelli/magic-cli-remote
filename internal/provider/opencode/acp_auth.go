@@ -19,6 +19,14 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// authTypeEnv: an auth method type of the engine.
+	authTypeEnv = "env"
+	// authTypeKey: an auth method type of the engine.
+	authTypeKey = "key"
+)
+
 // The phone's auth for OpenCode v2 runs on the control plane's integration and
 // credential routes (0214 MADR D8, amended at P6b). An integration is one
 // upstream vendor: its sign-in methods, and its connections, which are the
@@ -253,7 +261,7 @@ func (in integration) credentialIDs(kind string) []string {
 func (in integration) envNames() []string {
 	var names []string
 	for _, c := range in.Connections {
-		if c.Type == "env" {
+		if c.Type == authTypeEnv {
 			names = append(names, c.Name)
 		}
 	}
@@ -276,8 +284,8 @@ func (in integration) methodsOf(typ string) int {
 func (in integration) needsMoreThanAKey() bool {
 	for _, m := range in.Methods {
 		switch {
-		case m.Type == "env":
-		case m.Type == "key" && len(visible(m.Form)) == 0:
+		case m.Type == authTypeEnv:
+		case m.Type == authTypeKey && len(visible(m.Form)) == 0:
 		default:
 			return true
 		}
@@ -309,16 +317,16 @@ func (in integration) upstream() provider.UpstreamAuth {
 func (in integration) method(m integrationMethod) (provider.AuthMethod, bool) {
 	inputs, answerable := formInputs(m.Form)
 	switch m.Type {
-	case "env":
+	case authTypeEnv:
 		return provider.AuthMethod{}, false
-	case "key":
+	case authTypeKey:
 		am := provider.AuthMethod{
 			ID:              in.ID + ":key",
 			Type:            provider.AuthMethodAPIKey,
 			Label:           m.Label,
 			Inputs:          inputs,
 			ConfiguredKnown: true,
-			Configured:      len(in.credentialIDs("key")) > 0,
+			Configured:      len(in.credentialIDs(authTypeKey)) > 0,
 		}
 		if am.Label == "" {
 			am.Label = "API key"
@@ -496,10 +504,10 @@ func (a *acpAuth) setCredential(ctx context.Context, upstreamID, methodID, secre
 	if err != nil {
 		return err
 	}
-	if in.methodsOf("key") == 0 {
+	if in.methodsOf(authTypeKey) == 0 {
 		return fmt.Errorf("%s takes no key: %w", upstreamID, provider.ErrAuthMethodUnsupported)
 	}
-	older := in.credentialIDs("key")
+	older := in.credentialIDs(authTypeKey)
 	body := map[string]any{"key": secret}
 	if ans := answer(inputs); ans != nil {
 		body["answer"] = ans
@@ -509,7 +517,7 @@ func (a *acpAuth) setCredential(ctx context.Context, upstreamID, methodID, secre
 		return fmt.Errorf("opencode set credential for %s: %w", upstreamID, err)
 	}
 	defer a.restart(credentialChangedNotice)
-	return a.adopt(ctx, upstreamID, "key", older)
+	return a.adopt(ctx, upstreamID, authTypeKey, older)
 }
 
 // adopt confirms a new credential of kind is the active connection, then
@@ -662,7 +670,7 @@ func (a *acpAuth) startDeviceAuth(ctx context.Context, _, upstreamID, methodID s
 	default:
 		return refuse(fmt.Errorf("opencode sign-in for %s returned no usable code", upstreamID))
 	}
-	a.log.Info("device flow started", slog.String("agent", "opencode"), slog.String("upstream", upstreamID))
+	a.log.Info("device flow started", slog.String("agent", string(provider.IDOpencode)), slog.String("upstream", upstreamID))
 	expires := time.UnixMilli(att.Time.Expires)
 	flow := provider.DeviceFlow{
 		VerificationURI: cls.VerificationURI,
@@ -711,7 +719,7 @@ func (a *acpAuth) awaitAttempt(ctx context.Context, id, attemptID string, expire
 		}
 		switch out.Data.Status {
 		case "complete":
-			a.log.Info("device flow completed", slog.String("agent", "opencode"), slog.String("upstream", id))
+			a.log.Info("device flow completed", slog.String("agent", string(provider.IDOpencode)), slog.String("upstream", id))
 			// The engine restarts once adopt returns, as the defer it was: in a closure, so
 			// that it is not a defer in this loop.
 			return func() error {

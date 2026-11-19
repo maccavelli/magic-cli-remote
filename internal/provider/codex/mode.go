@@ -6,6 +6,20 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// approvalNever: an app-server approval policy.
+	approvalNever = "never"
+	// approvalOnRequest: an app-server approval policy.
+	approvalOnRequest = "on-request"
+	// sandboxDangerFullAccess: an app-server sandbox mode.
+	sandboxDangerFullAccess = "danger-full-access"
+	// sandboxReadOnly: an app-server sandbox mode.
+	sandboxReadOnly = "read-only"
+	// sandboxWorkspaceWrite: an app-server sandbox mode.
+	sandboxWorkspaceWrite = "workspace-write"
+)
+
 // Codex has no mode list of its own: what the TUI presents as a mode is really
 // a pair of engine settings, an approval policy and a sandbox. Both are carried
 // per thread (thread/start) and per turn (turn/start), so a mode switch is a
@@ -47,16 +61,16 @@ var codexModes = []codexMode{
 			Description: "Edit workspace; ask before shell, network, " +
 				"and out-of-tree writes",
 		},
-		approvalPolicy: "on-request",
-		sandbox:        "workspace-write",
+		approvalPolicy: approvalOnRequest,
+		sandbox:        sandboxWorkspaceWrite,
 	},
 	{
 		mode: event.SessionMode{
 			ID: modeReadOnly, Name: modeReadOnly,
 			Description: "Read files; ask before anything else",
 		},
-		approvalPolicy: "on-request",
-		sandbox:        "read-only",
+		approvalPolicy: approvalOnRequest,
+		sandbox:        sandboxReadOnly,
 	},
 	{
 		mode: event.SessionMode{
@@ -64,8 +78,8 @@ var codexModes = []codexMode{
 			Description: "Auto-approve — no prompts; edits confined to the workspace",
 			Dangerous:   true,
 		},
-		approvalPolicy: "never",
-		sandbox:        "workspace-write",
+		approvalPolicy: approvalNever,
+		sandbox:        sandboxWorkspaceWrite,
 	},
 	{
 		mode: event.SessionMode{
@@ -73,8 +87,8 @@ var codexModes = []codexMode{
 			Description: "Auto-approve with no sandbox (dangerous)",
 			Dangerous:   true,
 		},
-		approvalPolicy: "never",
-		sandbox:        "danger-full-access",
+		approvalPolicy: approvalNever,
+		sandbox:        sandboxDangerFullAccess,
 	},
 }
 
@@ -89,16 +103,16 @@ func seedPolicy(cfg Config) (approval, sandbox, modeID string) {
 	if id := modeIDFor(cfg, cfg.ApprovalPolicy, cfg.SandboxMode); id != "" {
 		return cfg.ApprovalPolicy, cfg.SandboxMode, id
 	}
-	if cfg.ApprovalPolicy == "never" && cfg.SandboxMode == "" {
+	if cfg.ApprovalPolicy == approvalNever && cfg.SandboxMode == "" {
 		if m, ok := findCodexMode(cfg, modeAuto); ok {
 			return m.approvalPolicy, m.sandbox, m.mode.ID
 		}
-		return "never", "workspace-write", modeAuto
+		return approvalNever, sandboxWorkspaceWrite, modeAuto
 	}
 	if m, ok := findCodexMode(cfg, modeDefault); ok {
 		return m.approvalPolicy, m.sandbox, m.mode.ID
 	}
-	return "on-request", "workspace-write", modeDefault
+	return approvalOnRequest, sandboxWorkspaceWrite, modeDefault
 }
 
 // availableCodexModes is the table filtered by config: full-access is hidden
@@ -189,16 +203,16 @@ func truncateRunes(s string, maxRunes int) string {
 // thread/start requires (MADR 0044 Finding 4).
 func sandboxPolicyParam(mode string) map[string]any {
 	switch mode {
-	case "read-only":
-		return map[string]any{"type": "readOnly", "networkAccess": false}
-	case "workspace-write":
+	case sandboxReadOnly:
+		return map[string]any{fieldType: "readOnly", "networkAccess": false}
+	case sandboxWorkspaceWrite:
 		return map[string]any{
-			"type":          "workspaceWrite",
+			fieldType:       "workspaceWrite",
 			"networkAccess": false,
 			"writableRoots": []string{},
 		}
-	case "danger-full-access":
-		return map[string]any{"type": "dangerFullAccess"}
+	case sandboxDangerFullAccess:
+		return map[string]any{fieldType: "dangerFullAccess"}
 	default:
 		return nil
 	}

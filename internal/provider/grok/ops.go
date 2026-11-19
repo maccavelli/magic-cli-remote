@@ -16,6 +16,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// fieldSessionID: a JSON member name of the ACP request.
+	fieldSessionID = "sessionId"
+)
+
 // grok's session operations beyond standard ACP, on acpagent.Host (MADR 0208 D2).
 
 // forkRequest is the pinned grok 1.0.4 _x.ai/session/fork body
@@ -423,7 +429,7 @@ func compactSession(ctx context.Context, h acpagent.Host) error {
 		return errors.New("session has no agent session id")
 	}
 	return h.CallExtension(ctx, "_x.ai/compact_conversation", map[string]any{
-		"sessionId": agentID,
+		fieldSessionID: agentID,
 	}, nil)
 }
 
@@ -438,8 +444,8 @@ func renameSession(ctx context.Context, h acpagent.Host, title string) error {
 		return errors.New("session has no agent session id")
 	}
 	return h.CallExtension(ctx, "_x.ai/session/rename", map[string]any{
-		"sessionId": agentID,
-		"title":     title,
+		fieldSessionID: agentID,
+		"title":        title,
 	}, nil)
 }
 

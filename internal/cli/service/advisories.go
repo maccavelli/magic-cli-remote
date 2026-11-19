@@ -6,6 +6,8 @@ import (
 	"os"
 	"runtime"
 	"strings"
+
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 )
 
 // The two notices the shipped install.sh printed on every install, whatever
@@ -31,12 +33,12 @@ func OverrideApparmorRestrictPath(path string) (restore func()) {
 // installerAdvisories returns the notice lines for product's install in dir
 // on osName, each group led by a blank line.
 func installerAdvisories(osName, product, dir string) []string {
-	if product != "mcremote" {
+	if product != appdirs.ProductMcremote.Name {
 		return nil
 	}
 	var lines []string
 	switch osName {
-	case "linux":
+	case osLinux:
 		if b, err := os.ReadFile(apparmorRestrictPath); err == nil && strings.TrimSpace(string(b)) == "1" {
 			// The shipped remedy was scripts/bwrap-apparmor-fix.sh, which an
 			// install through curl does not have.
@@ -46,7 +48,7 @@ func installerAdvisories(osName, product, dir string) []string {
 				"bubblewrap) will fail. The remedy needs sudo: see MADR 0048 and the",
 				"AppArmor note in docs/guides/ops-linux-install.md.")
 		}
-	case "darwin":
+	case osDarwin:
 		label := "com.magiccliremote." + product
 		if name, err := ResolveUnitName(product); err == nil {
 			if l, err := LaunchdLabel(product, name); err == nil {

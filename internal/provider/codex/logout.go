@@ -23,7 +23,7 @@ func storedAuthMode(path string) string {
 	if err != nil {
 		return ""
 	}
-	meta, err := NewCredentialAdapter("codex").Validate(context.Background(), b)
+	meta, err := NewCredentialAdapter(string(provider.IDCodex)).Validate(context.Background(), b)
 	if err != nil {
 		return ""
 	}

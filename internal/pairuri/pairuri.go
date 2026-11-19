@@ -10,6 +10,14 @@ import (
 	"strings"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// schemeWS: the plain WebSocket scheme prefix.
+	schemeWS = "ws://"
+	// schemeWSS: the TLS WebSocket scheme prefix.
+	schemeWSS = "wss://"
+)
+
 const (
 	// Scheme is the URI scheme scanned by the Flutter client.
 	Scheme = "mcremote"
@@ -102,7 +110,7 @@ func Encode(p Payload) (string, error) {
 			return "", fmt.Errorf("pairuri: relay is empty")
 		}
 		if rs == "" {
-			rs = "wss://"
+			rs = schemeWSS
 		}
 		relay = rs + ra
 		if err := validateHostID(hid); err != nil {
@@ -198,7 +206,7 @@ func Parse(raw string) (Payload, error) {
 			return Payload{}, fmt.Errorf("pairuri: empty relay")
 		}
 		if rs == "" {
-			rs = "wss://"
+			rs = schemeWSS
 		}
 		relay = rs + ra
 		if err := validateHostID(hid); err != nil {
@@ -274,10 +282,10 @@ func splitScheme(host string) (scheme, authority string) {
 	h := strings.TrimSpace(host)
 	lower := strings.ToLower(h)
 	for _, p := range []struct{ prefix, canon string }{
-		{"wss://", "wss://"},
-		{"ws://", "ws://"},
-		{"https://", "wss://"},
-		{"http://", "ws://"},
+		{schemeWSS, schemeWSS},
+		{schemeWS, schemeWS},
+		{"https://", schemeWSS},
+		{"http://", schemeWS},
 	} {
 		if strings.HasPrefix(lower, p.prefix) {
 			scheme = p.canon

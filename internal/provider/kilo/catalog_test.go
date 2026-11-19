@@ -99,7 +99,7 @@ func optionIDs(c picker.Catalog) []string {
 
 // TestConnectedCatalogDropsAPIKey is the security guard for MADR 0043 D4,
 // ported for Kilo's own connectedProvidersResponse (MADR 0076 M2 — the
-// comment at catalog_live.go:124 promised this test existed here; it did
+// comment on connectedProvidersResponse promised this test existed here; it did
 // not, until now). GET /config/providers returns the user's API key in
 // plaintext; the decode struct has no such field so encoding/json discards
 // it. Nothing derived from that response may carry it onto the wire.

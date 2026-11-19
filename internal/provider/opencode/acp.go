@@ -16,6 +16,14 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode/control"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// groupOpencode: the picker group of OpenCode's own models.
+	groupOpencode = "opencode"
+	// modePlan: the id of OpenCode's plan mode.
+	modePlan = "plan"
+)
+
 // The OpenCode provider is this Spec over acpagent: sessions run on
 // `opencode acp` (0214 MADR D1), and what ACP lacks runs on a lease-bound
 // control plane (control/). It replaced the 1.x HTTP dialect at 0214 PLAN P7.
@@ -45,13 +53,13 @@ const acpStartTimeout = 120 * time.Second
 // (testdata/wire/2.2.3); deepseek-v4.1-flash-free is the one G1, G2 and G5 ran
 // turns on. Once a session reports its model option, that list replaces this.
 var acpStaticModels = []picker.Option{
-	{ID: "opencode/deepseek-v4.1-flash-free", Label: "DeepSeek V4.1 Flash Free", Group: "opencode"},
-	{ID: "opencode/beam-free", Label: "Beam Free", Group: "opencode"},
-	{ID: "opencode/flint-40b-free", Label: "Flint 40B Free", Group: "opencode"},
-	{ID: "opencode/glm-5.3-flash-free", Label: "GLM-5.3-Flash Free", Group: "opencode"},
-	{ID: "opencode/mimo-v2.6-flash-free", Label: "MiMo-V2.6-Flash Free", Group: "opencode"},
-	{ID: "opencode/nemotron-3.5-lightning-free", Label: "Nemotron 3.5 Lightning Free", Group: "opencode"},
-	{ID: "opencode/nemotron-3.5-super-vl-free", Label: "Nemotron 3.5 Super VL Free", Group: "opencode"},
+	{ID: "opencode/deepseek-v4.1-flash-free", Label: "DeepSeek V4.1 Flash Free", Group: groupOpencode},
+	{ID: "opencode/beam-free", Label: "Beam Free", Group: groupOpencode},
+	{ID: "opencode/flint-40b-free", Label: "Flint 40B Free", Group: groupOpencode},
+	{ID: "opencode/glm-5.3-flash-free", Label: "GLM-5.3-Flash Free", Group: groupOpencode},
+	{ID: "opencode/mimo-v2.6-flash-free", Label: "MiMo-V2.6-Flash Free", Group: groupOpencode},
+	{ID: "opencode/nemotron-3.5-lightning-free", Label: "Nemotron 3.5 Lightning Free", Group: groupOpencode},
+	{ID: "opencode/nemotron-3.5-super-vl-free", Label: "Nemotron 3.5 Super VL Free", Group: groupOpencode},
 }
 
 // acpStaticModes are opencode's two primary agents, the values of its mode
@@ -60,7 +68,7 @@ var acpStaticModels = []picker.Option{
 // intercepting permission requests (0214 MADR D9).
 var acpStaticModes = []event.SessionMode{
 	{ID: "build", Name: "Build", Description: "Full tool access; edits allowed"},
-	{ID: "plan", Name: "Plan", Description: "Research and plan only; no edits"},
+	{ID: modePlan, Name: "Plan", Description: "Research and plan only; no edits"},
 }
 
 // acpClientCapabilities is acpagent's own set, which covers 0214 MADR D1's list
@@ -75,7 +83,7 @@ func acpClientCapabilities() *acp.ClientCapabilities {
 // acpSpec is OpenCode v2 over ACP.
 var acpSpec = acpagent.Spec{
 	ID:                 provider.IDOpencode,
-	DefaultBin:         "opencode",
+	DefaultBin:         binName,
 	DefaultArgs:        func(acpagent.Config) []string { return []string{"acp"} },
 	KnownGoodVersion:   KnownGoodVersion,
 	MinVersion:         MinVersion,

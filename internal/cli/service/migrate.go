@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
@@ -27,7 +28,7 @@ import (
 const installerName = "magic-cli-remote"
 
 // windowsProducts are the binaries the folder holds.
-var windowsProducts = []string{"mcremote", "mcrelay"}
+var windowsProducts = []string{appdirs.ProductMcremote.Name, appdirs.ProductMcrelay.Name}
 
 // localAppData is %LOCALAPPDATA%, or the user's AppData\Local.
 func localAppData() string {

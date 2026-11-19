@@ -8,6 +8,18 @@ import (
 	"strings"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// osDarwin: runtime.GOOS name.
+	osDarwin = "darwin"
+	// osLinux: runtime.GOOS name.
+	osLinux = "linux"
+	// osWindows: runtime.GOOS name.
+	osWindows = "windows"
+	// pid1CommUnknown: pid1Comm's answer when /proc/1/comm cannot be read.
+	pid1CommUnknown = "unknown"
+)
+
 // Kind names the service manager setup-service drives on this host (MADR 0054
 // PLAN S5a). The names are install.sh's detect_init values, plus the Windows
 // task, so the shell installer's records and this one read alike.
@@ -48,11 +60,11 @@ func (k Kind) installable() bool {
 // osDefaultKind is the kind setup-service has always used on osName.
 func osDefaultKind(osName string) Kind {
 	switch osName {
-	case "linux":
+	case osLinux:
 		return KindSystemdUser
-	case "darwin":
+	case osDarwin:
 		return KindLaunchdAgent
-	case "windows":
+	case osWindows:
 		return KindWindowsTask
 	}
 	return KindNone
@@ -82,14 +94,14 @@ var lookPath = func(name string) bool {
 // Darwin is launchd-first, so a Homebrew runit, s6 or systemctl never wins.
 func detectInit() Kind {
 	switch runtime.GOOS {
-	case "darwin":
+	case osDarwin:
 		if lookPath("launchctl") {
 			return KindLaunchdAgent
 		}
 		return KindNone
-	case "windows":
+	case osWindows:
 		return KindWindowsTask
-	case "linux":
+	case osLinux:
 		return detectLinux()
 	}
 	return KindNone
@@ -107,13 +119,13 @@ func detectLinux() Kind {
 	}
 	// The supervisors' tools resolve in fixed directories, as the update runs
 	// them, never on PATH (MADR 0212 D2-A).
-	if haveTools("runsvdir", "sv") {
+	if haveTools(toolRunsvdir, "sv") {
 		return KindRunit
 	}
 	// s6-svstat is required, not optional: the running probe needs it, so a
 	// partial s6 install is none rather than a backend that cannot tell
 	// whether its service is up (MADR 0099 F1).
-	if haveTools("s6-svscan", "s6-svc", "s6-svstat") {
+	if haveTools(toolS6Svscan, "s6-svc", "s6-svstat") {
 		return KindS6
 	}
 	if haveTools("rc-service") {
@@ -134,7 +146,7 @@ func detectLinux() Kind {
 // does (withUserRuntimeEnv). Otherwise a cron or `su -` session that
 // setup-service has always served would now be refused.
 func userSystemdReachable() bool {
-	rd := os.Getenv("XDG_RUNTIME_DIR")
+	rd := os.Getenv(envXDGRuntimeDir)
 	if rd == "" {
 		var ok bool
 		if rd, ok = userRuntimeDir(); !ok {
@@ -201,12 +213,12 @@ func detectEnvironment() hostEnvironment {
 func pid1Comm() string {
 	b, err := os.ReadFile(pid1CommPath)
 	if err != nil {
-		return "unknown"
+		return pid1CommUnknown
 	}
 	if s := strings.TrimSpace(string(b)); s != "" {
 		return s
 	}
-	return "unknown"
+	return pid1CommUnknown
 }
 
 // unsupervisedAdvice is what setup-service prints on a host where it writes no
@@ -227,7 +239,7 @@ func unsupervisedAdvice(kind Kind, env hostEnvironment, pid1, product, binary, n
 	// the su/pam_systemd story is wrong on every count (MADR 0099 F6).
 	if kind == KindSystemdBroken && env != envWSL1 && env != envWSL2 {
 		add("", "systemctl is present but the user bus is unreachable.")
-		if pid1 != "systemd" && pid1 != "unknown" {
+		if pid1 != "systemd" && pid1 != pid1CommUnknown {
 			// MADR 0099 F8: with no systemd at PID 1 there is no user manager
 			// to reach, so the su story is false here.
 			add("PID 1 on this host is '"+pid1+"', not systemd, so there is no",

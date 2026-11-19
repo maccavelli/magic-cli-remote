@@ -22,7 +22,7 @@ import (
 // calling Prompt, so a provider that stamps its own events off a base captured
 // inside Prompt produces the same arithmetic a real turn would, without the
 // test depending on the scheduler. Real providers stamp their own timestamps
-// too (codex/session.go:2305 and the four others), so this is the shape the
+// too (codex's emitTurnFailure and the other providers' turn-end emitters), so this is the shape the
 // production path actually sees.
 type latencyScript struct {
 	events []scriptEvent

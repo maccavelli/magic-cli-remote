@@ -23,6 +23,18 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// fieldJSONRPC: the JSON-RPC version member's name.
+	fieldJSONRPC = "jsonrpc"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// jsonrpcVersion: the JSON-RPC version member.
+	jsonrpcVersion = "2.0"
+)
+
 // Budget bounds every wait in this package.
 const Budget = 5 * time.Second
 
@@ -204,7 +216,7 @@ func (a *Agent) Send(line string) { a.sendRaw(line) }
 
 // Notify sends a notification.
 func (a *Agent) Notify(method string, params any) {
-	a.sendRaw(a.marshal(map[string]any{"jsonrpc": "2.0", "method": method, "params": params}))
+	a.sendRaw(a.marshal(map[string]any{fieldJSONRPC: jsonrpcVersion, "method": method, "params": params}))
 }
 
 // Call sends a request and returns its id, for AnswerTo.
@@ -213,7 +225,7 @@ func (a *Agent) Call(method string, params any) string {
 	a.nextID++
 	id := strconv.Itoa(a.nextID)
 	a.mu.Unlock()
-	a.sendRaw(a.marshal(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(id), "method": method, "params": params}))
+	a.sendRaw(a.marshal(map[string]any{fieldJSONRPC: jsonrpcVersion, "id": json.RawMessage(id), "method": method, "params": params}))
 	return id
 }
 
@@ -254,19 +266,19 @@ func (a *Agent) Await(method string) Message {
 
 // Respond answers a held request with result.
 func (a *Agent) Respond(m Message, result any) {
-	a.sendRaw(a.marshal(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": result}))
+	a.sendRaw(a.marshal(map[string]any{fieldJSONRPC: jsonrpcVersion, "id": m.ID, "result": result}))
 }
 
 // RespondError answers a held request with an error.
 func (a *Agent) RespondError(m Message, code int, message string) {
-	a.sendRaw(a.marshal(map[string]any{"jsonrpc": "2.0", "id": m.ID,
+	a.sendRaw(a.marshal(map[string]any{fieldJSONRPC: jsonrpcVersion, "id": m.ID,
 		"error": map[string]any{"code": code, "message": message}}))
 }
 
 // RespondErrorData answers a held request with an error carrying data, as an
 // agent reports a failure's cause.
 func (a *Agent) RespondErrorData(m Message, code int, message string, data any) {
-	a.sendRaw(a.marshal(map[string]any{"jsonrpc": "2.0", "id": m.ID,
+	a.sendRaw(a.marshal(map[string]any{fieldJSONRPC: jsonrpcVersion, "id": m.ID,
 		"error": map[string]any{"code": code, "message": message, "data": data}}))
 }
 

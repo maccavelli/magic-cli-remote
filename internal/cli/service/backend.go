@@ -43,15 +43,15 @@ func NewBackendWith(product, unitName string, h HealthOptions) (Backend, error) 
 		osName = runtime.GOOS
 	}
 	switch osName {
-	case "linux":
+	case osLinux:
 		kind, err := ResolveBackend(product)
 		if err != nil {
 			return nil, err
 		}
 		return newBackendFor(kind, product, unitName, h, libservice.PollOptions{})
-	case "darwin":
+	case osDarwin:
 		return newBackendFor(KindLaunchdAgent, product, unitName, h, libservice.PollOptions{})
-	case "windows":
+	case osWindows:
 		return newBackendFor(KindWindowsTask, product, unitName, h, libservice.PollOptions{})
 	default:
 		return nil, fmt.Errorf("service control unsupported on %s", osName)
@@ -158,10 +158,10 @@ func taskOptions(product, unitName, task string, h HealthOptions) taskscheduler.
 // `su -` or a bare SSH session keeps working (MADR 0054 PLAN S1, Deviation 1).
 // The refresh child inherits it.
 func ensureUserRuntimeDir() {
-	if os.Getenv("XDG_RUNTIME_DIR") != "" {
+	if os.Getenv(envXDGRuntimeDir) != "" {
 		return
 	}
 	if dir, ok := userRuntimeDir(); ok {
-		_ = os.Setenv("XDG_RUNTIME_DIR", dir)
+		_ = os.Setenv(envXDGRuntimeDir, dir)
 	}
 }

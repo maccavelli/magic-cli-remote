@@ -99,7 +99,7 @@ func probeSandboxHealthGOOS(ctx context.Context, bin, goos string) sandboxHealth
 		return h
 	}
 	if bin == "" {
-		bin = "codex"
+		bin = defaultBin
 	}
 	tmpdir, err := os.MkdirTemp("", "mcremote-codex-sandbox-probe-*")
 	if err != nil {
@@ -182,7 +182,7 @@ func applySandboxBrokenPolicy(cfg Config, health sandboxHealth, approval, sandbo
 		if m, ok := findCodexMode(cfg, modeFullAccess); ok {
 			return m.approvalPolicy, m.sandbox, m.mode.ID, nil
 		}
-		return "never", "danger-full-access", modeFullAccess, nil
+		return approvalNever, sandboxDangerFullAccess, modeFullAccess, nil
 	default:
 		// Unknown values rejected at config load; treat as warn if reached.
 		return approval, sandbox, modeID, nil

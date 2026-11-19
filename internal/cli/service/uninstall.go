@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 )
 
 // setup-service --uninstall (MADR 0054 PLAN S5e, gap G4). It is install.sh's
@@ -64,11 +66,11 @@ var uninstallExeDir = func() (string, error) {
 // uninstallKinds are the service managers --uninstall looks in on osName.
 func uninstallKinds(osName string) []Kind {
 	switch osName {
-	case "linux":
+	case osLinux:
 		return []Kind{KindSystemdUser, KindRunit, KindS6, KindOpenRCUser}
-	case "darwin":
+	case osDarwin:
 		return []Kind{KindLaunchdAgent}
-	case "windows":
+	case osWindows:
 		return []Kind{KindWindowsTask}
 	}
 	return nil
@@ -78,7 +80,7 @@ func uninstallKinds(osName string) []Kind {
 // program from this binary's folder, and reports the rest. A failed removal
 // is reported and the others still run; the error says how many failed.
 func Uninstall() (UninstallResult, error) {
-	return uninstall([]string{"mcremote", "mcrelay"})
+	return uninstall([]string{appdirs.ProductMcremote.Name, appdirs.ProductMcrelay.Name})
 }
 
 // UninstallFromInstaller is Uninstall for product alone: the release
@@ -112,7 +114,7 @@ func uninstall(products []string) (UninstallResult, error) {
 		if recorded != product {
 			names = append(names, product)
 		}
-		if osName == "windows" {
+		if osName == osWindows {
 			// The task is always named after the product (MADR 0159 D13).
 			names = []string{taskNameFor(product)}
 		}
@@ -167,7 +169,7 @@ func sameDir(a, b string) bool {
 		}
 		return filepath.Clean(p)
 	}
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		return strings.EqualFold(clean(a), clean(b))
 	}
 	return clean(a) == clean(b)
@@ -291,7 +293,7 @@ func PrintUninstallResult(w io.Writer, res UninstallResult) {
 	if len(res.Removed)+len(res.Left)+len(res.Failed) == 0 {
 		products := res.Products
 		if len(products) == 0 {
-			products = []string{"mcremote", "mcrelay"}
+			products = []string{appdirs.ProductMcremote.Name, appdirs.ProductMcrelay.Name}
 		}
 		fmt.Fprintf(w, "no service definition of %s was found\n", strings.Join(products, " or "))
 		return

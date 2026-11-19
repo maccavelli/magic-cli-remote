@@ -24,7 +24,7 @@ func configuredMethods() (apiKey, device bool) {
 	}
 	if path, err := credstore.GrokAuthPath(); err == nil {
 		if b, err := os.ReadFile(path); err == nil { //nolint:gosec // effective grok home
-			if _, err := NewCredentialAdapter("grok").Validate(context.Background(), b); err == nil {
+			if _, err := NewCredentialAdapter(string(provider.IDGrok)).Validate(context.Background(), b); err == nil {
 				device = true
 			}
 		}

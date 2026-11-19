@@ -10,6 +10,28 @@ import (
 	"strings"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// envHome: an environment variable the service environment carries.
+	envHome = "HOME"
+	// envLogname: an environment variable the service environment carries.
+	envLogname = "LOGNAME"
+	// envPath: an environment variable the service environment carries.
+	envPath = "PATH"
+	// envUser: an environment variable the service environment carries.
+	envUser = "USER"
+	// envXDGCacheHome: an environment variable the service environment carries.
+	envXDGCacheHome = "XDG_CACHE_HOME"
+	// envXDGConfigHome: an environment variable the service environment carries.
+	envXDGConfigHome = "XDG_CONFIG_HOME"
+	// envXDGDataHome: an environment variable the service environment carries.
+	envXDGDataHome = "XDG_DATA_HOME"
+	// envXDGRuntimeDir: an environment variable the service environment carries.
+	envXDGRuntimeDir = "XDG_RUNTIME_DIR"
+	// envXDGStateHome: an environment variable the service environment carries.
+	envXDGStateHome = "XDG_STATE_HOME"
+)
+
 // RenderPlist returns a launchd user LaunchAgent property list for opts
 // (no side effects). Binary path is not required to exist (print/preview only).
 // Always produces an agent plist (no UserName/GroupName, no system daemon).
@@ -60,24 +82,24 @@ func renderPlistWith(opts Options, penv *renderEnv) (string, error) {
 	outLog := filepath.Join(logDir, opts.Product+".out.log")
 	errLog := filepath.Join(logDir, opts.Product+".err.log")
 
-	args := []string{opts.Binary, "serve"}
+	args := []string{opts.Binary, subcommandServe}
 	if opts.ConfigPath != "" {
-		args = append(args, "--config", opts.ConfigPath)
+		args = append(args, flagConfig, opts.ConfigPath)
 	}
 	if opts.DataDir != "" {
-		args = append(args, "--data-dir", opts.DataDir)
+		args = append(args, flagDataDir, opts.DataDir)
 	}
 	if opts.ListenHost != "" {
-		args = append(args, "--listen-host", opts.ListenHost)
+		args = append(args, flagListenHost, opts.ListenHost)
 	}
 	if opts.ListenPort > 0 {
-		args = append(args, "--listen-port", strconv.Itoa(opts.ListenPort))
+		args = append(args, flagListenPort, strconv.Itoa(opts.ListenPort))
 	}
 	if opts.LogLevel != "" {
-		args = append(args, "--log-level", opts.LogLevel)
+		args = append(args, flagLogLevel, opts.LogLevel)
 	}
 	if opts.LogFormat != "" {
-		args = append(args, "--log-format", opts.LogFormat)
+		args = append(args, flagLogFormat, opts.LogFormat)
 	}
 
 	wd := opts.WorkingDirectory
@@ -87,32 +109,32 @@ func renderPlistWith(opts Options, penv *renderEnv) (string, error) {
 
 	// Export resolved absolute XDG roots so LaunchAgent matches shell/appdirs.
 	env := map[string]string{
-		"HOME":            home,
-		"USER":            username,
-		"LOGNAME":         username,
-		"PATH":            servicePathEnv(home, opts.Product),
-		"XDG_CONFIG_HOME": filepath.Dir(paths.ConfigDir),
-		"XDG_DATA_HOME":   filepath.Dir(paths.DataDir),
-		"XDG_STATE_HOME":  filepath.Dir(paths.StateDir),
-		"XDG_CACHE_HOME":  filepath.Dir(paths.CacheDir),
+		envHome:          home,
+		envUser:          username,
+		envLogname:       username,
+		envPath:          servicePathEnv(home, opts.Product),
+		envXDGConfigHome: filepath.Dir(paths.ConfigDir),
+		envXDGDataHome:   filepath.Dir(paths.DataDir),
+		envXDGStateHome:  filepath.Dir(paths.StateDir),
+		envXDGCacheHome:  filepath.Dir(paths.CacheDir),
 	}
 	if penv != nil {
-		env["PATH"] = penv.Path
-		env["XDG_CONFIG_HOME"] = penv.XDGConfigHome
-		env["XDG_DATA_HOME"] = penv.XDGDataHome
-		env["XDG_STATE_HOME"] = penv.XDGStateHome
-		env["XDG_CACHE_HOME"] = penv.XDGCacheHome
+		env[envPath] = penv.Path
+		env[envXDGConfigHome] = penv.XDGConfigHome
+		env[envXDGDataHome] = penv.XDGDataHome
+		env[envXDGStateHome] = penv.XDGStateHome
+		env[envXDGCacheHome] = penv.XDGCacheHome
 		if penv.XDGRuntimeDir != "" {
-			env["XDG_RUNTIME_DIR"] = penv.XDGRuntimeDir
+			env[envXDGRuntimeDir] = penv.XDGRuntimeDir
 		}
 	} else if paths.RuntimeBase != "" {
 		// Prefer parent of product runtime base when it is under a true runtime home.
 		rt := filepath.Dir(paths.RuntimeBase)
 		if filepath.Base(paths.RuntimeBase) == opts.Product || strings.Contains(filepath.Base(paths.RuntimeBase), "-runtime-") {
 			if strings.Contains(filepath.Base(paths.RuntimeBase), "-runtime-") {
-				env["XDG_RUNTIME_DIR"] = paths.RuntimeBase
+				env[envXDGRuntimeDir] = paths.RuntimeBase
 			} else if rt != "." && filepath.IsAbs(rt) {
-				env["XDG_RUNTIME_DIR"] = rt
+				env[envXDGRuntimeDir] = rt
 			}
 		}
 	}
@@ -140,7 +162,7 @@ func renderPlistWith(opts Options, penv *renderEnv) (string, error) {
 	writePlistString(&b, "WorkingDirectory", wd)
 	b.WriteString("  <key>EnvironmentVariables</key>\n  <dict>\n")
 	// Stable key order for goldens and diffs.
-	for _, k := range []string{"HOME", "USER", "LOGNAME", "PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"} {
+	for _, k := range []string{envHome, envUser, envLogname, envPath, envXDGConfigHome, envXDGDataHome, envXDGStateHome, envXDGCacheHome, envXDGRuntimeDir} {
 		v, ok := env[k]
 		if !ok {
 			continue

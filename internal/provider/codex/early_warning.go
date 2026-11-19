@@ -34,7 +34,7 @@ func (s *session) emitCodexWarning(w codexWarning) {
 		Codex: &event.CodexPayload{
 			Key:    "warning:" + w.method + ":" + w.threadID,
 			Kind:   w.kind,
-			Status: "completed",
+			Status: statusCompleted,
 			Title:  "Codex warning",
 			Text:   w.message,
 		},

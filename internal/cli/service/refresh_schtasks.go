@@ -223,7 +223,7 @@ func recoverTaskOptions(product, existing string) (Options, string, bool) {
 	if err != nil {
 		return Options{}, "unreadable arguments: " + err.Error(), false
 	}
-	if len(args) == 0 || args[0] != "serve" {
+	if len(args) == 0 || args[0] != subcommandServe {
 		return Options{}, "the action does not run serve", false
 	}
 	for k := 1; k < len(args); k++ {
@@ -239,21 +239,21 @@ func recoverTaskOptions(product, existing string) (Options, string, bool) {
 		value := args[k+1]
 		k++
 		switch flag {
-		case "--config":
+		case flagConfig:
 			opts.ConfigPath = value
-		case "--data-dir":
+		case flagDataDir:
 			opts.DataDir = value
-		case "--listen-host":
+		case flagListenHost:
 			opts.ListenHost = value
-		case "--listen-port":
+		case flagListenPort:
 			n, err := strconv.Atoi(value)
 			if err != nil {
 				return Options{}, "unreadable --listen-port " + value, false
 			}
 			opts.ListenPort = n
-		case "--log-level":
+		case flagLogLevel:
 			opts.LogLevel = value
-		case "--log-format":
+		case flagLogFormat:
 			opts.LogFormat = value
 		default:
 			return Options{}, "carries an argument this binary did not write: " + flag, false

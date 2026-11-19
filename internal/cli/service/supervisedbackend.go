@@ -114,9 +114,9 @@ func newSupervisedBackend(kind Kind, name string, h HealthOptions, product, unit
 func supervisedUp(ctx context.Context, def scriptDef, name string) error {
 	switch def.Kind {
 	case KindRunit, KindS6:
-		scanner, up := "runsvdir", toolFor(def.Kind, def.Dir, "sv", "up", def.Dir)
+		scanner, up := toolRunsvdir, toolFor(def.Kind, def.Dir, "sv", "up", def.Dir)
 		if def.Kind == KindS6 {
-			scanner, up = "s6-svscan", toolFor(def.Kind, def.Dir, "s6-svc", "-u", def.Dir)
+			scanner, up = toolS6Svscan, toolFor(def.Kind, def.Dir, "s6-svc", "-u", def.Dir)
 		}
 		if !supervisorWatching(scanner, def.ScanDir) {
 			_, err := startSessionSupervisor(scanner, def.ScanDir)
@@ -138,13 +138,13 @@ func supervisedUp(ctx context.Context, def scriptDef, name string) error {
 		_, err := up.run(ctx)
 		return err
 	case KindOpenRCUser:
-		rd := os.Getenv("XDG_RUNTIME_DIR")
+		rd := os.Getenv(envXDGRuntimeDir)
 		if rd == "" {
 			rd, _ = userRuntimeDir()
 		}
 		envs := []string{"XDG_RUNTIME_DIR=" + rd}
 		if _, err := os.Stat(filepath.Join(rd, "openrc", "softlevel")); err != nil {
-			for _, lvl := range []string{"boot", "default"} {
+			for _, lvl := range []string{runlevelBoot, runlevelDefault} {
 				if _, err := toolFor(def.Kind, lvl, "openrc", "--user", lvl).withEnv(envs...).run(ctx); err != nil {
 					return err
 				}

@@ -274,7 +274,7 @@ var _ = event.TypeNotice
 //
 // codex 0.155.1 added functionCallOutput to the ThreadItem union. Every item type
 // absent from BOTH registries in items.go increments session.unknownItems and is
-// dropped from the transcript with a debug line (session.go:1498-1504), which is
+// dropped from the transcript with a debug line (the item/started case of session.handleDecodedNotification), which is
 // quiet enough that the item went unnoticed for six releases — the enumeration
 // this suite checked was frozen at the 0.145.0 probe.
 //

@@ -2,18 +2,24 @@ package kilo
 
 import "github.com/maccavelli/magic-cli-remote/internal/command"
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// commandPlan: the /plan command.
+	commandPlan = "plan"
+)
+
 // CommandTable declares how the Kilo engine satisfies the canonical
 // slash-command vocabulary (MADR 0023), forked from the OpenCode table —
 // every backing route was schema-confirmed in the 7.4.20 spike (MADR 0075
 // §2.4: fork, revert/unrevert, summarize, diff, message list).
 func (d *httpDialect) CommandTable() command.Table {
 	return command.Table{
-		"help":     {Kind: command.KindDaemon},
-		"plan":     {Kind: command.KindMode, ModeID: "plan"},
-		"mode":     {Kind: command.KindMode},
-		"clear":    {Kind: command.KindDaemon},
-		"new":      {Kind: command.KindDaemon},
-		"sessions": {Kind: command.KindDaemon},
+		"help":      {Kind: command.KindDaemon},
+		commandPlan: {Kind: command.KindMode, ModeID: modePlan},
+		"mode":      {Kind: command.KindMode},
+		"clear":     {Kind: command.KindDaemon},
+		"new":       {Kind: command.KindDaemon},
+		"sessions":  {Kind: command.KindDaemon},
 		// POST /api/session/{id}/model switches in place (v2 alias route,
 		// present in the kilo OpenAPI dump).
 		"model": {Kind: command.KindOp, Op: command.OpSetModel},

@@ -112,7 +112,10 @@ expected and **not** a bug to fix by deleting the call.
   for client requests, and a `case` label for server requests. The hand-maintained
   switch it replaced named 32 client requests and no server request at all, so all
   21 server requests were recorded as deferred while nine were answered
-  deliberately.
+  deliberately. The scan reads string literals only, so a client request's method
+  name must stay a literal at its call, and a server request's at its `case`:
+  `goconst` asks for a constant once a string repeats, and a method named by a
+  constant is not seen by the scan.
 - **Each request's response type**, from the `response:` declarations in
   `client_request_definitions!` and `server_request_definitions!` in `common.rs`.
   The capture fails on a request in the export with no declaration, or one naming a

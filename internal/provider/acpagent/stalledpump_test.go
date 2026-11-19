@@ -90,7 +90,8 @@ func stalledSession(t *testing.T, opts ...acp.ConnectionOption) (*session, *acp.
 	conn := acp.NewClientSideConnection(s, clientWritesW, agentOut, opts...)
 	s.conn = conn
 	initializeForTest(t, conn)
-	// Wire the containment path production wires (acpagent.go:655). Without it a
+	// Wire the containment path production wires (session.watchConnClose, started
+	// where the agent is launched). Without it a
 	// dead transport produced no teardown here at all, so a test asserting
 	// containment would have been asserting something this fixture could not do
 	// (MADR 0166 F11, PLAN 0166 A10).

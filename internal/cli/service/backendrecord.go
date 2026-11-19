@@ -38,7 +38,7 @@ func backendRecordPath(product string) (string, error) {
 // S5b, Deviation 3).
 func ResolveBackend(product string) (Kind, error) {
 	if product == "" {
-		product = "mcremote"
+		product = appdirs.ProductMcremote.Name
 	}
 	osName := installOS
 	if osName == "" {

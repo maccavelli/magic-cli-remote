@@ -8,19 +8,63 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// statusFailed: an event Status.
+	statusFailed = "failed"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// itemAgentMessage: a thread item type of the app-server protocol.
+	itemAgentMessage = "agentMessage"
+	// itemCommandExecution: a thread item type of the app-server protocol.
+	itemCommandExecution = "commandExecution"
+	// itemDynamicToolCall: a thread item type of the app-server protocol.
+	itemDynamicToolCall = "dynamicToolCall"
+	// itemEnteredReviewMode: a thread item type of the app-server protocol.
+	itemEnteredReviewMode = "enteredReviewMode"
+	// itemExitedReviewMode: a thread item type of the app-server protocol.
+	itemExitedReviewMode = "exitedReviewMode"
+	// itemFileChange: a thread item type of the app-server protocol.
+	itemFileChange = "fileChange"
+	// itemHookPrompt: a thread item type of the app-server protocol.
+	itemHookPrompt = "hookPrompt"
+	// itemImageGeneration: a thread item type of the app-server protocol.
+	itemImageGeneration = "imageGeneration"
+	// itemImageView: a thread item type of the app-server protocol.
+	itemImageView = "imageView"
+	// itemMCPToolCall: a thread item type of the app-server protocol.
+	itemMCPToolCall = "mcpToolCall"
+	// itemWebSearch: a thread item type of the app-server protocol.
+	itemWebSearch = "webSearch"
+	// summaryCommand: the summary kind of a command item.
+	summaryCommand = "command"
+	// summaryFile: the summary kind of a file-change item.
+	summaryFile = "file"
+	// wireCompleted: an item or agent status of the app-server protocol.
+	wireCompleted = "completed"
+	// wireFailed: an item or turn status of the app-server protocol.
+	wireFailed = "failed"
+	// wirePending: an item status of the app-server protocol.
+	wirePending = "pending"
+	// wireRunning: an item or agent status of the app-server protocol.
+	wireRunning = "running"
+)
+
 // item types that are genuine agent actions and should render as tool cards.
 // MADR 0035 D1: a single source of truth, consulted by both item/started and
 // item/completed so the two handlers cannot disagree about which items
 // produce cards.
 var itemsRenderedAsTools = map[string]struct{}{
-	"commandExecution": {},
-	"fileChange":       {},
-	"mcpToolCall":      {},
-	"webSearch":        {},
-	"dynamicToolCall":  {},
-	"imageGeneration":  {},
-	"imageView":        {},
-	"hookPrompt":       {},
+	itemCommandExecution: {},
+	itemFileChange:       {},
+	itemMCPToolCall:      {},
+	itemWebSearch:        {},
+	itemDynamicToolCall:  {},
+	itemImageGeneration:  {},
+	itemImageView:        {},
+	itemHookPrompt:       {},
 	// collabAgentToolCall and subAgentActivity are deliberately absent: they
 	// describe sub-agents, which are panel state rather than transcript items
 	// (MADR 0051 D8/D10). They are routed by noteSubagentItem before this
@@ -28,9 +72,9 @@ var itemsRenderedAsTools = map[string]struct{}{
 }
 
 var knownNonToolItems = map[string]struct{}{
-	"userMessage": {}, "agentMessage": {}, "plan": {}, "reasoning": {},
+	"userMessage": {}, itemAgentMessage: {}, "plan": {}, "reasoning": {},
 	"collabAgentToolCall": {}, "subAgentActivity": {}, "contextCompaction": {},
-	"enteredReviewMode": {}, "exitedReviewMode": {}, "sleep": {},
+	itemEnteredReviewMode: {}, itemExitedReviewMode: {}, "sleep": {},
 	// functionCallOutput, added by codex 0.155.1, is acknowledged rather than
 	// rendered (MADR 0163 F13/D6). Three pieces of evidence put it here and not
 	// in itemsRenderedAsTools:
@@ -109,13 +153,13 @@ func itemAsNotice(itemType string) (event.Event, bool) {
 			Text:      "Context compacted",
 			Timestamp: time.Now().UTC(),
 		}, true
-	case "enteredReviewMode":
+	case itemEnteredReviewMode:
 		return event.Event{
 			Type:      event.TypeNotice,
 			Text:      "Entered review mode",
 			Timestamp: time.Now().UTC(),
 		}, true
-	case "exitedReviewMode":
+	case itemExitedReviewMode:
 		return event.Event{
 			Type:      event.TypeNotice,
 			Text:      "Exited review mode",
@@ -132,14 +176,14 @@ func itemAsNotice(itemType string) (event.Event, bool) {
 // `failed` — a denial is a kind of failure for the agent's plan.
 func codexToolStatus(s string) string {
 	switch s {
-	case "inProgress", "running":
-		return "running"
-	case "completed":
-		return "completed"
-	case "failed", "declined":
-		return "failed"
-	case "pending":
-		return "pending"
+	case "inProgress", wireRunning:
+		return statusRunning
+	case wireCompleted:
+		return statusCompleted
+	case wireFailed, "declined":
+		return statusFailed
+	case wirePending:
+		return statusPending
 	}
 	return s
 }
@@ -149,13 +193,13 @@ func codexToolStatus(s string) string {
 // mobile classifyTool to group actions ("Ran N commands", etc.).
 func codexToolKindForItem(itemType string) string {
 	switch itemType {
-	case "commandExecution":
+	case itemCommandExecution:
 		return "execute"
-	case "fileChange":
+	case itemFileChange:
 		return "edit"
-	case "webSearch":
+	case itemWebSearch:
 		return "fetch"
-	case "mcpToolCall", "dynamicToolCall", "imageGeneration", "imageView", "hookPrompt":
+	case itemMCPToolCall, itemDynamicToolCall, itemImageGeneration, itemImageView, itemHookPrompt:
 		return "other"
 	}
 	return ""
@@ -181,14 +225,14 @@ func extractItemID(item json.RawMessage) (string, string) {
 // pending|inProgress|completed, so a fall-through is a quiet new case.
 func codexPlanStatus(s string) string {
 	switch s {
-	case "pending":
-		return "pending"
+	case wirePending:
+		return statusPending
 	case "inProgress":
 		return "in_progress"
-	case "completed":
-		return "completed"
+	case wireCompleted:
+		return statusCompleted
 	}
-	return "pending"
+	return statusPending
 }
 
 // codexPlanEntries converts codex plan steps into the daemon's PlanEntry
@@ -215,7 +259,7 @@ func codexPlanEntries(in []struct {
 // are filled in here.
 func (s *session) emitToolStarted(itemType, itemID string, item json.RawMessage, now time.Time) {
 	name, detail := toolCardDetail(itemType, item)
-	status := "running"
+	status := statusRunning
 	// Some item types carry an initial status on the item itself (e.g.,
 	// commandExecution: "inProgress"). Keep that in case the mobile reducer
 	// wants the more specific vocabulary later, but the daemon contract is
@@ -241,13 +285,13 @@ func (s *session) emitToolStarted(itemType, itemID string, item json.RawMessage,
 // into the dispatch.
 func toolCardDetail(itemType string, item json.RawMessage) (name, detail string) {
 	switch itemType {
-	case "commandExecution":
+	case itemCommandExecution:
 		var p struct {
 			Command string `json:"command"`
 		}
 		_ = json.Unmarshal(item, &p)
-		return "command", p.Command
-	case "fileChange":
+		return summaryCommand, p.Command
+	case itemFileChange:
 		var p struct {
 			Changes []struct {
 				Path string `json:"path"`
@@ -257,28 +301,28 @@ func toolCardDetail(itemType string, item json.RawMessage) (name, detail string)
 		// fileChange may carry multiple changes in v2; show the first path
 		// and a count if there are more.
 		if len(p.Changes) == 0 {
-			return "file", ""
+			return summaryFile, ""
 		}
 		if len(p.Changes) == 1 {
-			return "file", p.Changes[0].Path
+			return summaryFile, p.Changes[0].Path
 		}
-		return "file", p.Changes[0].Path + " (+" + itoa(len(p.Changes)-1) + " more)"
-	case "mcpToolCall":
+		return summaryFile, p.Changes[0].Path + " (+" + itoa(len(p.Changes)-1) + " more)"
+	case itemMCPToolCall:
 		var p struct {
 			Server string `json:"server"`
 			Tool   string `json:"tool"`
 		}
 		_ = json.Unmarshal(item, &p)
 		return firstOr(p.Server+"/"+p.Tool, "mcp"), ""
-	case "webSearch":
+	case itemWebSearch:
 		return "web search", ""
-	case "dynamicToolCall":
+	case itemDynamicToolCall:
 		return "tool", ""
-	case "imageGeneration":
+	case itemImageGeneration:
 		return "image generation", ""
-	case "imageView":
+	case itemImageView:
 		return "image view", ""
-	case "hookPrompt":
+	case itemHookPrompt:
 		return "hook", ""
 	}
 	return itemType, ""
@@ -298,7 +342,7 @@ func itemStatus(item json.RawMessage) (string, bool) {
 
 func toolCompletionDetail(itemType string, item json.RawMessage) string {
 	switch itemType {
-	case "commandExecution":
+	case itemCommandExecution:
 		var body struct {
 			ExitCode   *int   `json:"exitCode"`
 			DurationMS *int64 `json:"durationMs"`
@@ -310,7 +354,7 @@ func toolCompletionDetail(itemType string, item json.RawMessage) string {
 			}
 			return text
 		}
-	case "fileChange":
+	case itemFileChange:
 		var body struct {
 			Changes []struct {
 				Path string `json:"path"`
@@ -319,7 +363,7 @@ func toolCompletionDetail(itemType string, item json.RawMessage) string {
 		if json.Unmarshal(item, &body) == nil && len(body.Changes) > 0 {
 			return filepath.Base(body.Changes[0].Path)
 		}
-	case "mcpToolCall", "dynamicToolCall":
+	case itemMCPToolCall, itemDynamicToolCall:
 		var body struct {
 			Error *struct {
 				Message string `json:"message"`

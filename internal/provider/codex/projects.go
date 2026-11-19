@@ -79,7 +79,7 @@ func (a *projectAPI) List(ctx context.Context, cursor string, limit int) (provid
 		return provider.ProjectPage{}, err
 	}
 	limit = boundedProjectLimit(limit)
-	params := map[string]any{"limit": uint32(limit)}
+	params := map[string]any{fieldLimit: uint32(limit)}
 	if cursor != "" {
 		params["cursor"] = cursor
 	}
@@ -130,7 +130,7 @@ func (a *projectAPI) Read(ctx context.Context, id string) (provider.Project, err
 	if err := a.require(CapabilityProjectRead); err != nil {
 		return provider.Project{}, err
 	}
-	raw, err := a.send(ctx, "project/read", map[string]any{"projectId": id})
+	raw, err := a.send(ctx, "project/read", map[string]any{fieldProjectID: id})
 	if err != nil {
 		return provider.Project{}, err
 	}
@@ -192,7 +192,7 @@ func projectMutationParams(mutation provider.ProjectMutation, idempotent bool) m
 	for _, root := range mutation.Roots {
 		roots = append(roots, map[string]string{"path": filepath.Clean(strings.TrimSpace(root))})
 	}
-	params := map[string]any{"name": strings.TrimSpace(mutation.Name), "roots": roots}
+	params := map[string]any{fieldName: strings.TrimSpace(mutation.Name), "roots": roots}
 	if len(mutation.Metadata) > 0 {
 		params["metadata"] = mutation.Metadata
 	}
@@ -238,7 +238,7 @@ func (a *projectAPI) Update(ctx context.Context, id string, mutation provider.Pr
 		return provider.Project{}, err
 	}
 	params := projectMutationParams(mutation, false)
-	params["projectId"] = id
+	params[fieldProjectID] = id
 	raw, err := a.send(ctx, "project/update", params)
 	if err != nil {
 		// Ambiguous updates reconcile by read; callers see the effective state.
@@ -254,7 +254,7 @@ func (a *projectAPI) Move(ctx context.Context, id, beforeID string) error {
 	if err := a.require(CapabilityProjectMove); err != nil {
 		return err
 	}
-	params := map[string]any{"projectId": id}
+	params := map[string]any{fieldProjectID: id}
 	if beforeID != "" {
 		params["beforeProjectId"] = beforeID
 	}
@@ -275,7 +275,7 @@ func (a *projectAPI) Delete(ctx context.Context, id string) error {
 	if err := a.require(CapabilityProjectDelete); err != nil {
 		return err
 	}
-	_, err := a.send(ctx, "project/delete", map[string]any{"projectId": id})
+	_, err := a.send(ctx, "project/delete", map[string]any{fieldProjectID: id})
 	if err != nil {
 		if a.supports == nil || !a.supports(CapabilityProjectRead) {
 			return err

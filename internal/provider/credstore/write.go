@@ -10,6 +10,12 @@ import (
 	"strings"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// tomlAuthTable: the [auth] table header of Codex's config.
+	tomlAuthTable = "[auth]"
+)
+
 // MaxSecretBytes bounds an injected credential. Real keys are well under a
 // kilobyte; the cap exists so a malformed or hostile client cannot make the
 // daemon write an arbitrarily large file into the user's home directory.
@@ -221,7 +227,7 @@ func SetGrokModelAPIKey(path, modelID, key string) error {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
 			inTarget = trimmed == header
-			inAuth = trimmed == "[auth]"
+			inAuth = trimmed == tomlAuthTable
 			out = append(out, line)
 			continue
 		}
@@ -269,7 +275,7 @@ func ClearGrokModelAPIKey(path, modelID string) error {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
 			inTarget = header != "" && trimmed == header
-			inAuth = trimmed == "[auth]"
+			inAuth = trimmed == tomlAuthTable
 			out = append(out, line)
 			continue
 		}
@@ -296,7 +302,7 @@ func HasGrokConfigAPIKey(path string) bool {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
 			inQuotedModel = isQuotedGrokModelTable(trimmed)
-			inAuth = trimmed == "[auth]"
+			inAuth = trimmed == tomlAuthTable
 			continue
 		}
 		if (inQuotedModel || inAuth) && isGrokAPIKeyLine(trimmed) {

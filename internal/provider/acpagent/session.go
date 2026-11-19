@@ -30,6 +30,20 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// statusIdle: the session Status when no turn is running.
+	statusIdle = "idle"
+	// statusPending: the Status of an approval or elicitation request still waiting for the phone.
+	statusPending = "pending"
+	// stopReasonError: the StopReason of a turn that ended in error.
+	stopReasonError = "error"
+	// configValueTrue: the value the phone sends to turn a boolean config option on.
+	configValueTrue = "true"
+	// statusError: the session Status after a turn that ended in error.
+	statusError = "error"
+)
+
 // defaultStreamCoalesce caps mid-stream assistant/thought updates at ~12 per
 // second (MADR 0024 / 0057). Matches the other adapters' defaults.
 const defaultStreamCoalesce = 80 * time.Millisecond
@@ -570,7 +584,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 					Type:      event.TypeSessionStatus,
 					SessionID: s.localID,
 					Timestamp: time.Now().UTC(),
-					Status:    "idle",
+					Status:    statusIdle,
 				})
 				return
 			}
@@ -599,7 +613,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			Type:      event.TypeSessionStatus,
 			SessionID: s.localID,
 			Timestamp: time.Now().UTC(),
-			Status:    "idle",
+			Status:    statusIdle,
 		})
 	}()
 	return nil
@@ -799,8 +813,8 @@ func (s *session) emitClassifiedTurnErrorWith(raw, planUsage string) {
 		Type:       event.TypeTurnComplete,
 		SessionID:  s.localID,
 		Timestamp:  now,
-		StopReason: "error",
-		Status:     "error",
+		StopReason: stopReasonError,
+		Status:     statusError,
 	})
 	ev := event.Event{
 		Type:      event.TypeError,
@@ -816,7 +830,7 @@ func (s *session) emitClassifiedTurnErrorWith(raw, planUsage string) {
 		Type:      event.TypeSessionStatus,
 		SessionID: s.localID,
 		Timestamp: now,
-		Status:    "error",
+		Status:    statusError,
 	})
 }
 
@@ -1231,7 +1245,7 @@ func (s *session) SetConfigOption(ctx context.Context, optionID, kind, value str
 	var req acp.SetSessionConfigOptionRequest
 	switch kind {
 	case "boolean":
-		req = acp.NewSetSessionConfigOptionRequestBoolean(acp.SessionId(agentID), acp.SessionConfigId(optionID), value == "true")
+		req = acp.NewSetSessionConfigOptionRequestBoolean(acp.SessionId(agentID), acp.SessionConfigId(optionID), value == configValueTrue)
 	default:
 		req = acp.NewSetSessionConfigOptionRequestValueId(acp.SessionId(agentID), acp.SessionConfigId(optionID), acp.SessionConfigValueId(value))
 	}
@@ -2678,7 +2692,7 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 		ToolID:       toolID,
 		ToolName:     title,
 		Text:         detail,
-		Status:       "pending",
+		Status:       statusPending,
 	})
 	if res.cancelled || res.optionID == "" {
 		return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil

@@ -20,7 +20,7 @@ import (
 func setupSchtasks(opts Options, body string, res Result) (Result, error) {
 	name := taskNameFor(opts.Product)
 	res.UnitPath = `Task Scheduler\` + name
-	res.Scope = "windows-task"
+	res.Scope = string(KindWindowsTask)
 	res.Label = name
 
 	task, err := openTask(name)
@@ -93,7 +93,7 @@ func setupSchtasks(opts Options, body string, res Result) (Result, error) {
 // not an error — Remove is idempotent, like its Unix counterparts.
 func removeSchtasks(opts Options) (Result, error) {
 	name := taskNameFor(opts.Product)
-	res := Result{UnitName: name, Label: name, Scope: "windows-task", UnitPath: `Task Scheduler\` + name}
+	res := Result{UnitName: name, Label: name, Scope: string(KindWindowsTask), UnitPath: `Task Scheduler\` + name}
 	task, err := openTask(name)
 	if err != nil {
 		return res, err

@@ -20,6 +20,24 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// environmentPending: an environment status of the app-server protocol.
+	environmentPending = "pending"
+	// environmentReady: an environment status of the app-server protocol.
+	environmentReady = "ready"
+	// environmentUnknown: an environment status of the app-server protocol.
+	environmentUnknown = "unknown"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// environmentDisconnected: an environment status of the app-server protocol.
+	environmentDisconnected = "disconnected"
+	// schemeFile: the file URL scheme.
+	schemeFile = "file"
+)
+
 // Errors shared by the session, execution, thread and project paths. One value
 // each instead of the same literal repeated (14 and 3 times), and lower case
 // because callers wrap errors mid-sentence (staticcheck ST1005, MADR 0170 D5).
@@ -291,7 +309,7 @@ func (a *executionAPI) ExecSandboxed(ctx context.Context, request provider.ExecR
 		return provider.ExecResult{}, err
 	}
 	params := map[string]any{
-		"command": request.Argv, "outputBytesCap": uint64(capBytes), "timeoutMs": timeout.Milliseconds(),
+		fieldCommand: request.Argv, "outputBytesCap": uint64(capBytes), fieldTimeoutMs: timeout.Milliseconds(),
 		"tty": request.TTY, "streamStdin": request.Stream || request.TTY, "streamStdoutStderr": request.Stream || request.TTY,
 	}
 	if request.CWD != "" {
@@ -301,13 +319,13 @@ func (a *executionAPI) ExecSandboxed(ctx context.Context, request provider.ExecR
 		params["permissionProfile"] = request.PermissionProfileID
 	}
 	if request.ProcessID != "" {
-		params["processId"] = request.ProcessID
+		params[fieldProcessID] = request.ProcessID
 	}
 	if request.Env != nil {
 		params["env"] = request.Env
 	}
 	if request.TTY && request.Rows > 0 {
-		params["size"] = map[string]any{"rows": uint16(request.Rows), "cols": uint16(request.Cols)}
+		params["size"] = map[string]any{fieldRows: uint16(request.Rows), fieldCols: uint16(request.Cols)}
 	}
 	if request.ProcessID != "" {
 		key := terminalKey{Generation: a.generation, ThreadID: request.ThreadID, ID: request.ProcessID}
@@ -343,7 +361,7 @@ func (a *executionAPI) WriteExec(ctx context.Context, processID string, data []b
 	if processID == "" || len(data) > maxExecutionInput {
 		return errors.New("bounded process id and input required")
 	}
-	params := map[string]any{"processId": processID, "closeStdin": closeStdin}
+	params := map[string]any{fieldProcessID: processID, "closeStdin": closeStdin}
 	if len(data) > 0 {
 		params["deltaBase64"] = base64.StdEncoding.EncodeToString(data)
 	}
@@ -358,7 +376,7 @@ func (a *executionAPI) ResizeExec(ctx context.Context, processID string, rows, c
 	if processID == "" || validateSize(true, rows, cols) != nil || rows == 0 || cols == 0 {
 		return errors.New("bounded process id and terminal size required")
 	}
-	_, err := a.send(ctx, "command/exec/resize", map[string]any{"processId": processID, "size": map[string]any{"rows": uint16(rows), "cols": uint16(cols)}})
+	_, err := a.send(ctx, "command/exec/resize", map[string]any{fieldProcessID: processID, "size": map[string]any{fieldRows: uint16(rows), fieldCols: uint16(cols)}})
 	return err
 }
 
@@ -369,7 +387,7 @@ func (a *executionAPI) TerminateExec(ctx context.Context, processID string) erro
 	if processID == "" {
 		return errors.New("process id required")
 	}
-	_, err := a.send(ctx, "command/exec/terminate", map[string]any{"processId": processID})
+	_, err := a.send(ctx, "command/exec/terminate", map[string]any{fieldProcessID: processID})
 	return err
 }
 
@@ -404,9 +422,9 @@ func (a *executionAPI) RunThreadShell(ctx context.Context, threadID, command str
 		return provider.ExecutionResult{}, errors.New("bounded thread id and shell command required")
 	}
 	_, err := a.send(ctx, "thread/shellCommand", map[string]any{
-		"threadId":  threadID,
-		"command":   command,
-		"timeoutMs": threadShellTimeout.Milliseconds(),
+		fieldThreadID:  threadID,
+		fieldCommand:   command,
+		fieldTimeoutMs: threadShellTimeout.Milliseconds(),
 	})
 	if err != nil {
 		return provider.ExecutionResult{}, fmt.Errorf("%w: %v", provider.ErrExecutionOutcomeUnknown, err)
@@ -429,7 +447,7 @@ func (a *executionAPI) ListBackgroundTerminals(ctx context.Context, threadID, cu
 		return provider.TerminalPage{}, provider.ErrNativeUnavailable
 	}
 	limit = boundedTerminalLimit(limit)
-	params := map[string]any{"threadId": threadID, "limit": uint32(limit)}
+	params := map[string]any{fieldThreadID: threadID, fieldLimit: uint32(limit)}
 	if cursor != "" {
 		params["cursor"] = cursor
 	}
@@ -465,7 +483,7 @@ func (a *executionAPI) TerminateBackgroundTerminal(ctx context.Context, threadID
 	if err := a.require(CapabilityBackgroundTerminalTerminate); err != nil {
 		return false, provider.ErrNativeUnavailable
 	}
-	raw, err := a.send(ctx, "thread/backgroundTerminals/terminate", map[string]any{"threadId": threadID, "processId": processID})
+	raw, err := a.send(ctx, "thread/backgroundTerminals/terminate", map[string]any{fieldThreadID: threadID, fieldProcessID: processID})
 	if err != nil {
 		return false, err
 	}
@@ -482,7 +500,7 @@ func (a *executionAPI) CleanBackgroundTerminals(ctx context.Context, threadID st
 	if err := a.require(CapabilityBackgroundTerminalClean); err != nil {
 		return provider.ErrNativeUnavailable
 	}
-	_, err := a.send(ctx, "thread/backgroundTerminals/clean", map[string]any{"threadId": threadID})
+	_, err := a.send(ctx, "thread/backgroundTerminals/clean", map[string]any{fieldThreadID: threadID})
 	return err
 }
 
@@ -557,7 +575,7 @@ func (a *executionAPI) RegisterEnvironments(ctx context.Context) error {
 	sort.Strings(ids)
 	for _, id := range ids {
 		environment := a.environments[id]
-		_, err := a.send(ctx, "environment/add", map[string]any{"environmentId": environment.ID, "execServerUrl": environment.ExecServerURL, "connectTimeoutMs": uint64(environment.ConnectTimeout.Milliseconds())})
+		_, err := a.send(ctx, "environment/add", map[string]any{fieldEnvironmentID: environment.ID, "execServerUrl": environment.ExecServerURL, "connectTimeoutMs": uint64(environment.ConnectTimeout.Milliseconds())})
 		if err != nil {
 			return err
 		}
@@ -572,7 +590,7 @@ func (a *executionAPI) EnvironmentStatus(ctx context.Context, id string) (provid
 	if err := a.require(CapabilityEnvironmentStatus); err != nil {
 		return provider.EnvironmentStatus{}, err
 	}
-	raw, err := a.send(ctx, "environment/status", map[string]any{"environmentId": id})
+	raw, err := a.send(ctx, "environment/status", map[string]any{fieldEnvironmentID: id})
 	if err != nil {
 		return provider.EnvironmentStatus{}, err
 	}
@@ -581,7 +599,7 @@ func (a *executionAPI) EnvironmentStatus(ctx context.Context, id string) (provid
 		return provider.EnvironmentStatus{}, err
 	}
 	switch response.Status {
-	case "ready", "pending", "disconnected", "unknown":
+	case environmentReady, environmentPending, environmentDisconnected, environmentUnknown:
 	default:
 		return provider.EnvironmentStatus{}, errors.New("invalid environment status")
 	}
@@ -595,7 +613,7 @@ func (a *executionAPI) EnvironmentInfo(ctx context.Context, id string) (provider
 	if err := a.require(CapabilityEnvironmentInfo); err != nil {
 		return provider.EnvironmentInfo{}, err
 	}
-	raw, err := a.send(ctx, "environment/info", map[string]any{"environmentId": id})
+	raw, err := a.send(ctx, "environment/info", map[string]any{fieldEnvironmentID: id})
 	if err != nil {
 		return provider.EnvironmentInfo{}, err
 	}
@@ -609,7 +627,7 @@ func (a *executionAPI) EnvironmentInfo(ctx context.Context, id string) (provider
 	info := provider.EnvironmentInfo{ID: id, ShellName: boundedPermissionText(response.Shell.Name, 64), ShellPath: boundedPermissionText(response.Shell.Path, 1024)}
 	if response.CWD != nil {
 		parsed, parseErr := url.Parse(*response.CWD)
-		if parseErr != nil || parsed.Scheme != "file" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || !filepath.IsAbs(parsed.Path) {
+		if parseErr != nil || parsed.Scheme != schemeFile || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || !filepath.IsAbs(parsed.Path) {
 			return provider.EnvironmentInfo{}, errors.New("environment cwd is not a canonical file URI")
 		}
 		info.CWD = parsed.String()
@@ -685,12 +703,12 @@ func (a *executionAPI) SpawnProcess(ctx context.Context, request provider.Proces
 	}
 	handle := uuid.NewString()
 	params := map[string]any{
-		"processHandle": handle, "command": request.Argv, "cwd": filepath.Clean(request.CWD), "env": request.Env,
+		fieldProcessHandle: handle, fieldCommand: request.Argv, "cwd": filepath.Clean(request.CWD), "env": request.Env,
 		"tty": request.TTY, "streamStdin": request.Stream || request.TTY, "streamStdoutStderr": request.Stream || request.TTY,
-		"outputBytesCap": uint64(capBytes), "timeoutMs": timeout.Milliseconds(),
+		"outputBytesCap": uint64(capBytes), fieldTimeoutMs: timeout.Milliseconds(),
 	}
 	if request.TTY && request.Rows > 0 {
-		params["size"] = map[string]any{"rows": uint16(request.Rows), "cols": uint16(request.Cols)}
+		params["size"] = map[string]any{fieldRows: uint16(request.Rows), fieldCols: uint16(request.Cols)}
 	}
 	key := terminalKey{Generation: a.generation, ThreadID: request.ThreadID, ID: handle}
 	if err := a.registry.Register(key, provider.TerminalInfo{Kind: provider.TerminalKindProcess, Label: provider.ExecutionLabelStandalone, Command: strings.Join(request.Argv, " "), CWD: request.CWD, TTY: request.TTY, AuditClass: provider.ExecutionAuditProcess}); err != nil {
@@ -725,7 +743,7 @@ func (a *executionAPI) WriteProcess(ctx context.Context, handle string, data []b
 	if len(data) > maxExecutionInput {
 		return errors.New("process input exceeds bound")
 	}
-	params := map[string]any{"processHandle": handle, "closeStdin": closeStdin}
+	params := map[string]any{fieldProcessHandle: handle, "closeStdin": closeStdin}
 	if len(data) > 0 {
 		params["deltaBase64"] = base64.StdEncoding.EncodeToString(data)
 	}
@@ -744,7 +762,7 @@ func (a *executionAPI) ResizeProcess(ctx context.Context, handle string, rows, c
 	if !process.tty || validateSize(true, rows, cols) != nil || rows == 0 || cols == 0 {
 		return errors.New("process resize requires an owned tty and valid size")
 	}
-	_, err = a.send(ctx, "process/resizePty", map[string]any{"processHandle": handle, "size": map[string]any{"rows": uint16(rows), "cols": uint16(cols)}})
+	_, err = a.send(ctx, "process/resizePty", map[string]any{fieldProcessHandle: handle, "size": map[string]any{fieldRows: uint16(rows), fieldCols: uint16(cols)}})
 	return err
 }
 
@@ -756,7 +774,7 @@ func (a *executionAPI) KillProcess(ctx context.Context, handle string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := a.send(ctx, "process/kill", map[string]any{"processHandle": handle}); err != nil {
+	if _, err := a.send(ctx, "process/kill", map[string]any{fieldProcessHandle: handle}); err != nil {
 		return err
 	}
 	a.processMu.Lock()
@@ -810,7 +828,7 @@ func (a *executionAPI) CleanupProcesses(ctx context.Context) {
 	a.processes = make(map[string]ownedProcess)
 	a.processMu.Unlock()
 	for _, process := range processes {
-		_, _ = a.send(ctx, "process/kill", map[string]any{"processHandle": process.key.ID})
+		_, _ = a.send(ctx, "process/kill", map[string]any{fieldProcessHandle: process.key.ID})
 	}
 	a.registry.CleanupGeneration(a.generation)
 }
@@ -1147,7 +1165,7 @@ func (s *session) SetExecutionEnvironment(ctx context.Context, selection *provid
 	if err != nil {
 		return err
 	}
-	if status.Status != "ready" {
+	if status.Status != environmentReady {
 		return fmt.Errorf("environment %s is %s", selection.EnvironmentID, status.Status)
 	}
 	s.mu.Lock()
@@ -1170,7 +1188,7 @@ func (p *Provider) handleExecutionNotification(method string, params json.RawMes
 		return
 	}
 	switch method {
-	case "command/exec/outputDelta":
+	case methodExecOutputDelta:
 		var body struct {
 			ProcessID   string `json:"processId"`
 			Stream      string `json:"stream"`
@@ -1189,7 +1207,7 @@ func (p *Provider) handleExecutionNotification(method string, params json.RawMes
 			return
 		}
 		_, _ = api.appendAndPush(key, body.Stream, data, body.CapReached)
-	case "process/outputDelta":
+	case methodProcessOutputDelta:
 		var body struct {
 			ProcessHandle string `json:"processHandle"`
 			Stream        string `json:"stream"`
@@ -1199,7 +1217,7 @@ func (p *Provider) handleExecutionNotification(method string, params json.RawMes
 		if json.Unmarshal(params, &body) == nil {
 			_, _ = api.HandleProcessOutput(body.ProcessHandle, body.Stream, body.DeltaBase64, body.CapReached)
 		}
-	case "process/exited":
+	case methodProcessExited:
 		var body struct {
 			ProcessHandle    string `json:"processHandle"`
 			ExitCode         int    `json:"exitCode"`
@@ -1211,7 +1229,7 @@ func (p *Provider) handleExecutionNotification(method string, params json.RawMes
 		if json.Unmarshal(params, &body) == nil {
 			_ = api.HandleProcessExit(body.ProcessHandle, body.ExitCode, body.Stdout, body.Stderr, body.StdoutCapReached, body.StderrCapReached)
 		}
-	case "thread/environment/connected", "thread/environment/disconnected":
+	case methodEnvironmentConnected, methodEnvironmentDisconnected:
 		var body struct {
 			EnvironmentID string `json:"environmentId"`
 		}
@@ -1219,7 +1237,7 @@ func (p *Provider) handleExecutionNotification(method string, params json.RawMes
 			return
 		}
 		state := "connected"
-		if method == "thread/environment/disconnected" {
+		if method == methodEnvironmentDisconnected {
 			state = "disconnected"
 		}
 		for _, session := range sessions {

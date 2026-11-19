@@ -15,6 +15,16 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// optionAlways: the id of the Allow always choice.
+	optionAlways = "always"
+	// optionOnce: the id of the Allow once choice.
+	optionOnce = "once"
+	// statusPending: the Status of a request waiting for the phone.
+	statusPending = "pending"
+)
+
 // permAsk is the normalized permission request after dual-shape mapping (MADR 0020 PR3).
 type permAsk struct {
 	ID        string
@@ -175,10 +185,10 @@ func (o *httpSession) forgetAutoHandled(id string) {
 // than rebuilding the option list.
 func (o *httpSession) emitPermissionSheet(p permAsk) {
 	opts := []event.PermissionOption{
-		{OptionID: "once", Name: "Allow once", Kind: "allow_once"},
+		{OptionID: optionOnce, Name: "Allow once", Kind: "allow_once"},
 	}
 	if len(p.Always) > 0 {
-		opts = append(opts, event.PermissionOption{OptionID: "always", Name: "Allow always", Kind: "allow_always"})
+		opts = append(opts, event.PermissionOption{OptionID: optionAlways, Name: "Allow always", Kind: "allow_always"})
 	}
 	opts = append(opts, event.PermissionOption{OptionID: "reject", Name: "Reject", Kind: "reject_once"})
 	o.h.Emit(event.Event{
@@ -187,7 +197,7 @@ func (o *httpSession) emitPermissionSheet(p permAsk) {
 		ToolName:     firstNonEmpty(p.Name, "permission"),
 		Text:         p.Detail,
 		Options:      opts,
-		Status:       "pending",
+		Status:       statusPending,
 	})
 }
 
@@ -232,7 +242,7 @@ func (o *httpSession) autoApprove(p permAsk) {
 			// queue. Replying to the engine directly here would leave the
 			// expiry armed to later cancel this very permission (D4.2).
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			err = o.h.RespondPermission(ctx, p.ID, "once", false, "")
+			err = o.h.RespondPermission(ctx, p.ID, optionOnce, false, "")
 			cancel()
 			if err == nil {
 				o.h.Log().Info("auto-approved permission",

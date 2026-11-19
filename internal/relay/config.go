@@ -11,6 +11,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/sdnotify"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// wildcardHost: the IPv4 wildcard listen address.
+	wildcardHost = "0.0.0.0"
+)
+
 // Limit ceilings (MADR 0017 D9). Defaults stay far below these.
 const (
 	MaxLimitHosts           = 1024

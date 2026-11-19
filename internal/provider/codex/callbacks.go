@@ -13,6 +13,60 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// approvalKindCommand: the `kind` of a commandExecution approval that runs a command (the schema's default).
+	approvalKindCommand = "command"
+	// optionKindCancel: the Kind of the Cancel option offered to the phone.
+	optionKindCancel = "cancel"
+	// mcpActionAccept: an MCP elicitation action (the MCP protocol's own word).
+	mcpActionAccept = "accept"
+	// mcpActionDecline: an MCP elicitation action.
+	mcpActionDecline = "decline"
+	// mcpActionCancel: an MCP elicitation action.
+	mcpActionCancel = "cancel"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// decisionDecline: an approval decision.
+	decisionDecline = "decline"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// decisionCancel: an approval decision.
+	decisionCancel = "cancel"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// decisionAcceptForSession: an approval decision.
+	decisionAcceptForSession = "acceptForSession"
+	// decisionAcceptStrictForSession: an approval decision.
+	decisionAcceptStrictForSession = "acceptStrictForSession"
+	// decisionApprovedForSession: an approval decision of the legacy dialect.
+	decisionApprovedForSession = "approved_for_session"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// approvalScopeSession: the scope of an approval that holds for the session.
+	approvalScopeSession = "session"
+	// decisionAbort: an approval decision.
+	decisionAbort = "abort"
+	// decisionAccept: an approval decision of the command and file dialect.
+	decisionAccept = "accept"
+	// decisionAcceptStrict: an approval decision.
+	decisionAcceptStrict = "acceptStrict"
+	// decisionApproved: an approval decision of the legacy dialect.
+	decisionApproved = "approved"
+	// toolCommand: the tool name of a command approval.
+	toolCommand = "command"
+	// toolFile: the tool name of a file-change approval.
+	toolFile = "file"
+)
+
 type callbackKind string
 
 const (
@@ -128,31 +182,31 @@ func parseCallback(method string, id, params json.RawMessage, generation int) (p
 				cb.detail = firstNonEmpty(common.Reason,
 					"Codex requests to send input to a running terminal")
 			}
-		case "", "command":
-			cb.kind, cb.tool = callbackCommand, "command"
+		case "", approvalKindCommand:
+			cb.kind, cb.tool = callbackCommand, toolCommand
 			cb.detail = firstNonEmpty(payload, common.Reason)
 		default:
 			// A kind this build does not know is answered as a command rather
 			// than refused: the decision vocabulary is identical, so the
 			// operator keeps control of an approval we cannot fully describe.
 			// The literal travels out for the caller to log.
-			cb.kind, cb.tool = callbackCommand, "command"
+			cb.kind, cb.tool = callbackCommand, toolCommand
 			cb.detail = firstNonEmpty(payload, common.Reason)
 			cb.unknownApprovalKind = common.Kind
 		}
 		cb.allowedDecisions = simpleDecisionIDs(common.AvailableDecisions)
 		if len(cb.allowedDecisions) == 0 {
-			cb.allowedDecisions = []string{"accept", "acceptForSession", "decline", "cancel"}
+			cb.allowedDecisions = []string{decisionAccept, decisionAcceptForSession, decisionDecline, decisionCancel}
 		}
 	case "item/fileChange/requestApproval":
-		cb.kind, cb.tool = callbackFile, "file"
+		cb.kind, cb.tool = callbackFile, toolFile
 		cb.detail = firstNonEmpty(common.FilePath, common.Path, common.GrantRoot, common.Reason)
-		cb.allowedDecisions = []string{"accept", "acceptForSession", "decline", "cancel"}
+		cb.allowedDecisions = []string{decisionAccept, decisionAcceptForSession, decisionDecline, decisionCancel}
 	case "item/permissions/requestApproval":
 		cb.kind, cb.tool = callbackGranular, "permission"
 		cb.detail = firstNonEmpty(common.Reason, common.Description, "Codex requests additional permissions")
 		cb.requestedGrant = cloneJSONMap(common.Permissions)
-		cb.allowedDecisions = []string{"accept", "acceptForSession", "acceptStrict", "acceptStrictForSession", "decline", "cancel"}
+		cb.allowedDecisions = []string{decisionAccept, decisionAcceptForSession, decisionAcceptStrict, decisionAcceptStrictForSession, decisionDecline, decisionCancel}
 	case "mcpServer/elicitation/request":
 		cb.kind, cb.tool = callbackMCP, "mcp"
 		// `_meta` is any JSON in the schema, so a shape this build cannot read
@@ -160,15 +214,15 @@ func parseCallback(method string, id, params json.RawMessage, generation int) (p
 		var meta mcpApprovalMeta
 		_ = json.Unmarshal(common.Meta, &meta)
 		cb.detail = mcpApprovalDetail(common.ServerName, meta)
-		cb.allowedDecisions = []string{"accept", "decline", "cancel"}
+		cb.allowedDecisions = []string{mcpActionAccept, mcpActionDecline, mcpActionCancel}
 	case "applyPatchApproval":
-		cb.kind, cb.tool = callbackLegacyFile, "file"
+		cb.kind, cb.tool = callbackLegacyFile, toolFile
 		cb.detail = firstNonEmpty(common.Reason, common.GrantRoot, "Codex requests a patch")
-		cb.allowedDecisions = []string{"approved", "approved_for_session", "decline", "cancel"}
+		cb.allowedDecisions = []string{decisionApproved, decisionApprovedForSession, decisionDecline, decisionCancel}
 	case "execCommandApproval":
-		cb.kind, cb.tool = callbackLegacyExec, "command"
+		cb.kind, cb.tool = callbackLegacyExec, toolCommand
 		cb.detail = firstNonEmpty(displayCommand(common.Command), common.Reason, "Codex requests a command")
-		cb.allowedDecisions = []string{"approved", "approved_for_session", "decline", "cancel"}
+		cb.allowedDecisions = []string{decisionApproved, decisionApprovedForSession, decisionDecline, decisionCancel}
 	default:
 		return pendingCallback{}, fmt.Errorf("unsupported callback method %q", method)
 	}
@@ -246,18 +300,18 @@ func callbackOptions(cb pendingCallback) []event.PermissionOption {
 	for _, id := range cb.allowedDecisions {
 		option := event.PermissionOption{OptionID: id, Name: id}
 		switch id {
-		case "accept", "approved":
+		case decisionAccept, decisionApproved:
 			option.Name, option.Kind = "Allow once", "allow_once"
-		case "acceptForSession", "approved_for_session":
+		case decisionAcceptForSession, decisionApprovedForSession:
 			option.Name, option.Kind = "Allow for session", "allow_always"
-		case "acceptStrict":
+		case decisionAcceptStrict:
 			option.Name, option.Kind = "Allow once with strict review", "allow_once"
-		case "acceptStrictForSession":
+		case decisionAcceptStrictForSession:
 			option.Name, option.Kind = "Allow for session with strict review", "allow_always"
-		case "decline":
+		case decisionDecline:
 			option.Name, option.Kind = "Deny", "deny"
-		case "cancel":
-			option.Name, option.Kind = "Cancel", "cancel"
+		case decisionCancel:
+			option.Name, option.Kind = "Cancel", optionKindCancel
 		}
 		options = append(options, option)
 	}
@@ -271,12 +325,12 @@ func callbackResponse(cb pendingCallback, optionID string, cancelled bool) (any,
 	if cb.kind == callbackMCP {
 		action := optionID
 		if cancelled {
-			action = "cancel"
+			action = mcpActionCancel
 		}
 		if !slices.Contains(cb.allowedDecisions, action) {
 			return nil, false, fmt.Errorf("unsupported MCP action %q", action)
 		}
-		return mcpElicitationResponse{Action: action}, action == "cancel", nil
+		return mcpElicitationResponse{Action: action}, action == mcpActionCancel, nil
 	}
 	if cancelled {
 		return decisionResponse{Decision: callbackCancelDecision(cb.kind)}, true, nil
@@ -287,21 +341,21 @@ func callbackResponse(cb pendingCallback, optionID string, cancelled bool) (any,
 	}
 	if cb.kind == callbackLegacyFile || cb.kind == callbackLegacyExec {
 		switch decision {
-		case "decline":
-			decision = "abort"
-		case "cancel":
-			decision = "abort"
+		case decisionDecline:
+			decision = decisionAbort
+		case decisionCancel:
+			decision = decisionAbort
 		}
 	}
-	return decisionResponse{Decision: decision}, cancelled || decision == "cancel" || decision == "abort", nil
+	return decisionResponse{Decision: decision}, cancelled || decision == decisionCancel || decision == decisionAbort, nil
 }
 
 func granularResponse(cb pendingCallback, optionID string, cancelled bool) (granularPermissionResponse, bool, error) {
 	response := granularPermissionResponse{Permissions: map[string]any{}, Scope: "turn"}
-	if cancelled || optionID == "cancel" {
+	if cancelled || optionID == decisionCancel {
 		return response, true, nil
 	}
-	if optionID == "decline" {
+	if optionID == decisionDecline {
 		return response, false, nil
 	}
 	if !slices.Contains(cb.allowedDecisions, optionID) {
@@ -310,13 +364,13 @@ func granularResponse(cb pendingCallback, optionID string, cancelled bool) (gran
 	response.Permissions = cloneJSONMap(cb.requestedGrant)
 	strict := false
 	switch optionID {
-	case "acceptForSession":
-		response.Scope = "session"
-	case "acceptStrict":
+	case decisionAcceptForSession:
+		response.Scope = approvalScopeSession
+	case decisionAcceptStrict:
 		strict = true
-	case "acceptStrictForSession":
+	case decisionAcceptStrictForSession:
 		strict = true
-		response.Scope = "session"
+		response.Scope = approvalScopeSession
 	}
 	response.StrictAutoReview = &strict
 	return response, false, nil
@@ -324,9 +378,9 @@ func granularResponse(cb pendingCallback, optionID string, cancelled bool) (gran
 
 func callbackCancelDecision(kind callbackKind) string {
 	if kind == callbackLegacyFile || kind == callbackLegacyExec {
-		return "abort"
+		return decisionAbort
 	}
-	return "cancel"
+	return decisionCancel
 }
 
 func cloneJSONMap(in map[string]any) map[string]any {

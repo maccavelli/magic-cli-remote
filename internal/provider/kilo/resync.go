@@ -77,10 +77,10 @@ func (o *httpSession) resyncTreeState(ctx context.Context, parent string) (treeI
 	}
 	for id := range treeIDs {
 		switch strings.ToLower(statusMap[id]) {
-		case "busy":
+		case statusBusy:
 			o.h.NoteNodeStatus(id, httpagent.NodeBusy)
 			busy = true
-		case "retry":
+		case statusRetry:
 			o.h.NoteNodeStatus(id, httpagent.NodeRetry)
 			busy = true
 		default:
@@ -216,7 +216,7 @@ func (o *httpSession) resyncParentMessageTurn(ctx context.Context, turnStartedAt
 	last := msgs[len(msgs)-1]
 	// Last message still the user's: the assistant reply has not started, so
 	// the turn cannot have finished — nothing to recover.
-	if last.Info.Role != "assistant" {
+	if last.Info.Role != roleAssistant {
 		return
 	}
 	if last.Info.Time.Completed == 0 && last.Info.Error == nil {
@@ -243,7 +243,7 @@ func (o *httpSession) resyncParentMessageTurn(ctx context.Context, turnStartedAt
 	// extra text just means no delta is emitted (the delta handler already
 	// streamed it).
 	for _, part := range last.Parts {
-		if part.Type == "text" || part.Type == "reasoning" {
+		if part.Type == partTypeText || part.Type == partTypeReasoning {
 			o.emitTextCatchUp(part.ID, part.Type, part.Text)
 		}
 	}
@@ -271,12 +271,12 @@ func (o *httpSession) resyncParentMessageTurn(ctx context.Context, turnStartedAt
 			ErrorKind: string(cls.Kind),
 			RetryAt:   cls.ResetAt,
 		})
-		o.emitStatus("error")
+		o.emitStatus(statusError)
 		return
 	}
-	status := "end_turn"
+	status := stopEndTurn
 	if last.Info.Error != nil {
-		status = "cancelled" // MessageAbortedError: the lost frame was a cancel
+		status = stopCancelled // MessageAbortedError: the lost frame was a cancel
 	}
 	o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: status, StopReason: status})
 	o.emitStatus("idle")

@@ -21,6 +21,7 @@ run:
 linters:
   default: none
   enable:
+    - goconst
     - gocritic
     - govet
     - ineffassign
@@ -39,7 +40,6 @@ linters:
     - errcheck # P5
     - errorlint # P6
     - gocognit # P8
-    - goconst # P4
     - gocyclo # P8
     - gosec # P7
     - nilerr # P6

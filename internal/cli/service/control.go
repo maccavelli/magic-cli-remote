@@ -51,7 +51,7 @@ func IsInstalled(product string) (bool, error) {
 		return false, err
 	}
 	switch osName {
-	case "darwin":
+	case osDarwin:
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return false, fmt.Errorf("home dir: %w", err)
@@ -59,7 +59,7 @@ func IsInstalled(product string) (bool, error) {
 		plist := filepath.Join(home, "Library", "LaunchAgents", names.Label+".plist")
 		fi, err := os.Stat(plist)
 		return err == nil && !fi.IsDir(), nil
-	case "linux":
+	case osLinux:
 		if kind, err := ResolveBackend(product); err != nil {
 			return false, err
 		} else if kind.isScriptKind() {
@@ -77,7 +77,7 @@ func IsInstalled(product string) (bool, error) {
 		unitPath := filepath.Join(xdgConfigHome(), "systemd", "user", unit)
 		fi, err := os.Stat(unitPath)
 		return err == nil && !fi.IsDir(), nil
-	case "windows":
+	case osWindows:
 		return isInstalledWindows(names.Task)
 	default:
 		return false, fmt.Errorf("service control unsupported on %s", osName)
@@ -134,15 +134,15 @@ func ProbeStatus(product string) Status {
 		return st
 	}
 	switch osName {
-	case "darwin":
-		st.PlistOrUnit = fmt.Sprintf("%s/Library/LaunchAgents/%s.plist", os.Getenv("HOME"), names.Label)
-	case "linux":
+	case osDarwin:
+		st.PlistOrUnit = fmt.Sprintf("%s/Library/LaunchAgents/%s.plist", os.Getenv(envHome), names.Label)
+	case osLinux:
 		st.PlistOrUnit = names.Unit
 		if kind, err := ResolveBackend(product); err == nil && kind.isScriptKind() {
 			st.Kind = kind
 			st.PlistOrUnit = scriptDefFor(kind, strings.TrimSuffix(names.Unit, ".service"), "").Path
 		}
-	case "windows":
+	case osWindows:
 		st.PlistOrUnit = `Task Scheduler\` + names.Task
 	default:
 		st.Hint = "service status unsupported on " + osName
@@ -194,22 +194,22 @@ func ProbeStatus(product string) Status {
 		st.Hint = "service probe failed: " + probeErr.Error()
 	case !st.PlistPresent:
 		switch osName {
-		case "darwin":
+		case osDarwin:
 			st.Hint = "plist missing — run: mcremote setup-service --force"
-		case "windows":
+		case osWindows:
 			st.Hint = "scheduled task missing — run: mcremote setup-service --force"
 		default:
 			st.Hint = "unit missing — run: mcremote setup-service --force"
 		}
-	case osName == "darwin" && !st.Loaded:
+	case osName == osDarwin && !st.Loaded:
 		st.Hint = "plist present but not loaded (bootout left down) — run: mcremote setup-service --force"
 	case !st.Enabled:
 		st.Hint = "installed but not enabled, so an update leaves it stopped — run: mcremote setup-service --force"
 	case !st.Active:
 		switch osName {
-		case "darwin":
+		case osDarwin:
 			st.Hint = "loaded but not running — run: launchctl kickstart -k " + svc
-		case "windows":
+		case osWindows:
 			st.Hint = "registered but not running — run: schtasks /run /tn " + names.Task
 		default:
 			switch st.Kind {

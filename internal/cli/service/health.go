@@ -88,7 +88,7 @@ func readServeArgs(kind Kind, product, unitName string) (ServeArgs, string, erro
 		ok   bool
 	)
 	switch osName {
-	case "linux":
+	case osLinux:
 		if kind == "" {
 			kind, _ = ResolveBackend(product)
 		}
@@ -116,7 +116,7 @@ func readServeArgs(kind Kind, product, unitName string) (ServeArgs, string, erro
 		var rec recovery
 		rec, why, ok = recoverOptions(product, unitName, string(body))
 		opts = rec.Opts
-	case "darwin":
+	case osDarwin:
 		label, err := LaunchdLabel(product, unitName)
 		if err != nil {
 			return ServeArgs{}, "", err
@@ -132,7 +132,7 @@ func readServeArgs(kind Kind, product, unitName string) (ServeArgs, string, erro
 		var rec recovery
 		rec, why, ok = recoverPlistOptions(product, unitName, label, string(body))
 		opts = rec.Opts
-	case "windows":
+	case osWindows:
 		name := taskNameFor(product)
 		existing, err := taskDefinitionOf(name)
 		if err != nil {

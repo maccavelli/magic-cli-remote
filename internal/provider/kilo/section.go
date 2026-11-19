@@ -43,7 +43,7 @@ func defaultSection() *Section {
 		AgentCommon: config.AgentCommon{
 			// Default-on since MADR 0075 acceptance flip (2026-08-10).
 			Enabled:                  true,
-			Bin:                      "kilo",
+			Bin:                      binName,
 			AlwaysApprove:            false,
 			PermissionTimeoutSeconds: 120,
 			// Off (MADR 0089 D5): first session pays the Bun-class
@@ -59,7 +59,7 @@ func defaultSection() *Section {
 
 // Validate checks providers.kilo.
 func (s *Section) Validate() error {
-	if err := s.ValidateAgent("kilo"); err != nil {
+	if err := s.ValidateAgent(string(provider.IDKilo)); err != nil {
 		return err
 	}
 	if v := s.StreamCoalesceMs; v < 0 || v > config.MaxStreamCoalesceMs {
@@ -96,7 +96,7 @@ func (s *Section) providerConfig() Config {
 func Descriptor() provider.Descriptor {
 	return provider.Descriptor{
 		ID:      provider.IDKilo,
-		Name:    "kilo",
+		Name:    string(provider.IDKilo),
 		Section: func() config.ProviderSection { return defaultSection() },
 		New: func(b provider.Build) provider.Provider {
 			cfg := b.Section.(*Section).providerConfig()

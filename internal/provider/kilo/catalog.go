@@ -19,7 +19,7 @@ const defaultModelID = "kilo-auto/free"
 // they must come from a catalog, never string concatenation (MADR 0075 Q11).
 func staticModelOptions() []picker.Option {
 	return []picker.Option{
-		{ID: "kilo/" + defaultModelID, Label: "Kilo Auto (free)", Group: "kilo"},
+		{ID: "kilo/" + defaultModelID, Label: "Kilo Auto (free)", Group: providerKilo},
 		{ID: "openrouter/openrouter/free", Label: "OpenRouter free", Group: "openrouter"},
 	}
 }
@@ -40,11 +40,11 @@ func (d *httpDialect) StaticModels(cfg httpagent.Config) picker.Catalog {
 func (d *httpDialect) StaticAgents(cfg httpagent.Config) picker.Catalog {
 	_ = cfg
 	opts := []picker.Option{
-		{ID: "code", Label: "code", Description: "Default full agent", Group: "primary"},
-		{ID: "ask", Label: "ask", Description: "Q&A, no edits", Group: "primary"},
-		{ID: "debug", Label: "debug", Description: "Diagnostics", Group: "primary"},
-		{ID: "plan", Label: "plan", Description: "Plan files only", Group: "primary"},
-		{ID: "orchestrator", Label: "orchestrator", Description: "Multi-agent coordination", Group: "primary"},
+		{ID: modeCode, Label: modeCode, Description: "Default full agent", Group: modeKindPrimary},
+		{ID: modeAsk, Label: modeAsk, Description: "Q&A, no edits", Group: modeKindPrimary},
+		{ID: modeDebug, Label: modeDebug, Description: "Diagnostics", Group: modeKindPrimary},
+		{ID: modePlan, Label: modePlan, Description: "Plan files only", Group: modeKindPrimary},
+		{ID: modeOrchestrator, Label: modeOrchestrator, Description: "Multi-agent coordination", Group: modeKindPrimary},
 	}
-	return picker.SingleCatalog(picker.SourceStatic, opts, "code", false)
+	return picker.SingleCatalog(picker.SourceStatic, opts, modeCode, false)
 }

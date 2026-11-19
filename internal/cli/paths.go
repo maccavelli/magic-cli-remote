@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/spf13/cobra"
@@ -31,7 +32,7 @@ Does not create directories or start the daemon.`,
 				return err
 			}
 			return printPaths(cmd, pathReport{
-				Product:           "mcremote",
+				Product:           appdirs.ProductMcremote.Name,
 				ConfigFile:        cfg.ConfigFile,
 				ConfigDir:         cfg.Paths.ConfigDir,
 				DataDir:           cfg.DataDir,

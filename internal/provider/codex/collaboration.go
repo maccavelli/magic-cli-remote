@@ -24,7 +24,7 @@ var experimentalCapabilityRe = regexp.MustCompile(`(?i)experimental`)
 
 func reasonExperimentalUnavailable(version string) string {
 	if version == "" {
-		version = "unknown"
+		version = versionUnknown
 	}
 	return "codex " + version + " does not expose collaboration modes (experimental API unavailable)"
 }
@@ -145,7 +145,7 @@ func decodeCollaborationCatalog(raw []byte) (collaborationCatalog, error) {
 }
 
 func decodeReasoningEffort(raw json.RawMessage) (*string, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 || string(raw) == jsonNull {
 		return nil, nil
 	}
 	var s string
@@ -162,7 +162,7 @@ func (p *Provider) versionLabel() string {
 	if p.version != "" {
 		return p.version
 	}
-	return "unknown"
+	return versionUnknown
 }
 
 func (p *Provider) collaborationCapability() (ok bool, reason string, catalog collaborationCatalog, gen int) {
@@ -330,7 +330,7 @@ func (s *session) SetCollaborationMode(ctx context.Context, modeID string) error
 		return fmt.Errorf("engine not running")
 	}
 	_, err := fr.sendRequest(ctx, "thread/settings/update", map[string]any{
-		"threadId":          threadID,
+		fieldThreadID:       threadID,
 		"collaborationMode": buildCollaborationSettings(mask, model, effort, modeID),
 	})
 	if err != nil {
@@ -415,15 +415,15 @@ func (s *session) applySettingsUpdated(params json.RawMessage) {
 	var approval string
 	if json.Unmarshal(parsed.ThreadSettings.ApprovalPolicy, &approval) == nil && approval != "" {
 		s.approvalPolicy = approval
-		s.autoApprove = approval == "never"
+		s.autoApprove = approval == approvalNever
 	}
 	switch parsed.ThreadSettings.SandboxPolicy.Type {
 	case "readOnly":
-		s.sandboxMode = "read-only"
+		s.sandboxMode = sandboxReadOnly
 	case "workspaceWrite":
-		s.sandboxMode = "workspace-write"
+		s.sandboxMode = sandboxWorkspaceWrite
 	case "dangerFullAccess":
-		s.sandboxMode = "danger-full-access"
+		s.sandboxMode = sandboxDangerFullAccess
 	}
 	s.mu.Unlock()
 	applySettingsServiceFields(s, params)

@@ -6,6 +6,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// binName: the opencode binary name.
+	binName = "opencode"
+)
+
 // Section is providers.opencode (0208 MADR D6): the shared ACP keys, and the
 // operator's shell policy (0214 MADR).
 //
@@ -34,7 +40,7 @@ type Section struct {
 func defaultSection() *Section {
 	return &Section{ACPProviderConfig: config.ACPProviderConfig{AgentCommon: config.AgentCommon{
 		Enabled:                  true,
-		Bin:                      "opencode",
+		Bin:                      binName,
 		AlwaysApprove:            false,
 		PermissionTimeoutSeconds: 120,
 		// Off (MADR 0089 D5): the first session pays the cold start
@@ -46,10 +52,10 @@ func defaultSection() *Section {
 
 // Validate checks providers.opencode.
 func (s *Section) Validate() error {
-	if err := s.ValidateAgent("opencode"); err != nil {
+	if err := s.ValidateAgent(string(provider.IDOpencode)); err != nil {
 		return err
 	}
-	return config.ValidateACPProvider("opencode", s.ACPProviderConfig)
+	return config.ValidateACPProvider(string(provider.IDOpencode), s.ACPProviderConfig)
 }
 
 // providerConfig maps the section onto the provider's config. A policy flag
@@ -68,7 +74,7 @@ func (s *Section) providerConfig() acpagent.Config {
 func Descriptor() provider.Descriptor {
 	return provider.Descriptor{
 		ID:      provider.IDOpencode,
-		Name:    "opencode",
+		Name:    string(provider.IDOpencode),
 		Section: func() config.ProviderSection { return defaultSection() },
 		Floor:   &provider.VersionFloor{Min: MinVersion, UpgradeURL: UpgradeURL},
 		New: func(b provider.Build) provider.Provider {

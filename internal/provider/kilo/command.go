@@ -14,11 +14,23 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// commandInit: the id and label of the engine's /init command.
+	commandInit = "init"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// groupCommand: the picker group of the engine's commands.
+	groupCommand = "command"
+)
+
 // StaticCommands implements [httpagent.CommandLister] offline fallback.
 func (d *httpDialect) StaticCommands(cfg httpagent.Config) picker.Catalog {
 	_ = cfg
 	opts := []picker.Option{
-		{ID: "init", Label: "init", Description: "guided AGENTS.md setup", Group: "command"},
+		{ID: commandInit, Label: commandInit, Description: "guided AGENTS.md setup", Group: groupCommand},
 	}
 	return picker.SingleCatalog(picker.SourceStatic, opts, "", true)
 }
@@ -80,7 +92,7 @@ func (o *httpSession) advertiseCommands(ctx context.Context) {
 		o.h.Log().Debug("list commands for advertise failed", slog.String("err", err.Error()))
 		// Static fallback names so /init still routes when catalog is down.
 		o.emitCommands([]event.AvailableCommand{
-			{Name: "init", Description: "guided AGENTS.md setup"},
+			{Name: commandInit, Description: "guided AGENTS.md setup"},
 		})
 		return
 	}
@@ -105,7 +117,7 @@ func soleSlashCommand(parts []provider.Content) (name, args string, ok bool) {
 		return "", "", false
 	}
 	p := parts[0]
-	if p.Type != "" && p.Type != "text" {
+	if p.Type != "" && p.Type != partTypeText {
 		return "", "", false
 	}
 	t := strings.TrimSpace(p.Text)

@@ -26,6 +26,12 @@ import (
 	"testing"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// goosWindows: runtime.GOOS name.
+	goosWindows = "windows"
+)
+
 // errPrivilegeNotHeld is Windows ERROR_PRIVILEGE_NOT_HELD. Declared as a plain
 // Errno so this file needs no build tag: syscall.Errno exists on every
 // supported platform and this value simply never occurs on Unix.
@@ -37,7 +43,7 @@ const errPrivilegeNotHeld = syscall.Errno(1314)
 // so the reason is stated once.
 func SkipIfNoPOSIXShell(t *testing.T) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == goosWindows {
 		t.Skip("fixture is a POSIX shell script, which Windows cannot execute " +
 			"(PATHEXT has no shebang equivalent); the flow under test is " +
 			"platform-independent Go — see MADR 0116 P11")
@@ -114,7 +120,7 @@ func WarmExecutable(tb testing.TB, path string, args ...string) {
 // D22); this gate is for assertions that are genuinely about POSIX modes.
 func SkipIfNoPOSIXModes(t *testing.T) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == goosWindows {
 		t.Skip("permission bits carry no access control on Windows (files " +
 			"report 0666 regardless of ACL); the equivalent property is " +
 			"appdirs.FileIsOwnerOnly — see MADR 0116 D22")
@@ -126,7 +132,7 @@ func SkipIfNoPOSIXModes(t *testing.T) {
 // instead; this is for tests that need a real one present.
 func SkipIfNoUnixServiceManager(t *testing.T) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == goosWindows {
 		t.Skip("systemd/launchd fixture; Windows uses a Task Scheduler task " +
 			"(MADR 0116 D12) covered by schtasks_test.go")
 	}
@@ -140,7 +146,7 @@ func SkipIfNoUnixServiceManager(t *testing.T) {
 // platform-independent; only the literals are not.
 func SkipIfNoPOSIXPaths(t *testing.T) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == goosWindows {
 		t.Skip("fixture uses POSIX absolute paths, which are not absolute on " +
 			"Windows — see MADR 0116 P11")
 	}
@@ -152,7 +158,7 @@ func SkipIfNoPOSIXPaths(t *testing.T) {
 // (MADR 0116 D3), so a hermetic fixture built that way is invisible there.
 func SkipIfNoXDG(t *testing.T) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == goosWindows {
 		t.Skip("fixture places config via XDG_CONFIG_HOME; Windows resolves " +
 			"from Known Folders (MADR 0116 D3)")
 	}
@@ -165,7 +171,7 @@ func SkipIfNoXDG(t *testing.T) {
 // close failure depend on the POSIX behaviour.
 func SkipIfNoUnlinkOpenFile(t *testing.T) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == goosWindows {
 		t.Skip("Windows cannot unlink a file while a handle is open, so a temp " +
 			"left by an injected close failure survives — see MADR 0116 P11")
 	}

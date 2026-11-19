@@ -51,7 +51,7 @@ func (m msgModel) key() string {
 // which defeated the client's own coalescing window (MADR 0024 §1.1). Only a
 // changed report is emitted now.
 func (o *httpSession) emitUsage(role string, tokens *msgTokens, model *msgModel) {
-	if role != "assistant" || tokens == nil {
+	if role != roleAssistant || tokens == nil {
 		return
 	}
 	used := tokens.inContext()

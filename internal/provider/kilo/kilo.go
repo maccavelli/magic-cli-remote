@@ -15,6 +15,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// providerKilo: the model provider id (and catalog group) of Kilo's own gateway.
+	providerKilo = "kilo"
+)
+
 // Config configures the Kilo provider (shared HTTP agent config shape, same
 // alias pattern as the OpenCode dialect).
 type Config = httpagent.Config
@@ -55,7 +61,7 @@ func NewHTTPWithToolFrameHook(cfg Config, log *slog.Logger, hook func(RawToolPar
 		pure: cfg.Pure,
 		// Seed the prompt fallback with the Gateway free auto-router (plan
 		// PD4); P3's AfterBoot replaces it with the engine's own default.
-		defaultModelProvider: "kilo",
+		defaultModelProvider: providerKilo,
 		defaultModelID:       defaultModelID,
 		onToolPartUpdated:    hook,
 	}

@@ -22,7 +22,7 @@ func (s *Section) Validate() error { return nil }
 func Descriptor() provider.Descriptor {
 	return provider.Descriptor{
 		ID:      provider.IDFake,
-		Name:    "fake",
+		Name:    string(provider.IDFake),
 		DevOnly: true,
 		Section: func() config.ProviderSection { return &Section{} },
 		New:     func(provider.Build) provider.Provider { return New() },

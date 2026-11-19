@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// threadSourceMcremote: the thread source this daemon names.
+	threadSourceMcremote = "mcremote"
+)
+
 // CapabilityID is a closed product capability name. Values intentionally
 // name the exact wire prerequisite while later protocol-facing projections
 // may group several IDs into one mobile operation.
@@ -84,7 +90,7 @@ const (
 
 func stampThreadSource(operation threadCreationOperation, params map[string]any) {
 	if operation == threadCreate || operation == threadFork {
-		params["threadSource"] = "mcremote"
+		params["threadSource"] = threadSourceMcremote
 	}
 }
 

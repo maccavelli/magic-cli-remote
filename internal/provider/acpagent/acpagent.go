@@ -1200,7 +1200,7 @@ func (p *Provider) openSession(ctx context.Context, s *session, opts provider.St
 		Type:           event.TypeSessionStatus,
 		SessionID:      s.localID,
 		Timestamp:      time.Now().UTC(),
-		Status:         "idle",
+		Status:         statusIdle,
 		AgentSessionID: s.agentID,
 	})
 

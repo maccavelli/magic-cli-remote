@@ -30,7 +30,7 @@ type setModelResponse struct {
 func setModelFallback(ctx context.Context, rc acpagent.Host, model string) (string, error) {
 	var resp setModelResponse
 	if err := rc.RawRequest(ctx, "session/set_model",
-		map[string]any{"sessionId": rc.AgentSessionID(), "modelId": model}, &resp); err != nil {
+		map[string]any{fieldSessionID: rc.AgentSessionID(), "modelId": model}, &resp); err != nil {
 		return "", err
 	}
 	if resp.Meta.Model.Err != "" {
@@ -64,14 +64,14 @@ func setThinkingFallback(ctx context.Context, rc acpagent.Host, modelID, level s
 
 func setThinkingRequest(agentID, modelID, level string) map[string]any {
 	return map[string]any{
-		"sessionId": agentID,
-		"modelId":   modelID,
-		"_meta":     map[string]any{"reasoningEffort": level},
+		fieldSessionID: agentID,
+		"modelId":      modelID,
+		"_meta":        map[string]any{"reasoningEffort": level},
 	}
 }
 
 func resumeSnapshotRequest(agentID, cwd string) map[string]any {
-	return map[string]any{"sessionId": agentID, "cwd": cwd}
+	return map[string]any{fieldSessionID: agentID, "cwd": cwd}
 }
 
 // resumeSnapshot is the part of grok's session/resume answer the thinking

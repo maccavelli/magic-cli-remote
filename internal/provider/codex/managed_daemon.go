@@ -12,6 +12,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// versionUnknown: the version of a binary that reports none.
+	versionUnknown = "unknown"
+)
+
 type daemonLifecycleStatus string
 
 const (
@@ -77,7 +83,7 @@ func validateManagedLease(out daemonLifecycle, identity BinaryIdentity) (*manage
 		return nil, fmt.Errorf("codex daemon returned non-absolute managed/socket path")
 	}
 	version := strings.TrimSpace(identity.Version)
-	if version == "" || version == "unknown" {
+	if version == "" || version == versionUnknown {
 		return nil, fmt.Errorf("codex daemon ownership requires a known CLI version")
 	}
 	if out.ManagedCodexVersion != version || out.CLIVersion != version || out.AppServerVersion != version {
@@ -94,7 +100,7 @@ func validateManagedLease(out daemonLifecycle, identity BinaryIdentity) (*manage
 type daemonLifecycleRunner func(context.Context, string, string) (daemonLifecycle, error)
 
 func runDaemonLifecycle(ctx context.Context, bin, operation string) (daemonLifecycle, error) {
-	cmd := procutil.Command(ctx, bin, "app-server", "daemon", operation)
+	cmd := procutil.Command(ctx, bin, subcommandAppServer, "daemon", operation)
 	raw, err := cmd.Output()
 	if err != nil {
 		return daemonLifecycle{}, fmt.Errorf("codex app-server daemon %s: %w", operation, err)

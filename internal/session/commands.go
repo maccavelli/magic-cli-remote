@@ -17,6 +17,14 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// argOff: the argument that turns a mode off.
+	argOff = "off"
+	// labelProviderDefault: the label of the provider's own default.
+	labelProviderDefault = "provider default"
+)
+
 // parseSlashCommand splits "/name the rest" into ("name", "the rest", true).
 // Returns ok=false when text is not a slash command. The name is lower-cased so
 // matching is case-insensitive; the remainder keeps its original casing.
@@ -763,7 +771,7 @@ func (m *Manager) cmdPlan(ctx context.Context, id, arg string) error {
 	target := plan
 	switch strings.ToLower(strings.TrimSpace(arg)) {
 	case "", "on":
-	case "off", "exit", "stop":
+	case argOff, "exit", "stop":
 		def, ok := defaultMode(modes)
 		if !ok {
 			m.emitNotice(id, "This agent has no other mode to return to.")
@@ -823,7 +831,7 @@ func (m *Manager) cmdCollaborationPlan(ctx context.Context, id, arg string, atta
 		m.echoUser(id, "/plan")
 		m.emitNotice(id, "Plan collaboration on. Use /plan off to leave it.")
 		return nil
-	case "off", "exit", "stop":
+	case argOff, "exit", "stop":
 		if strings.EqualFold(current, "default") || current == "" {
 			m.emitNotice(id, "Already in default collaboration mode.")
 			return nil
@@ -909,7 +917,7 @@ func (m *Manager) cmdFast(ctx context.Context, id, arg string) error {
 		on = !on
 	case "on":
 		on = true
-	case "off":
+	case argOff:
 		on = false
 	default:
 		m.emitNotice(id, "Usage: /fast [on|off]")
@@ -963,7 +971,7 @@ func (m *Manager) cmdPersonality(ctx context.Context, id, arg string) error {
 	if arg == "" {
 		cur := ps.Personality()
 		if cur == "" {
-			cur = "provider default"
+			cur = labelProviderDefault
 		}
 		m.emitNotice(id, fmt.Sprintf("Personality: %s · usage: /personality friendly|pragmatic|none", cur))
 		return nil

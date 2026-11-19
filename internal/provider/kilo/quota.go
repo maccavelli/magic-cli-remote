@@ -10,6 +10,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// fetchStateError: a quota item's fetch state.
+	fetchStateError = "error"
+)
+
 // providerUsage is kilo's `GET /kilocode/provider-usage` response —
 // "cache-aware, secret-free provider plan usage and personal billing status".
 //
@@ -51,7 +57,7 @@ const quotaProbeTimeout = 4 * time.Second
 func (u providerUsage) exhaustedWindows() string {
 	var parts []string
 	for _, item := range u.Items {
-		if item.FetchState == "error" || item.FetchState == "unavailable" {
+		if item.FetchState == fetchStateError || item.FetchState == "unavailable" {
 			continue
 		}
 		for _, w := range item.Windows {

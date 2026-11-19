@@ -10,11 +10,18 @@ import (
 	"runtime/debug"
 
 	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/debugserve"
 	"github.com/maccavelli/magic-cli-remote/internal/logging"
 	"github.com/maccavelli/magic-cli-remote/internal/sdnotify"
 	"github.com/spf13/cobra"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// commandName: the command's name.
+	commandName = "mcrelay"
 )
 
 // Execute runs the mcrelay command tree.
@@ -44,7 +51,7 @@ func newRootCmd() *cobra.Command {
 	)
 
 	root := &cobra.Command{
-		Use:   "mcrelay",
+		Use:   commandName,
 		Short: "Outbound join-plane relay for mcremote (MADR 0015)",
 		Long: `mcrelay is a public-edge join router: hosts register outbound, phones join
 by host_id, and mcrelay splices opaque WebSocket frames. It does not authenticate
@@ -108,7 +115,7 @@ func newPathsCmd(cfgFile *string) *cobra.Command {
 				enc := json.NewEncoder(out)
 				enc.SetIndent("", "  ")
 				return enc.Encode(map[string]any{
-					"product":             "mcrelay",
+					"product":             appdirs.ProductMcrelay.Name,
 					"config_file":         cfg.ConfigFile,
 					"config_dir":          cfg.Paths.ConfigDir,
 					"data_dir":            cfg.DataDir,
@@ -421,7 +428,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 		cfg = cfgFile
 	}
 	opts := service.Options{
-		Product:          "mcrelay",
+		Product:          appdirs.ProductMcrelay.Name,
 		Description:      "mcrelay outbound join-plane relay for mcremote",
 		UnitName:         f.unitName,
 		Binary:           f.binary,
@@ -452,7 +459,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 		if f.uninstall {
 			// The installer's before_uninstall hook: mcrelay's own services
 			// only (MADR 0054 amendment S9, U1).
-			res, err := service.UninstallFromInstaller("mcrelay")
+			res, err := service.UninstallFromInstaller(appdirs.ProductMcrelay.Name)
 			service.PrintUninstallResult(out, res)
 			return err
 		}
@@ -475,7 +482,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 			return fmt.Errorf("--refresh and --remove are mutually exclusive")
 		}
 		res, err := service.RefreshUnit(
-			service.Options{Product: "mcrelay", UnitName: f.unitName},
+			service.Options{Product: appdirs.ProductMcrelay.Name, UnitName: f.unitName},
 			service.RefreshOptions{PrintOnly: f.printOnly},
 		)
 		if err != nil {
@@ -485,7 +492,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 			fmt.Fprint(out, res.Body)
 			return nil
 		}
-		return service.PrintRefreshResult(out, res, "mcrelay", f.jsonOut)
+		return service.PrintRefreshResult(out, res, appdirs.ProductMcrelay.Name, f.jsonOut)
 	}
 
 	if f.remove {
@@ -520,7 +527,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 	if res.Unchanged {
 		fmt.Fprintln(out, "Service definition unchanged (already installed).")
 	}
-	service.PrintSetupResult(out, res, opts.NoLinger, "mcrelay")
+	service.PrintSetupResult(out, res, opts.NoLinger, appdirs.ProductMcrelay.Name)
 	fmt.Fprintln(out)
 	// 0099 F4b: the written config binds loopback, because a public bind with
 	// no TLS is refused at startup and used to yield a crash-looping unit.

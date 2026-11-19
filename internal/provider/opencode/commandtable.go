@@ -2,6 +2,12 @@ package opencode
 
 import "github.com/maccavelli/magic-cli-remote/internal/command"
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// commandPlan: the /plan command.
+	commandPlan = "plan"
+)
+
 // acpCommandTable is how OpenCode v2 over ACP satisfies the canonical
 // vocabulary (MADR 0023; 0214 PLAN P4 step 5).
 //
@@ -12,12 +18,12 @@ import "github.com/maccavelli/magic-cli-remote/internal/command"
 // the control plane's (0214 PLAN P6d, P6e); fork is not on either surface.
 func acpCommandTable() command.Table {
 	return command.Table{
-		"help":     {Kind: command.KindDaemon},
-		"plan":     {Kind: command.KindMode, ModeID: "plan"},
-		"mode":     {Kind: command.KindMode},
-		"clear":    {Kind: command.KindDaemon},
-		"new":      {Kind: command.KindDaemon},
-		"sessions": {Kind: command.KindDaemon},
+		"help":      {Kind: command.KindDaemon},
+		commandPlan: {Kind: command.KindMode, ModeID: modePlan},
+		"mode":      {Kind: command.KindMode},
+		"clear":     {Kind: command.KindDaemon},
+		"new":       {Kind: command.KindDaemon},
+		"sessions":  {Kind: command.KindDaemon},
 		// The model config option switches in place.
 		"model": {Kind: command.KindOp, Op: command.OpSetModel},
 		// The effort config option, offered only while the current model has

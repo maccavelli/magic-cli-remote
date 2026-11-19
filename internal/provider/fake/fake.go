@@ -24,13 +24,27 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// modelProviderFake: the id of the fake provider's own model provider (also its models' picker group).
+	modelProviderFake = "fake"
+	// modelProviderFakeRemote: the id of the fake remote model provider (also its models' picker group).
+	modelProviderFakeRemote = "fake-remote"
+	// modePlan: the id of the fake provider's plan mode.
+	modePlan = "plan"
+	// modelEcho: the id of the fake echo model.
+	modelEcho = "fake-echo"
+	// statusIdle: the session Status when no turn is running.
+	statusIdle = "idle"
+)
+
 // Modes is the mode list every fake session advertises at start, mirroring the
 // real transports (grok's static default/plan pair, OpenCode's primary agents).
 // Keeping the ids realistic is what lets manager tests exercise /plan and
 // session.set_mode without a live agent.
 var Modes = []event.SessionMode{
 	{ID: "default", Name: "Build", Description: "Full tool access"},
-	{ID: "plan", Name: "Plan", Description: "Research and plan only; no edits"},
+	{ID: modePlan, Name: "Plan", Description: "Research and plan only; no edits"},
 }
 
 // Provider is the fake agent provider.
@@ -53,16 +67,16 @@ func (p *Provider) Ready() bool { return true }
 // Model ids stay unqualified (`fake-echo`, not `fake/echo`): the id convention
 // is each real engine's own, and the fake exists to mirror the catalog *shape*.
 var modelProviders = map[string][]picker.Option{
-	"fake": {
-		{ID: "fake-echo", Label: "Echo", Description: "Deterministic test model", Group: "fake",
+	modelProviderFake: {
+		{ID: modelEcho, Label: "Echo", Description: "Deterministic test model", Group: modelProviderFake,
 			Meta: map[string]string{picker.MetaReleaseDate: "2026-02-01"}},
-		{ID: "fake-slow", Label: "Slow", Description: "Simulated latency (tests)", Group: "fake",
+		{ID: "fake-slow", Label: "Slow", Description: "Simulated latency (tests)", Group: modelProviderFake,
 			Meta: map[string]string{picker.MetaReleaseDate: "2025-11-15"}},
-		{ID: "fake-legacy", Label: "Legacy", Description: "Retired test model", Group: "fake",
+		{ID: "fake-legacy", Label: "Legacy", Description: "Retired test model", Group: modelProviderFake,
 			Meta: map[string]string{picker.MetaReleaseDate: "2026-05-01", picker.MetaStatus: picker.StatusDeprecated}},
 	},
-	"fake-remote": {
-		{ID: "fake-big", Label: "Big", Group: "fake-remote",
+	modelProviderFakeRemote: {
+		{ID: "fake-big", Label: "Big", Group: modelProviderFakeRemote,
 			Meta: map[string]string{picker.MetaReleaseDate: "2026-06-01"}},
 	},
 }
@@ -70,20 +84,20 @@ var modelProviders = map[string][]picker.Option{
 // ListModels implements [provider.ModelCatalog]: the connected set only.
 func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 	_ = ctx
-	return p.ListModelsFor(ctx, "fake")
+	return p.ListModelsFor(ctx, modelProviderFake)
 }
 
 // ListModelProviders implements [provider.ModelProviderCatalog].
 func (p *Provider) ListModelProviders(ctx context.Context) (picker.Catalog, error) {
 	_ = ctx
 	return picker.SingleCatalog(picker.SourceStatic, []picker.Option{
-		{ID: "fake", Label: "Fake", Description: "3 models", Group: "Connected", Meta: map[string]string{
-			picker.MetaConnected: "true", picker.MetaModelCount: "3", picker.MetaDefaultModel: "fake-echo",
+		{ID: modelProviderFake, Label: "Fake", Description: "3 models", Group: "Connected", Meta: map[string]string{
+			picker.MetaConnected: "true", picker.MetaModelCount: "3", picker.MetaDefaultModel: modelEcho,
 		}},
-		{ID: "fake-remote", Label: "Fake Remote", Description: "1 model", Group: "All providers", Meta: map[string]string{
+		{ID: modelProviderFakeRemote, Label: "Fake Remote", Description: "1 model", Group: "All providers", Meta: map[string]string{
 			picker.MetaConnected: "false", picker.MetaModelCount: "1",
 		}},
-	}, "fake", false), nil
+	}, modelProviderFake, false), nil
 }
 
 // ListModelsFor implements [provider.ModelProviderCatalog]. An unknown id is an
@@ -93,7 +107,7 @@ func (p *Provider) ListModelsFor(ctx context.Context, modelProvider string) (pic
 	_ = ctx
 	opts := modelProviders[modelProvider]
 	def := ""
-	if modelProvider == "fake" {
+	if modelProvider == modelProviderFake {
 		def = "fake-echo"
 	}
 	return picker.SingleCatalog(picker.SourceStatic,
@@ -124,7 +138,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	// A usage report at start mirrors the ACP transport's usage_update and is
 	// what makes /context answerable in tests and smoke demos.
 	s.emit(event.Event{Type: event.TypeUsage, Usage: &event.Usage{Used: 1200, Size: 128000}})
-	s.emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+	s.emit(event.Event{Type: event.TypeSessionStatus, Status: statusIdle})
 	return s, nil
 }
 
@@ -134,7 +148,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 func (p *Provider) CommandTable() command.Table {
 	return command.Table{
 		"help":          {Kind: command.KindDaemon},
-		"plan":          {Kind: command.KindMode, ModeID: "plan"},
+		"plan":          {Kind: command.KindMode, ModeID: modePlan},
 		"mode":          {Kind: command.KindMode},
 		"model":         {Kind: command.KindOp, Op: command.OpSetModel},
 		"thinking":      {Kind: command.KindOp, Op: command.OpSetThinkingLevel},
@@ -314,7 +328,7 @@ func (s *session) ModelCatalog(ctx context.Context, scope string) (picker.Catalo
 		cur = "fake-echo"
 	}
 	return picker.SingleCatalog(picker.SourceLive,
-		picker.OrderModels(modelProviders["fake"], cur), cur, true), nil
+		picker.OrderModels(modelProviders[modelProviderFake], cur), cur, true), nil
 }
 
 // UndoLast reverts the last turn, describing what it undid.
@@ -536,7 +550,7 @@ func (s *session) runTurn(turnCtx context.Context, userText string) {
 				StopReason: "cancelled",
 				Status:     "cancelled",
 			})
-			s.emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+			s.emit(event.Event{Type: event.TypeSessionStatus, Status: statusIdle})
 			return
 		case <-time.After(20 * time.Millisecond):
 			s.emit(event.Event{Type: event.TypeAssistantChunk, Text: c})
@@ -544,7 +558,7 @@ func (s *session) runTurn(turnCtx context.Context, userText string) {
 	}
 	s.finishTurn()
 	s.emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn"})
-	s.emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+	s.emit(event.Event{Type: event.TypeSessionStatus, Status: statusIdle})
 }
 
 // finishTurn clears turn bookkeeping, and is called *before* the turn_complete

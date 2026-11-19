@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 )
 
 // setup-service --from-installer (MADR 0054 amendment S7, H1; PLAN S7a). The
@@ -71,7 +73,7 @@ type HookResult struct {
 func PlanInstallerHook(opts Options) (HookPlan, error) {
 	product := opts.Product
 	if product == "" {
-		product = "mcremote"
+		product = appdirs.ProductMcremote.Name
 	}
 	plan := HookPlan{Product: product, Action: HookSetup, Health: opts.Health}
 	osName := installOS
@@ -88,14 +90,14 @@ func PlanInstallerHook(opts Options) (HookPlan, error) {
 			return plan, err
 		}
 	}
-	if osName == "windows" {
+	if osName == osWindows {
 		// The task is always named after the product (MADR 0159 D13).
 		name = taskNameFor(product)
 	}
 	plan.Kind, plan.Name = kind, name
 	item, found := findDefinition(kind, product, name)
 	if !found {
-		if product == "mcrelay" {
+		if product == appdirs.ProductMcrelay.Name {
 			// The relay's first service comes from MCREMOTE_WITH_RELAY_SERVICE
 			// on mcremote's, or from mcrelay setup-service (MADR 0054 S5-1).
 			plan.Action = HookNone
@@ -111,7 +113,7 @@ func PlanInstallerHook(opts Options) (HookPlan, error) {
 		// A task still in install.ps1's folder is moved even with Force: a
 		// plain setup --force would leave the old folders, and their older
 		// binaries, on the User PATH.
-		if !opts.Force || (osName == "windows" && inOldLayout(product, item.Program)) {
+		if !opts.Force || (osName == osWindows && inOldLayout(product, item.Program)) {
 			plan.Action = HookUpgrade
 		}
 		return plan, nil
@@ -134,7 +136,7 @@ func hookOwns(osName, product, program, dir string) bool {
 	if sameDir(filepath.Dir(program), dir) {
 		return true
 	}
-	return osName == "windows" && inOldLayout(product, program) && samePath(dir, newWindowsDir())
+	return osName == osWindows && inOldLayout(product, program) && samePath(dir, newWindowsDir())
 }
 
 // hookTimeout bounds the cycle's service-manager calls.

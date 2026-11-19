@@ -12,6 +12,14 @@ import (
 	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// toolRunsvdir: runit's scanner binary.
+	toolRunsvdir = "runsvdir"
+	// toolS6Svscan: s6's scanner binary.
+	toolS6Svscan = "s6-svscan"
+)
+
 // runit's, s6's and OpenRC's tools are found in fixed directories, never on
 // PATH (MADR 0212 D2-A). An update run from cron, an agent's shell or a
 // stripped service environment has a PATH of its own, so a lookup on it
@@ -21,8 +29,8 @@ import (
 
 // supervisorTools are the tools the resolver finds, the union P1 probed.
 var supervisorTools = []string{
-	"sv", "runsvdir", "svlogd",
-	"s6-svc", "s6-svstat", "s6-svscan", "s6-svscanctl", "s6-log",
+	"sv", toolRunsvdir, "svlogd",
+	"s6-svc", "s6-svstat", toolS6Svscan, "s6-svscanctl", "s6-log",
 	"rc-service", "rc-update", "openrc", "start-stop-daemon", "supervise-daemon",
 }
 
@@ -75,19 +83,19 @@ func haveTools(names ...string) bool {
 // entries come last, and win.
 func toolEnv(extra ...string) []string {
 	env := []string{"PATH=" + toolPath, "LC_ALL=C"}
-	if rd := os.Getenv("XDG_RUNTIME_DIR"); rd != "" {
+	if rd := os.Getenv(envXDGRuntimeDir); rd != "" {
 		env = append(env, "XDG_RUNTIME_DIR="+rd)
 	} else if rd, ok := userRuntimeDir(); ok {
 		env = append(env, "XDG_RUNTIME_DIR="+rd)
 	}
-	home := os.Getenv("HOME")
+	home := os.Getenv(envHome)
 	if home == "" {
 		home, _ = os.UserHomeDir()
 	}
 	if home != "" {
 		env = append(env, "HOME="+home)
 	}
-	name := os.Getenv("USER")
+	name := os.Getenv(envUser)
 	if name == "" {
 		if u, err := user.Current(); err == nil {
 			name = u.Username
@@ -96,7 +104,7 @@ func toolEnv(extra ...string) []string {
 	if name != "" {
 		env = append(env, "USER="+name)
 	}
-	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
+	if v := os.Getenv(envXDGConfigHome); v != "" {
 		env = append(env, "XDG_CONFIG_HOME="+v)
 	}
 	return append(env, extra...)

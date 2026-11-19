@@ -66,7 +66,7 @@ var loadProbeConfig = func(args service.ServeArgs) (FileConfig, error) {
 // reach a relay bound to one other address.
 func probeHost(host string) string {
 	switch host {
-	case "", "0.0.0.0":
+	case "", wildcardHost:
 		return "127.0.0.1"
 	case "::":
 		return "::1"

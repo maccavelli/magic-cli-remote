@@ -11,6 +11,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// binName: the gobble binary name.
+	binName = "gobble"
+)
+
 // KnownGoodVersion is the gobble release whose wire this provider was built
 // and checked against, and the supported minimum (MADR 0179 D5, A2). Another
 // version warns at initialize and is never refused: a development build
@@ -58,7 +64,7 @@ func spec(cfg acpagent.Config, log *slog.Logger) acpagent.Spec {
 	a := newAuth(cfg.Bin, log)
 	return acpagent.Spec{
 		ID:                 provider.IDGobble,
-		DefaultBin:         "gobble",
+		DefaultBin:         binName,
 		DefaultArgs:        func(acpagent.Config) []string { return []string{"acp"} },
 		KnownGoodVersion:   KnownGoodVersion,
 		CloseTimeout:       closeTimeout,
@@ -100,7 +106,7 @@ func spec(cfg acpagent.Config, log *slog.Logger) acpagent.Spec {
 // New creates the gobble provider.
 func New(cfg acpagent.Config, log *slog.Logger) *acpagent.Provider {
 	if cfg.Bin == "" {
-		cfg.Bin = "gobble"
+		cfg.Bin = binName
 	}
 	if log == nil {
 		log = slog.Default()

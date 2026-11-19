@@ -325,7 +325,7 @@ func (s *session) AwaitPermission(ctx context.Context, req event.Event) (string,
 	req.SessionID = s.localID
 	req.Timestamp = time.Now().UTC()
 	req.PermissionID = permID
-	req.Status = "pending"
+	req.Status = statusPending
 	res := s.awaitDecision(ctx, permID, req)
 	return res.optionID, res.cancelled
 }
@@ -337,7 +337,7 @@ func (s *session) AwaitAnswers(ctx context.Context, req event.Event) ([][]string
 	req.SessionID = s.localID
 	req.Timestamp = time.Now().UTC()
 	req.QuestionID = qID
-	req.Status = "pending"
+	req.Status = statusPending
 	res := s.awaitAnswers(ctx, qID, req)
 	return res.answers, res.cancelled
 }

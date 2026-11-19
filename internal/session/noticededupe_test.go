@@ -122,7 +122,7 @@ func TestRepeatedNoticesAreSuppressed(t *testing.T) {
 //
 // Identical REPLAYED notices were already collapsed before this change:
 // appendHistoryLocked de-duplicates any replayed event against existing
-// history (manager.go:202-208), so asserting "three replays produce three
+// history (entry.appendHistoryLocked), so asserting "three replays produce three
 // entries" would fail for a reason that has nothing to do with this guard.
 //
 // What `!ev.Replay` actually protects is the deduper's STATE. session/load

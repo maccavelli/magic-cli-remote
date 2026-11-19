@@ -14,6 +14,20 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// statusBusy: a session status of the engine.
+	statusBusy = "busy"
+	// statusError: the session Status after a failure.
+	statusError = "error"
+	// statusRetry: a session status of the engine.
+	statusRetry = "retry"
+	// stopEndTurn: the stop reason of a turn that ended normally.
+	stopEndTurn = "end_turn"
+	// stopReasonError: the StopReason of a turn that ended in error.
+	stopReasonError = "error"
+)
+
 // subagentState is what this session knows about one child agent session.
 //
 // name/task come straight off the child's session info: opencode 1.18.7 sends
@@ -107,12 +121,12 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 	}
 	sid := firstNonEmpty(p.SessionID, sessionIDOf(props), o.h.EventAgentSessionID(), o.h.AgentSessionID())
 	switch strings.ToLower(p.Status.Type) {
-	case "busy":
+	case statusBusy:
 		o.h.NoteNodeStatus(sid, httpagent.NodeBusy)
 		if sid == o.h.AgentSessionID() {
-			o.emitStatus("running")
+			o.emitStatus(statusRunning)
 		}
-	case "retry":
+	case statusRetry:
 		o.h.NoteNodeStatus(sid, httpagent.NodeRetry)
 		msg := firstNonEmpty(p.Status.Message, "agent retrying")
 		// next is ms until next try in OpenCode session.status retry.
@@ -141,8 +155,8 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 				o.finishApprovals()
 				o.h.Emit(event.Event{
 					Type:       event.TypeTurnComplete,
-					Status:     "error",
-					StopReason: "error",
+					Status:     statusError,
+					StopReason: stopReasonError,
 				})
 				o.h.Emit(event.Event{
 					Type:      event.TypeError,
@@ -150,7 +164,7 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 					ErrorKind: string(cls.Kind),
 					RetryAt:   cls.ResetAt,
 				})
-				o.emitStatus("error")
+				o.emitStatus(statusError)
 			}
 			return
 		}
@@ -203,7 +217,7 @@ func (o *httpSession) tryTreeEndTurn() {
 	o.clearSubagents()
 	// Before the turn boundary, so the card is marked done ahead of it.
 	o.finishApprovals()
-	o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "end_turn", StopReason: "end_turn"})
+	o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: stopEndTurn, StopReason: stopEndTurn})
 	o.emitStatus("idle")
 }
 
@@ -271,7 +285,7 @@ func (o *httpSession) ConfirmTreeIdle(ctx context.Context, parentID string, know
 			continue // missing → treat idle
 		}
 		switch strings.ToLower(st) {
-		case "busy", "retry":
+		case statusBusy, statusRetry:
 			stillBusy = append(stillBusy, id)
 		}
 	}

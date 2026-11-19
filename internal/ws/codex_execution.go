@@ -14,6 +14,30 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// actionEnvironmentStatus: a codex execution action.
+	actionEnvironmentStatus = "environment_status"
+	// actionTerminals: a codex execution action.
+	actionTerminals = "terminals"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// actionEnvironmentInfo: a codex execution action.
+	actionEnvironmentInfo = "environment_info"
+	// actionEnvironments: a codex execution action.
+	actionEnvironments = "environments"
+	// actionOutput: a codex execution action.
+	actionOutput = "output"
+	// actionSelectEnvironment: a codex execution action.
+	actionSelectEnvironment = "select_environment"
+	// actionShell: a codex execution action.
+	actionShell = "shell"
+	// actionSpawn: a codex execution action.
+	actionSpawn = "spawn"
+)
+
 // Codex execution phone operations (MADR 0109 D10/D11/D36/D37, plan P7).
 //
 // Two operations carry the whole surface: codex.execution.read for bounded
@@ -46,7 +70,7 @@ const (
 // ownership. Environment reads are host-administration projections and are
 // available to any authenticated device that negotiated the Codex surface.
 func sessionScopedExecutionRead(action string) bool {
-	return action == "terminals" || action == "output"
+	return action == actionTerminals || action == actionOutput
 }
 
 func decodeCodexExecutionRead(env protocol.Envelope) (string, error) {
@@ -55,13 +79,13 @@ func decodeCodexExecutionRead(env protocol.Envelope) (string, error) {
 		return "", err
 	}
 	switch payload.Action {
-	case "terminals":
-	case "output":
+	case actionTerminals:
+	case actionOutput:
 		if payload.TerminalID == "" || len(payload.TerminalID) > 256 {
 			return "", fmt.Errorf("bounded terminal_id required")
 		}
-	case "environments":
-	case "environment_status", "environment_info":
+	case actionEnvironments:
+	case actionEnvironmentStatus, actionEnvironmentInfo:
 		if payload.EnvironmentID == "" || len(payload.EnvironmentID) > 256 {
 			return "", fmt.Errorf("bounded environment_id required")
 		}
@@ -83,11 +107,11 @@ func decodeCodexExecutionWrite(env protocol.Envelope) (string, error) {
 		return "", err
 	}
 	switch payload.Action {
-	case "exec", "spawn":
+	case "exec", actionSpawn:
 		if len(payload.Argv) == 0 || len(payload.Argv) > maxExecArgv {
 			return "", fmt.Errorf("bounded nonempty argv required")
 		}
-	case "shell":
+	case actionShell:
 		if payload.Command == "" || len(payload.Command) > 64<<10 {
 			return "", fmt.Errorf("bounded nonempty command required")
 		}
@@ -96,7 +120,7 @@ func decodeCodexExecutionWrite(env protocol.Envelope) (string, error) {
 			return "", fmt.Errorf("bounded terminal_id required")
 		}
 	case "stop_all":
-	case "select_environment":
+	case actionSelectEnvironment:
 		if !payload.DisableEnvironment && (payload.EnvironmentID == "" || len(payload.EnvironmentID) > 256) {
 			return "", fmt.Errorf("bounded environment_id or an explicit disable is required")
 		}
@@ -152,19 +176,19 @@ func (s *Server) handleCodexExecutionRead(ctx context.Context, c *client, env pr
 	}
 	result := protocol.CodexExecutionReadResultPayload{}
 	switch payload.Action {
-	case "terminals":
+	case actionTerminals:
 		terminals, err := s.sessions.ListExecutionTerminals(ctx, payload.SessionID, deviceID)
 		if err != nil {
 			return s.writeError(ctx, c, env.ID, executionErrorCode(err, false), "Codex terminals could not be listed")
 		}
 		result.Terminals = terminals
-	case "output":
+	case actionOutput:
 		output, gap, err := s.sessions.ReplayExecutionTerminal(ctx, payload.SessionID, payload.TerminalID, payload.AfterSequence, deviceID)
 		if err != nil {
 			return s.writeError(ctx, c, env.ID, executionErrorCode(err, false), "Codex terminal output could not be replayed")
 		}
 		result.Output, result.SequenceGap = output, gap
-	case "environments", "environment_status", "environment_info":
+	case actionEnvironments, actionEnvironmentStatus, actionEnvironmentInfo:
 		p, err := s.codexProvider()
 		if err != nil {
 			return s.writeError(ctx, c, env.ID, "unavailable", err.Error())
@@ -182,19 +206,19 @@ func (s *Server) handleCodexExecutionRead(ctx context.Context, c *client, env pr
 // exec-server URL, connect timeout, or any remote credential.
 func (s *Server) readCodexEnvironment(ctx context.Context, p codexEnvironmentReader, payload protocol.CodexExecutionReadPayload, result *protocol.CodexExecutionReadResultPayload) error {
 	switch payload.Action {
-	case "environments":
+	case actionEnvironments:
 		environments, err := p.ListExecutionEnvironments(ctx)
 		if err != nil {
 			return err
 		}
 		result.Environments = environments
-	case "environment_status":
+	case actionEnvironmentStatus:
 		status, err := p.ReadExecutionEnvironmentStatus(ctx, payload.EnvironmentID)
 		if err != nil {
 			return err
 		}
 		result.EnvironmentStatus = &status
-	case "environment_info":
+	case actionEnvironmentInfo:
 		info, err := p.ReadExecutionEnvironmentInfo(ctx, payload.EnvironmentID)
 		if err != nil {
 			return err
@@ -220,11 +244,11 @@ func (s *Server) handleCodexExecutionWrite(ctx context.Context, c *client, env p
 	// Both unsandboxed authorities need their own fresh confirmation. This is
 	// checked before any provider call so a missing phrase can never start
 	// host work, and it is never cached against the session.
-	if (payload.Action == "shell" || payload.Action == "spawn") && payload.Confirm != confirmUnsandboxed {
+	if (payload.Action == actionShell || payload.Action == actionSpawn) && payload.Confirm != confirmUnsandboxed {
 		return s.writeError(ctx, c, env.ID, protocol.ErrConfirmRequired,
 			provider.ExecutionLabelUnsandboxed+" requires a fresh confirmation for every command")
 	}
-	if payload.Action == "select_environment" && payload.Confirm != confirmEnvironment {
+	if payload.Action == actionSelectEnvironment && payload.Confirm != confirmEnvironment {
 		return s.writeError(ctx, c, env.ID, protocol.ErrConfirmRequired,
 			"Changing the execution environment requires confirmation")
 	}
@@ -235,11 +259,11 @@ func (s *Server) handleCodexExecutionWrite(ctx context.Context, c *client, env p
 		var exec provider.ExecResult
 		exec, err = s.sessions.RunSandboxedExec(ctx, payload.SessionID, execRequestFromPhone(payload), deviceID)
 		result.Exec = &exec
-	case "shell":
+	case actionShell:
 		var execution provider.ExecutionResult
 		execution, err = s.sessions.RunUnsandboxedShell(ctx, payload.SessionID, payload.Command, deviceID)
 		result.Execution = &execution
-	case "spawn":
+	case actionSpawn:
 		var process provider.ProcessInfo
 		process, err = s.sessions.SpawnStandaloneProcess(ctx, payload.SessionID, processRequestFromPhone(payload), deviceID)
 		result.Process = &process
@@ -258,7 +282,7 @@ func (s *Server) handleCodexExecutionWrite(ctx context.Context, c *client, env p
 		err = s.sessions.StopExecutionTerminal(ctx, payload.SessionID, payload.TerminalID, deviceID)
 	case "stop_all":
 		result.Stopped, err = s.sessions.StopAllExecutionTerminals(ctx, payload.SessionID, deviceID)
-	case "select_environment":
+	case actionSelectEnvironment:
 		err = s.sessions.SetExecutionEnvironment(ctx, payload.SessionID, environmentSelectionFromPhone(payload), deviceID)
 	}
 	if err != nil {

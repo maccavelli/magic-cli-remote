@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/relay"
 	"github.com/spf13/cobra"
@@ -39,7 +40,7 @@ func (f *setupServiceFlags) toOptions() service.Options {
 		cfg = cfgFile
 	}
 	return service.Options{
-		Product:          "mcremote",
+		Product:          appdirs.ProductMcremote.Name,
 		UnitName:         f.unitName,
 		Binary:           f.binary,
 		ConfigPath:       cfg,
@@ -121,7 +122,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 		if f.uninstall {
 			// The installer's before_uninstall hook: mcremote's own services
 			// only (MADR 0054 amendment S9, U1).
-			res, err := service.UninstallFromInstaller("mcremote")
+			res, err := service.UninstallFromInstaller(appdirs.ProductMcremote.Name)
 			service.PrintUninstallResult(out, res)
 			return err
 		}
@@ -130,7 +131,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 		}
 		// A first install: the install notices follow plain setup's output,
 		// whether it succeeds or not (MADR 0054 amendment S7d).
-		defer service.PrintInstallerAdvisories(out, "mcremote")
+		defer service.PrintInstallerAdvisories(out, appdirs.ProductMcremote.Name)
 	}
 
 	if f.uninstall {
@@ -147,7 +148,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 			return fmt.Errorf("--refresh and --remove are mutually exclusive")
 		}
 		res, err := service.RefreshUnit(
-			service.Options{Product: "mcremote", UnitName: f.unitName},
+			service.Options{Product: appdirs.ProductMcremote.Name, UnitName: f.unitName},
 			service.RefreshOptions{PrintOnly: f.printOnly},
 		)
 		if err != nil {
@@ -157,7 +158,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 			fmt.Fprint(out, res.Body)
 			return nil
 		}
-		return service.PrintRefreshResult(out, res, "mcremote", f.jsonOut)
+		return service.PrintRefreshResult(out, res, appdirs.ProductMcremote.Name, f.jsonOut)
 	}
 
 	if f.remove {
@@ -196,7 +197,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 		return nil
 	}
 
-	service.PrintSetupResult(out, res, opts.NoLinger, "mcremote")
+	service.PrintSetupResult(out, res, opts.NoLinger, appdirs.ProductMcremote.Name)
 	if withRelay && res.NotConfigured {
 		fmt.Fprintf(out, "mcrelay (%s=1): not set up either, for the same reason\n", service.EnvWithRelayService)
 	}
@@ -207,7 +208,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 		if err != nil {
 			return err
 		}
-		service.PrintSetupResult(out, rres, opts.NoLinger, "mcrelay")
+		service.PrintSetupResult(out, rres, opts.NoLinger, appdirs.ProductMcrelay.Name)
 	}
 	return nil
 }

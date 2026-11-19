@@ -10,7 +10,7 @@ import (
 // schema, not a hand-maintained list.
 //
 // The failure it prevents is quiet. An experimental capability is denied outright
-// when the engine does not accept `experimental` (capabilities.go:195), and each
+// when the engine does not accept `experimental` (buildCapabilitySnapshot), and each
 // carries a fallback to an older method — so a method that upstream has promoted
 // to stable, but that we still label experimental, keeps silently routing to its
 // fallback in exactly the configuration nobody tests. That is how

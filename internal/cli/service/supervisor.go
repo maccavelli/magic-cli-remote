@@ -16,6 +16,18 @@ import (
 	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// runlevelDefault: an OpenRC runlevel.
+	runlevelDefault = "default"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// runlevelBoot: an OpenRC runlevel.
+	runlevelBoot = "boot"
+)
+
 // runit, s6 and OpenRC user services, as setup-service writes them (MADR 0054
 // PLAN S5b, amendment S5-2). Each runs the same `serve` command, with the same
 // arguments and environment, that the systemd unit renders for the same
@@ -90,20 +102,20 @@ func scriptShebang(kind Kind) string {
 
 // serveArgv is the command the systemd unit's ExecStart runs, as a list.
 func serveArgv(opts Options) []string {
-	argv := []string{opts.Binary, "serve"}
+	argv := []string{opts.Binary, subcommandServe}
 	add := func(flag, v string) {
 		if v != "" {
 			argv = append(argv, flag, v)
 		}
 	}
-	add("--config", opts.ConfigPath)
-	add("--data-dir", opts.DataDir)
-	add("--listen-host", opts.ListenHost)
+	add(flagConfig, opts.ConfigPath)
+	add(flagDataDir, opts.DataDir)
+	add(flagListenHost, opts.ListenHost)
 	if opts.ListenPort > 0 {
-		argv = append(argv, "--listen-port", strconv.Itoa(opts.ListenPort))
+		argv = append(argv, flagListenPort, strconv.Itoa(opts.ListenPort))
 	}
-	add("--log-level", opts.LogLevel)
-	add("--log-format", opts.LogFormat)
+	add(flagLogLevel, opts.LogLevel)
+	add(flagLogFormat, opts.LogFormat)
 	return argv
 }
 
@@ -864,9 +876,9 @@ func startScript(def scriptDef, opts Options, res Result) (Result, error) {
 		if opts.NoStart {
 			return res, nil
 		}
-		scanner, supervised := "runsvdir", filepath.Join(def.Dir, "supervise", "ok")
+		scanner, supervised := toolRunsvdir, filepath.Join(def.Dir, "supervise", "ok")
 		if def.Kind == KindS6 {
-			scanner, supervised = "s6-svscan", filepath.Join(def.Dir, "supervise")
+			scanner, supervised = toolS6Svscan, filepath.Join(def.Dir, "supervise")
 		}
 		if !supervisorWatching(scanner, def.ScanDir) {
 			pid, err := startSessionSupervisor(scanner, def.ScanDir)
@@ -989,13 +1001,13 @@ func removeScript(kind Kind, opts Options) (Result, error) {
 		if err := removeAllRetry(def.Dir); err != nil {
 			return res, fmt.Errorf("remove %s: %w", def.Dir, err)
 		}
-		if kind == KindS6 && supervisorWatching("s6-svscan", def.ScanDir) {
+		if kind == KindS6 && supervisorWatching(toolS6Svscan, def.ScanDir) {
 			// Reap the supervisor of the directory that is gone.
 			_, _ = runBounded(toolFor(kind, def.ScanDir, "s6-svscanctl", "-an", def.ScanDir))
 		}
 	case KindOpenRCUser:
 		_, _ = runBounded(toolFor(kind, opts.UnitName, "rc-service", "--user", "--", opts.UnitName, "stop"))
-		_, _ = runBounded(toolFor(kind, opts.UnitName, "rc-update", "--user", "del", opts.UnitName, "default"))
+		_, _ = runBounded(toolFor(kind, opts.UnitName, "rc-update", "--user", "del", opts.UnitName, runlevelDefault))
 		if err := os.Remove(def.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return res, fmt.Errorf("remove %s: %w", def.Path, err)
 		}
@@ -1077,7 +1089,7 @@ func refreshScript(kind Kind, opts Options, ro RefreshOptions) (RefreshResult, e
 
 // The runlevels openrc-user.sh creates for a user session
 // (/usr/libexec/rc/sh/openrc-user.sh in OpenRC 0.62).
-var openRCUserRunlevels = []string{"boot", "default", "shutdown"}
+var openRCUserRunlevels = []string{runlevelBoot, runlevelDefault, "shutdown"}
 
 // startOpenRC enables and starts an OpenRC user service.
 //
@@ -1090,7 +1102,7 @@ var openRCUserRunlevels = []string{"boot", "default", "shutdown"}
 // MADR 0054 PLAN S5b Deviation 2). Nothing then starts it at boot unless
 // pam_openrc does, and the result says so.
 func startOpenRC(def scriptDef, opts Options, res Result) (Result, error) {
-	rd := os.Getenv("XDG_RUNTIME_DIR")
+	rd := os.Getenv(envXDGRuntimeDir)
 	if rd == "" {
 		var ok bool
 		if rd, ok = userRuntimeDir(); !ok {
@@ -1105,7 +1117,7 @@ func startOpenRC(def scriptDef, opts Options, res Result) (Result, error) {
 		}
 	}
 	if !opts.NoEnable {
-		if _, err := runBounded(toolFor(def.Kind, opts.UnitName, "rc-update", "--user", "add", opts.UnitName, "default").withEnv(envs...)); err != nil {
+		if _, err := runBounded(toolFor(def.Kind, opts.UnitName, "rc-update", "--user", "add", opts.UnitName, runlevelDefault).withEnv(envs...)); err != nil {
 			return res, fmt.Errorf("definition installed at %s, but rc-update --user add failed: %w", def.Path, err)
 		}
 		res.Enabled = true
@@ -1116,7 +1128,7 @@ func startOpenRC(def scriptDef, opts Options, res Result) (Result, error) {
 	if _, err := os.Stat(filepath.Join(rd, "openrc", "softlevel")); err != nil {
 		// No session: start one. Its default runlevel starts the service
 		// when it is enabled.
-		for _, lvl := range []string{"boot", "default"} {
+		for _, lvl := range []string{runlevelBoot, runlevelDefault} {
 			if _, err := runBounded(toolFor(def.Kind, lvl, "openrc", "--user", lvl).withEnv(envs...)); err != nil {
 				return res, fmt.Errorf("definition installed at %s, but openrc --user %s failed: %w", def.Path, lvl, err)
 			}

@@ -272,21 +272,21 @@ const taskXMLDeclaration = `<?xml version="1.0" encoding="UTF-16"?>` + "\n"
 // The one Windows-only argument is DetachConsoleFlag, last: the task is the
 // only launcher that gives the daemon a console (MADR 0159 D7).
 func serveArgs(opts Options) []string {
-	args := []string{"serve"}
+	args := []string{subcommandServe}
 	add := func(flag, value string) {
 		if value == "" {
 			return
 		}
 		args = append(args, flag, quoteArg(value))
 	}
-	add("--config", opts.ConfigPath)
-	add("--data-dir", opts.DataDir)
-	add("--listen-host", opts.ListenHost)
+	add(flagConfig, opts.ConfigPath)
+	add(flagDataDir, opts.DataDir)
+	add(flagListenHost, opts.ListenHost)
 	if opts.ListenPort != 0 {
-		args = append(args, "--listen-port", fmt.Sprintf("%d", opts.ListenPort))
+		args = append(args, flagListenPort, fmt.Sprintf("%d", opts.ListenPort))
 	}
-	add("--log-level", opts.LogLevel)
-	add("--log-format", opts.LogFormat)
+	add(flagLogLevel, opts.LogLevel)
+	add(flagLogFormat, opts.LogFormat)
 	return append(args, "--"+DetachConsoleFlag)
 }
 

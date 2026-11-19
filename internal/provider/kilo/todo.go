@@ -9,6 +9,18 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// todoCancelled: a todo item's status.
+	todoCancelled = "cancelled"
+	// todoCompleted: a todo item's status.
+	todoCompleted = "completed"
+	// todoPending: a todo item's status.
+	todoPending = "pending"
+	// todoInProgress: a todo item's status.
+	todoInProgress = "in_progress"
+)
+
 // kiloTodo is the Kilo engine Todo shape (OpenCode SDK 1.18+ lineage).
 type kiloTodo struct {
 	ID       string `json:"id"`
@@ -52,10 +64,10 @@ func mapKiloTodos(todos []kiloTodo) []event.PlanEntry {
 		}
 		st := strings.ToLower(strings.TrimSpace(t.Status))
 		switch st {
-		case "cancelled":
+		case todoCancelled:
 			content = "(cancelled) " + content
 			st = event.PlanStatusPending
-		case "pending", "in_progress", "completed":
+		case todoPending, todoInProgress, todoCompleted:
 			// pass through
 		default:
 			st = event.PlanStatusPending

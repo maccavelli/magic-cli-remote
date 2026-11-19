@@ -18,6 +18,42 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/output"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// fieldText: a JSON member name of the engine's API.
+	fieldText = "text"
+	// statusCompleted: an event status for a finished tool call.
+	statusCompleted = "completed"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// fieldProviderID: a JSON member name of the engine's API.
+	fieldProviderID = "providerID"
+	// partTypeReasoning: a message part type of the engine.
+	partTypeReasoning = "reasoning"
+	// partTypeRetry: a message part type of the engine.
+	partTypeRetry = "retry"
+	// partTypeText: a message part type of the engine.
+	partTypeText = "text"
+	// partTypeTool: a message part type of the engine.
+	partTypeTool = "tool"
+	// roleAssistant: a message role.
+	roleAssistant = "assistant"
+	// roleUser: a message role.
+	roleUser = "user"
+	// statusRunning: a session status of the engine.
+	statusRunning = "running"
+	// stopCancelled: the stop reason and status of a turn that was cancelled.
+	stopCancelled = "cancelled"
+	// wireCompleted: a message status of the engine.
+	wireCompleted = "completed"
+	// wireError: a message status of the engine.
+	wireError = "error"
+	// wirePending: a message status of the engine.
+	wirePending = "pending"
+)
+
 type toolEmit struct{ status, name, kind, text string }
 
 // httpSession is the per-session half: OpenCode REST shapes and SSE event
@@ -112,7 +148,7 @@ func (o *httpSession) Create(ctx context.Context, opts provider.StartOptions) (s
 	if mp, mid := o.resolveModel(); mid != "" {
 		// Create expects {providerID, id}. Prompt uses {providerID, modelID}
 		// — different keys on the same engine (OpenCode 1.18 OpenAPI).
-		body["model"] = map[string]string{"providerID": mp, "id": mid}
+		body["model"] = map[string]string{fieldProviderID: mp, "id": mid}
 	}
 	start := time.Now()
 	var created struct {
@@ -191,13 +227,13 @@ func (o *httpSession) Replay(ctx context.Context) {
 			}
 			var ev event.Event
 			switch {
-			case part.Type == "text" && m.Info.Role == "user":
+			case part.Type == partTypeText && m.Info.Role == roleUser:
 				ev = event.Event{Type: event.TypeUserMessage, Text: part.Text}
-			case part.Type == "text":
+			case part.Type == partTypeText:
 				ev = event.Event{Type: event.TypeAssistantChunk, Text: part.Text}
-			case part.Type == "reasoning":
+			case part.Type == partTypeReasoning:
 				ev = event.Event{Type: event.TypeThoughtChunk, Text: part.Text}
-			case part.Type == "tool":
+			case part.Type == partTypeTool:
 				ev = event.Event{
 					Type:     event.TypeToolCall,
 					ToolID:   part.CallID,
@@ -224,8 +260,8 @@ func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) erro
 	}
 	apiParts := make([]map[string]any, 0, len(parts))
 	for _, p := range parts {
-		if p.Type == "" || p.Type == "text" {
-			apiParts = append(apiParts, map[string]any{"type": "text", "text": p.Text})
+		if p.Type == "" || p.Type == partTypeText {
+			apiParts = append(apiParts, map[string]any{"type": partTypeText, fieldText: p.Text})
 		}
 	}
 	body := map[string]any{"parts": apiParts}
@@ -234,7 +270,7 @@ func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) erro
 		// Prompt uses modelID (not id). OpenCode 1.18's prompt_async schema
 		// requires {providerID, modelID}; create uses {providerID, id}.
 		// Unifying them to "id" breaks every prompt with HTTP 400.
-		body["model"] = map[string]string{"providerID": mp, "modelID": mid}
+		body["model"] = map[string]string{fieldProviderID: mp, "modelID": mid}
 	}
 	// Optional agent name (MADR 0020 Sprint 3): "build", "plan", …
 	if agent := strings.TrimSpace(o.h.Agent()); agent != "" {
@@ -281,9 +317,9 @@ func (o *httpSession) RespondPermission(ctx context.Context, permissionID, optio
 	response := "reject"
 	if !cancelled {
 		switch optionID {
-		case "once", "allow", "allow_once":
+		case optionOnce, "allow", "allow_once":
 			response = "once"
-		case "always", "allow_always":
+		case optionAlways, "allow_always":
 			response = "always"
 		}
 	}
@@ -356,7 +392,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		if json.Unmarshal(props, &p) != nil || p.Delta == "" {
 			return
 		}
-		if p.Field != "" && p.Field != "text" {
+		if p.Field != "" && p.Field != fieldText {
 			return
 		}
 		// Before the partText bookkeeping below, so a child's part ids never
@@ -372,7 +408,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		// assistant echoed the user's own prompt back as an assistant bubble. The
 		// authoritative part.updated snapshot re-delivers the text once role is
 		// known, so skipping here loses nothing.
-		if role != "assistant" {
+		if role != roleAssistant {
 			o.mu.Unlock()
 			return
 		}
@@ -390,7 +426,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		// Unknown part type defaults to assistant text; reasoning parts are
 		// classified once part.updated announces type=reasoning.
 		t := event.TypeAssistantChunk
-		if ptype == "reasoning" {
+		if ptype == partTypeReasoning {
 			t = event.TypeThoughtChunk
 		}
 		o.h.Emit(event.Event{Type: t, Text: p.Delta})
@@ -448,13 +484,13 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			o.partType[part.ID] = part.Type
 		}
 		o.mu.Unlock()
-		if role == "user" {
+		if role == roleUser {
 			return
 		}
 		switch part.Type {
-		case "text", "reasoning":
+		case partTypeText, partTypeReasoning:
 			o.emitTextCatchUp(part.ID, part.Type, part.Text)
-		case "tool":
+		case partTypeTool:
 			id := part.CallID
 			if id == "" {
 				id = part.ID
@@ -622,7 +658,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			}
 			if p.Error.Name == "MessageAbortedError" {
 				if active {
-					o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: "cancelled", StopReason: "cancelled"})
+					o.h.Emit(event.Event{Type: event.TypeTurnComplete, Status: stopCancelled, StopReason: stopCancelled})
 					o.emitStatus("idle")
 				}
 				return
@@ -647,7 +683,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 				ErrorKind: string(cls.Kind),
 				RetryAt:   cls.ResetAt,
 			})
-			o.emitStatus("error")
+			o.emitStatus(statusError)
 			return
 		}
 		o.h.NoteNodeStatus(sid, httpagent.NodeIdle)
@@ -701,7 +737,7 @@ func (o *httpSession) emitTextCatchUp(partID, partType, full string) {
 		return
 	}
 	t := event.TypeAssistantChunk
-	if partType == "reasoning" {
+	if partType == partTypeReasoning {
 		t = event.TypeThoughtChunk
 	}
 	o.h.Emit(event.Event{Type: t, Text: delta})
@@ -737,7 +773,7 @@ func (o *httpSession) turnCleanup() {
 // and the MADR 0014 resync corrections that emit them) is never suppressed.
 func (o *httpSession) emitStatus(status string) {
 	o.mu.Lock()
-	if status == "running" {
+	if status == statusRunning {
 		if o.runningSent {
 			o.mu.Unlock()
 			return
@@ -812,14 +848,14 @@ func kindForTool(name string) string {
 
 func mapToolStatus(s string) string {
 	switch s {
-	case "completed":
-		return "completed"
-	case "error":
+	case wireCompleted:
+		return statusCompleted
+	case wireError:
 		return "failed"
-	case "running":
-		return "running"
-	case "pending":
-		return "pending"
+	case statusRunning:
+		return statusRunning
+	case wirePending:
+		return statusPending
 	default:
 		return s
 	}
@@ -837,7 +873,7 @@ func splitModel(m string) (providerID, modelID string) {
 	if i := strings.IndexByte(m, '/'); i > 0 {
 		return m[:i], m[i+1:]
 	}
-	return "kilo", m
+	return providerKilo, m
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -856,9 +892,9 @@ func firstNonEmpty(vals ...string) string {
 // so a future engine cleanup cannot re-open the leak.
 func isKiloChromePart(synthetic, ignored bool, metadata json.RawMessage, text, partType string) bool {
 	switch strings.ToLower(strings.TrimSpace(partType)) {
-	case "tool":
+	case partTypeTool:
 		return false
-	case "snapshot", "patch", "step-start", "step-finish", "compaction", "retry":
+	case "snapshot", "patch", "step-start", "step-finish", "compaction", partTypeRetry:
 		return true
 	}
 	if synthetic || ignored {

@@ -50,13 +50,13 @@ const (
 // codeScopes maps provider error codes whose meaning is documented to a
 // scope, lowercased (go-llmprovider-sdk 0012-MADR §1.1's classification).
 var codeScopes = map[string]string{
-	"freeusagelimiterror":                       ScopeFreeTier,
+	codeFreeUsageLimit:                          ScopeFreeTier,
 	"promotion_model_limit_reached":             ScopeFreeTier,
 	"monthlylimiterror":                         ScopeMonthly,
 	"creditserror":                              ScopeCredits,
-	"insufficient_quota":                        ScopeCredits,
+	codeInsufficientQuota:                       ScopeCredits,
 	"insufficient_balance":                      ScopeCredits,
-	"gousagelimiterror":                         ScopePlan,
+	codeGoUsageLimit:                            ScopePlan,
 	"blackusagelimiterror":                      ScopePlan,
 	"usage_limit_reached":                       ScopePlan,
 	"subscription_sharing_usage_limit_exceeded": ScopePlan,

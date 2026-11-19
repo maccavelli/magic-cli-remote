@@ -59,9 +59,9 @@ type collabAgentToolCallItem struct {
 // errored | shutdown | notFound.
 func collabAgentStatus(s string) string {
 	switch s {
-	case "pendingInit", "running":
+	case "pendingInit", wireRunning:
 		return event.SubagentStatusRunning
-	case "completed", "shutdown":
+	case wireCompleted, "shutdown":
 		return event.SubagentStatusCompleted
 	case "interrupted", "errored", "notFound":
 		return event.SubagentStatusFailed

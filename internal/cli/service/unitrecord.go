@@ -43,7 +43,7 @@ func unitRecordPath(product string) (string, error) {
 // or refresh path learns the name.
 func ResolveUnitName(product string) (string, error) {
 	if product == "" {
-		product = "mcremote"
+		product = appdirs.ProductMcremote.Name
 	}
 	path, err := unitRecordPath(product)
 	if err != nil {

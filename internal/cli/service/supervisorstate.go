@@ -197,7 +197,7 @@ func observeOpenRC(ctx context.Context, def scriptDef, name string) (observation
 	if err != nil {
 		return observation{state: st}, err
 	}
-	if st.NormallyUp, err = fileExists(filepath.Join(filepath.Dir(def.ScanDir), "runlevels", "default", name)); err != nil {
+	if st.NormallyUp, err = fileExists(filepath.Join(filepath.Dir(def.ScanDir), "runlevels", runlevelDefault, name)); err != nil {
 		return observation{state: st}, err
 	}
 	out, err := toolFor(KindOpenRCUser, name, "rc-service", "--user", "--", name, "status").run(ctx)
@@ -225,7 +225,7 @@ func observeOpenRC(ctx context.Context, def scriptDef, name string) (observation
 // supervisor's PID, and the daemon is its child (P1). 0 when it cannot be
 // read: no runtime directory, no file, or no such process.
 func openRCPID(name string) int {
-	rd := os.Getenv("XDG_RUNTIME_DIR")
+	rd := os.Getenv(envXDGRuntimeDir)
 	if rd == "" {
 		var ok bool
 		if rd, ok = userRuntimeDir(); !ok {

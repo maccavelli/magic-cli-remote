@@ -15,6 +15,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// defaultBin: the default codex binary name.
+	defaultBin = "codex"
+)
+
 // Section is providers.codex (0208 MADR D6): the Codex app-server JSON-RPC
 // provider (MADR 0028).
 type Section struct {
@@ -84,7 +90,7 @@ func defaultSection() *Section {
 	return &Section{
 		AgentCommon: config.AgentCommon{
 			Enabled:                  true,
-			Bin:                      "codex",
+			Bin:                      defaultBin,
 			AlwaysApprove:            false,
 			PermissionTimeoutSeconds: 900,
 			Prewarm:                  false,
@@ -105,7 +111,7 @@ func defaultSection() *Section {
 
 // Validate checks providers.codex.
 func (s *Section) Validate() error {
-	if err := s.ValidateAgent("codex"); err != nil {
+	if err := s.ValidateAgent(string(provider.IDCodex)); err != nil {
 		return err
 	}
 	if v := s.StreamCoalesceMs; v < 0 || v > config.MaxStreamCoalesceMs {
@@ -132,7 +138,7 @@ func (s *Section) Validate() error {
 			return fmt.Errorf("providers.codex stdio transport rejects listen_address and ws_auth_mode")
 		}
 	case "unix_ws", "managed_daemon_proxy":
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == goosWindows {
 			return fmt.Errorf("providers.codex transport %q is Unix-only", s.Transport)
 		}
 		if s.ListenAddress != "" || s.WSAuthMode != "" {
@@ -238,7 +244,7 @@ func codexSecretEnvironmentName(name string) bool {
 // validApprovalPolicy returns true for recognized Codex approval policy values.
 func validApprovalPolicy(s string) bool {
 	switch s {
-	case "", "untrusted", "on-request", "never":
+	case "", "untrusted", approvalOnRequest, approvalNever:
 		return true
 	}
 	return false
@@ -247,7 +253,7 @@ func validApprovalPolicy(s string) bool {
 // validSandboxMode returns true for recognized Codex sandbox mode values.
 func validSandboxMode(s string) bool {
 	switch s {
-	case "", "read-only", "workspace-write", "danger-full-access":
+	case "", sandboxReadOnly, sandboxWorkspaceWrite, sandboxDangerFullAccess:
 		return true
 	}
 	return false
@@ -309,10 +315,10 @@ func (s *Section) providerConfig(runtimeDir string) Config {
 func Descriptor() provider.Descriptor {
 	return provider.Descriptor{
 		ID:      provider.IDCodex,
-		Name:    "codex",
+		Name:    string(provider.IDCodex),
 		Section: func() config.ProviderSection { return defaultSection() },
 		Credentials: func(sec config.ProviderSection) providerauth.Adapter {
-			return NewCredentialAdapter("codex", sec.(*Section).Bin)
+			return NewCredentialAdapter(string(provider.IDCodex), sec.(*Section).Bin)
 		},
 		New: func(b provider.Build) provider.Provider {
 			conf := b.Section.(*Section).providerConfig(b.RuntimeDir)

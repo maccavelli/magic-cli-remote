@@ -11,6 +11,14 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// permissionModeDefault: the permission-mode setting value that selects the default mode.
+	permissionModeDefault = "default"
+	// permissionModePlan: the permission-mode setting value that selects plan mode.
+	permissionModePlan = "plan"
+)
+
 // Section is providers.grok (0208 MADR D6): the shared ACP keys, and grok's
 // own launch flags.
 //
@@ -49,7 +57,7 @@ func defaultSection() *Section {
 	return &Section{
 		ACPProviderConfig: config.ACPProviderConfig{AgentCommon: config.AgentCommon{
 			Enabled:                  true,
-			Bin:                      "grok",
+			Bin:                      binName,
 			AlwaysApprove:            false,
 			PermissionTimeoutSeconds: 120,
 			// Off (MADR 0089 D5): engine starts on first session.
@@ -65,7 +73,7 @@ func defaultSection() *Section {
 		// the mode chip describe a policy nobody set. `default` makes grok
 		// ask, which is what gives the modes (and MADR 0049's `auto`)
 		// meaning. Opt out with `bypassPermissions` (MADR 0050 D3).
-		PermissionMode: "default",
+		PermissionMode: permissionModeDefault,
 		// ~12 mid-stream updates/sec instead of one per token
 		// (MADR 0057 H-1). Matches opencode/codex defaults.
 		StreamCoalesceMs: 80,
@@ -77,7 +85,7 @@ func defaultSection() *Section {
 // defaultSection for why the daemon pins it (MADR 0050 D3).
 func validPermissionMode(s string) bool {
 	switch s {
-	case "", "default", "acceptEdits", "auto", "dontAsk", "bypassPermissions", "plan":
+	case "", permissionModeDefault, "acceptEdits", "auto", "dontAsk", "bypassPermissions", permissionModePlan:
 		return true
 	}
 	return false
@@ -85,7 +93,7 @@ func validPermissionMode(s string) bool {
 
 // Validate checks providers.grok.
 func (s *Section) Validate() error {
-	if err := s.ValidateAgent("grok"); err != nil {
+	if err := s.ValidateAgent(string(provider.IDGrok)); err != nil {
 		return err
 	}
 	if v := s.StreamCoalesceMs; v < 0 || v > config.MaxStreamCoalesceMs {
@@ -95,7 +103,7 @@ func (s *Section) Validate() error {
 	if s.ReasoningEffort != "" && strings.TrimSpace(s.ReasoningEffort) == "" {
 		return fmt.Errorf("providers.grok.reasoning_effort must not be whitespace-only")
 	}
-	if err := config.ValidateACPProvider("grok", s.ACPProviderConfig); err != nil {
+	if err := config.ValidateACPProvider(string(provider.IDGrok), s.ACPProviderConfig); err != nil {
 		return err
 	}
 	// Rejected at load rather than at session start: grok exits with
@@ -130,10 +138,10 @@ func (s *Section) providerConfig(version string) Config {
 func Descriptor() provider.Descriptor {
 	return provider.Descriptor{
 		ID:      provider.IDGrok,
-		Name:    "grok",
+		Name:    string(provider.IDGrok),
 		Section: func() config.ProviderSection { return defaultSection() },
 		Credentials: func(config.ProviderSection) providerauth.Adapter {
-			return NewCredentialAdapter("grok")
+			return NewCredentialAdapter(string(provider.IDGrok))
 		},
 		New: func(b provider.Build) provider.Provider {
 			s := b.Section.(*Section)

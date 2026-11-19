@@ -91,7 +91,7 @@ func decodeTaggedValue(raw json.RawMessage) string {
 	if json.Unmarshal(raw, &object) != nil {
 		return ""
 	}
-	for _, key := range []string{"type", "kind", "source"} {
+	for _, key := range []string{fieldType, "kind", "source"} {
 		if json.Unmarshal(object[key], &text) == nil && text != "" {
 			return text
 		}
@@ -153,7 +153,7 @@ func (a *nativeThreadAPI) loadedIDs(ctx context.Context) (map[string]bool, error
 	}
 	cursor := ""
 	for range maxLoadedThreadPages {
-		params := map[string]any{"limit": uint32(maxNativeThreadPage)}
+		params := map[string]any{fieldLimit: uint32(maxNativeThreadPage)}
 		if cursor != "" {
 			params["cursor"] = cursor
 		}
@@ -183,7 +183,7 @@ func (a *nativeThreadAPI) loadedIDs(ctx context.Context) (map[string]bool, error
 
 func (a *nativeThreadAPI) List(ctx context.Context, opts provider.ThreadListOptions) (provider.NativeThreadPage, error) {
 	limit := boundedThreadLimit(opts.Limit)
-	params := map[string]any{"limit": uint32(limit)}
+	params := map[string]any{fieldLimit: uint32(limit)}
 	if opts.Cursor != "" {
 		params["cursor"] = opts.Cursor
 	}
@@ -200,7 +200,7 @@ func (a *nativeThreadAPI) List(ctx context.Context, opts provider.ThreadListOpti
 		params["sectionId"] = opts.SectionID
 	}
 	if opts.ProjectID != "" {
-		params["projectId"] = opts.ProjectID
+		params[fieldProjectID] = opts.ProjectID
 	}
 	if opts.SearchTerm != "" {
 		params["searchTerm"] = opts.SearchTerm
@@ -242,7 +242,7 @@ func (a *nativeThreadAPI) Search(ctx context.Context, opts provider.ThreadSearch
 		return provider.NativeThreadPage{Source: provider.ThreadSourceStableFallback, Limit: limit}, nil
 	}
 	if a.supports != nil && a.supports(CapabilityThreadSearch) {
-		params := map[string]any{"searchTerm": term, "limit": uint32(limit)}
+		params := map[string]any{"searchTerm": term, fieldLimit: uint32(limit)}
 		if opts.Cursor != "" {
 			params["cursor"] = opts.Cursor
 		}
@@ -323,7 +323,7 @@ func nativeHistoryParams(opts provider.NativeThreadHistoryOptions) (map[string]a
 		return nil, 0, errors.New("thread id is required")
 	}
 	limit := boundedNativeHistoryLimit(opts.Limit)
-	params := map[string]any{"threadId": opts.ThreadID, "limit": uint32(limit)}
+	params := map[string]any{fieldThreadID: opts.ThreadID, fieldLimit: uint32(limit)}
 	if opts.TurnID != "" {
 		params["turnId"] = opts.TurnID
 	}
@@ -399,7 +399,7 @@ func (a *nativeThreadAPI) ListItems(ctx context.Context, opts provider.NativeThr
 }
 
 func (a *nativeThreadAPI) Read(ctx context.Context, id string, includeTurns bool) (wireThread, error) {
-	params := map[string]any{"threadId": id, "includeTurns": includeTurns}
+	params := map[string]any{fieldThreadID: id, "includeTurns": includeTurns}
 	raw, err := a.send(ctx, "thread/read", params)
 	if err != nil {
 		return wireThread{}, err
@@ -424,7 +424,7 @@ func (a *nativeThreadAPI) Rename(ctx context.Context, id, name string) error {
 	if id == "" || name == "" || len(name) > 256 {
 		return errors.New("thread id and bounded name are required")
 	}
-	_, err := a.send(ctx, "thread/name/set", map[string]any{"threadId": id, "name": name})
+	_, err := a.send(ctx, "thread/name/set", map[string]any{fieldThreadID: id, fieldName: name})
 	return err
 }
 
@@ -440,7 +440,7 @@ func (a *nativeThreadAPI) Archive(ctx context.Context, id string, archived bool)
 	if !archived {
 		method = "thread/unarchive"
 	}
-	_, err := a.send(ctx, method, map[string]any{"threadId": id})
+	_, err := a.send(ctx, method, map[string]any{fieldThreadID: id})
 	return err
 }
 
@@ -448,7 +448,7 @@ func (a *nativeThreadAPI) Unsubscribe(ctx context.Context, id string) error {
 	if a.supports != nil && !a.supports(CapabilityThreadUnsubscribe) {
 		return errors.New("thread unsubscribe is unavailable")
 	}
-	_, err := a.send(ctx, "thread/unsubscribe", map[string]any{"threadId": id})
+	_, err := a.send(ctx, "thread/unsubscribe", map[string]any{fieldThreadID: id})
 	return err
 }
 
@@ -477,7 +477,7 @@ func (a *nativeThreadAPI) Delete(ctx context.Context, id string) (provider.Threa
 	if a.supports != nil && !a.supports(CapabilityThreadDelete) {
 		return provider.ThreadDeleteResult{}, errors.New("permanent thread deletion is unavailable")
 	}
-	_, err := a.send(ctx, "thread/delete", map[string]any{"threadId": id})
+	_, err := a.send(ctx, "thread/delete", map[string]any{fieldThreadID: id})
 	if err == nil {
 		return provider.ThreadDeleteResult{Deleted: true}, nil
 	}
@@ -510,7 +510,7 @@ func (a *nativeThreadAPI) ListSections(ctx context.Context, cursor string, limit
 		return provider.ThreadSectionPage{}, errors.New("thread sections are unavailable")
 	}
 	limit = boundedThreadLimit(limit)
-	params := map[string]any{"limit": uint32(limit)}
+	params := map[string]any{fieldLimit: uint32(limit)}
 	if cursor != "" {
 		params["cursor"] = cursor
 	}
@@ -553,7 +553,7 @@ func (a *nativeThreadAPI) CreateSection(ctx context.Context, mutation provider.T
 	if name == "" || len(name) > 256 {
 		return provider.ThreadSection{}, errors.New("bounded section name required")
 	}
-	params := map[string]any{"name": name}
+	params := map[string]any{fieldName: name}
 	if mutation.AppearanceSet {
 		params["appearance"] = sectionAppearance(mutation)
 	}
@@ -578,7 +578,7 @@ func (a *nativeThreadAPI) UpdateSection(ctx context.Context, id string, mutation
 	if id == "" || name == "" || len(name) > 256 {
 		return provider.ThreadSection{}, errors.New("section id and bounded name required")
 	}
-	params := map[string]any{"sectionId": id, "name": name}
+	params := map[string]any{"sectionId": id, fieldName: name}
 	if mutation.AppearanceSet {
 		params["appearance"] = sectionAppearance(mutation)
 	}
@@ -607,7 +607,7 @@ func (a *nativeThreadAPI) MoveThread(ctx context.Context, threadID, sectionID, b
 	if a.supports != nil && !a.supports(CapabilityThreadSectionMove) {
 		return errors.New("thread section move is unavailable")
 	}
-	params := map[string]any{"threadId": threadID}
+	params := map[string]any{fieldThreadID: threadID}
 	if sectionID == "" {
 		params["sectionId"] = nil
 	} else {
@@ -624,9 +624,9 @@ func (a *nativeThreadAPI) AssignProject(ctx context.Context, threadID string, as
 	if a.supports != nil && !a.supports(CapabilityThreadMetadata) {
 		return errors.New("thread project assignment is unavailable")
 	}
-	params := map[string]any{"threadId": threadID}
+	params := map[string]any{fieldThreadID: threadID}
 	if assignment.Set {
-		params["projectId"] = assignment.ProjectID
+		params[fieldProjectID] = assignment.ProjectID
 	}
 	_, err := a.send(ctx, "thread/metadata/update", params)
 	if err == nil || !assignment.Set || a.supports == nil || !a.supports(CapabilityThreadRead) {
@@ -649,7 +649,7 @@ func (a *nativeThreadAPI) Fork(ctx context.Context, threadID string) (provider.A
 	if a.supports != nil && !a.supports(CapabilityThreadFork) {
 		return provider.AgentSessionMeta{}, errors.New("thread fork is unavailable")
 	}
-	raw, err := a.send(ctx, "thread/fork", map[string]any{"threadId": threadID})
+	raw, err := a.send(ctx, "thread/fork", map[string]any{fieldThreadID: threadID})
 	if err != nil {
 		return provider.AgentSessionMeta{}, err
 	}
@@ -905,7 +905,7 @@ func (s *session) emitReplayItem(rawItem json.RawMessage) {
 	case "userMessage":
 		var text strings.Builder
 		for _, content := range item.Content {
-			if content.Type == "text" && content.Text != "" {
+			if content.Type == contentText && content.Text != "" {
 				if text.Len() > 0 {
 					text.WriteByte('\n')
 				}
@@ -915,7 +915,7 @@ func (s *session) emitReplayItem(rawItem json.RawMessage) {
 		if text.Len() > 0 {
 			s.emit(event.Event{Type: event.TypeUserMessage, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Text: text.String(), ToolID: item.ID, Replay: true})
 		}
-	case "agentMessage":
+	case itemAgentMessage:
 		if strings.TrimSpace(item.Text) != "" {
 			s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Text: item.Text, ToolID: item.ID, Replay: true})
 		}
@@ -972,8 +972,8 @@ const (
 // way that reads as data corruption rather than a bug.
 func replayPageParams(threadID, cursor string) map[string]any {
 	params := map[string]any{
-		"threadId": threadID,
-		"limit":    uint32(replayPageSize),
+		fieldThreadID: threadID,
+		fieldLimit:    uint32(replayPageSize),
 		// Explicit, never defaulted: thread/items/list defaults to ascending but the
 		// neighbouring thread/turns/list defaults to DESCENDING (v2/thread.rs:1746,
 		// :1709), so the default is not a property of the contract worth relying on.
@@ -1002,7 +1002,7 @@ func (s *session) replayThreadHistory(ctx context.Context, fr *conn) error {
 	if s.p == nil || !s.p.supportsCapability(CapabilityThreadItemsList) {
 		// An engine that genuinely cannot page. Not a preference: the legacy read
 		// is the only way to get history at all there.
-		raw, err := fr.sendReadOnlyOrWriteRequest(ctx, "thread/read", map[string]any{"threadId": s.AgentSessionID(), "includeTurns": true})
+		raw, err := fr.sendReadOnlyOrWriteRequest(ctx, "thread/read", map[string]any{fieldThreadID: s.AgentSessionID(), "includeTurns": true})
 		if err != nil {
 			return fmt.Errorf("thread/read replay: %w", err)
 		}

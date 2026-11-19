@@ -26,7 +26,7 @@ func TestCommandTableHasNoInternalTODONotes(t *testing.T) {
 }
 
 // TestCommandTableRoutesCompactToOp pins the MADR 0035 D3 fix: /compact
-// must reach codex's Compact (session.go:457), not fall through to a
+// must reach codex's session.Compact, not fall through to a
 // dead-end daemon handler.
 func TestCommandTableRoutesCompactToOp(t *testing.T) {
 	m, ok := commandTable["compact"]

@@ -86,7 +86,7 @@ func (o *httpSession) handleQuestionAsked(props json.RawMessage) {
 	o.h.Emit(event.Event{
 		Type:       event.TypeQuestion,
 		QuestionID: q.ID,
-		Status:     "pending",
+		Status:     statusPending,
 		Text:       summary,
 		Questions:  items,
 	})

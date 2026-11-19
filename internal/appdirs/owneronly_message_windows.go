@@ -8,6 +8,18 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// ownerPermissionsHint: the hint for a file held by another principal or a group.
+	ownerPermissionsHint = "check the file's permissions in its Security properties"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// ownerOtherPrincipal: the owner description for a file held by a principal other than the current user.
+	ownerOtherPrincipal = "another principal"
+)
+
 // notOwnerOnly is the Windows half of NotOwnerOnlyDetail.
 //
 // It re-reads the file's owner and DACL and reports the same principals that
@@ -30,16 +42,16 @@ import (
 func notOwnerOnly(path string) (readers, remedy string) {
 	abs, err := absClean(path, "path")
 	if err != nil {
-		return "another principal", "check the file's permissions in its Security properties"
+		return ownerOtherPrincipal, ownerPermissionsHint
 	}
 	self, err := currentUserSID()
 	if err != nil {
-		return "another principal", "check the file's permissions in its Security properties"
+		return ownerOtherPrincipal, ownerPermissionsHint
 	}
 	sd, err := windows.GetNamedSecurityInfo(abs, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
-		return "another principal", "check the file's permissions in its Security properties"
+		return ownerOtherPrincipal, ownerPermissionsHint
 	}
 
 	var names []string
@@ -67,7 +79,7 @@ func notOwnerOnly(path string) (readers, remedy string) {
 	if len(names) == 0 {
 		// FileIsOwnerOnly said no, but nothing here explains why. Do not claim
 		// a principal that is not there.
-		return "another principal", strings.Join(cmd, " ")
+		return ownerOtherPrincipal, strings.Join(cmd, " ")
 	}
 	return strings.Join(names, ", "), strings.Join(cmd, " ")
 }

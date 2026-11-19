@@ -28,7 +28,7 @@ func (d *httpDialect) ListAgentsLive(ctx context.Context, api httpagent.API) (pi
 		name := a.Name
 		mode := a.Mode
 		if mode == "" {
-			mode = "primary"
+			mode = modeKindPrimary
 		}
 		desc := strings.TrimSpace(a.Description)
 		if desc == "" {
@@ -47,7 +47,7 @@ func (d *httpDialect) ListAgentsLive(ctx context.Context, api httpagent.API) (pi
 		// in this catalog: they cannot accept a top-level user turn.
 		rank := func(g string) int {
 			switch g {
-			case "primary":
+			case modeKindPrimary:
 				return 0
 			case "all":
 				return 1
@@ -60,10 +60,10 @@ func (d *httpDialect) ListAgentsLive(ctx context.Context, api httpagent.API) (pi
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
-	def := "code"
+	def := modeCode
 	hasDefault := false
 	for _, o := range opts {
-		if o.ID == "code" {
+		if o.ID == modeCode {
 			hasDefault = true
 			break
 		}
@@ -72,7 +72,7 @@ func (d *httpDialect) ListAgentsLive(ctx context.Context, api httpagent.API) (pi
 		// Prefer first primary-mode option.
 		def = opts[0].ID
 		for _, o := range opts {
-			if o.Group == "primary" {
+			if o.Group == modeKindPrimary {
 				def = o.ID
 				break
 			}
@@ -243,10 +243,10 @@ func (d *httpDialect) ListModelsLive(ctx context.Context, api httpagent.API) (pi
 	}
 	opts := make([]picker.Option, 0, 128)
 	def := ""
-	if m := conn.Default["kilo"]; m != "" {
+	if m := conn.Default[providerKilo]; m != "" {
 		def = "kilo/" + m
 	}
-	lead := "kilo"
+	lead := providerKilo
 	d.mu.Lock()
 	if def == "" && d.defaultModelID != "" {
 		def, lead = d.defaultModelProvider+"/"+d.defaultModelID, d.defaultModelProvider

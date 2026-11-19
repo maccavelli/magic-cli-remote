@@ -13,6 +13,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpcommon"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// planStatusUnknown: the status of a plan entry that names none.
+	planStatusUnknown = "unknown"
+)
+
 // maxPlanContent caps a Markdown plan's text. The agent chooses its length,
 // and the phone shows it collapsed (MADR 0192 D1).
 const maxPlanContent = 32 << 10
@@ -78,7 +84,7 @@ func unknownPlanKind(raw json.RawMessage) string {
 		Type string `json:"type"`
 	}
 	if json.Unmarshal(raw, &v) != nil || v.Type == "" {
-		return "unknown"
+		return planStatusUnknown
 	}
 	return v.Type
 }

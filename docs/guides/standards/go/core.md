@@ -68,6 +68,16 @@ and user-lookup consequences and update the build path deliberately.
 - **Slices**: Choose `nil` slices when empty and nil are semantically equivalent. Use a
   non-nil empty slice only when the wire/API contract requires it (for example,
   JSON `[]` rather than `null`).
+- **Repeated strings**: A string a package uses three or more times (`goconst`, which `make lint`
+  enforces) is a named constant, named for what it means and not for its text. Two uses of the
+  same text that mean different things get two constants, with the same value. A wire name, a
+  JSON member, a status or a flag is a constant; a test that asserts a wire value keeps the
+  literal, so it checks the wire and not the constant it would share with the code under test.
+  When a name already holds the meaning (for example `provider.ID*` for a provider's name, or
+  `appdirs.Product*.Name` for a product's), use it and add no second constant; a variable such as
+  `appdirs.Product*.Name` is not a constant, so a `case` list of two of them is not checked for
+  duplicates by the compiler. A comment that points at code names the function or constant, never
+  a `file:line`, which the next edit makes wrong.
 
 See [Go Code Review Comments](https://go.dev/wiki/CodeReviewComments) for the
 underlying style guidance.

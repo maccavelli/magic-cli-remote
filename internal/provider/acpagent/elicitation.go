@@ -19,6 +19,16 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// boolOptionTrue: the OptionID of a boolean field's Yes.
+	boolOptionTrue = "true"
+	// elicitationKindUnknown: the kind of an elicitation field the phone cannot draw and that names none.
+	elicitationKindUnknown = "unknown"
+	// boolOptionFalse: the OptionID of a boolean field's No.
+	boolOptionFalse = "false"
+)
+
 // CreateElicitation implements acp.Client for form mode (MADR 0191 D1–D3).
 //
 // A session-scoped form becomes a question_request on the phone, answered
@@ -85,7 +95,7 @@ func (s *session) CreateElicitation(ctx context.Context, req acp.CreateElicitati
 		Timestamp:    time.Now().UTC(),
 		QuestionID:   qID,
 		ToolID:       toolID,
-		Status:       "pending",
+		Status:       statusPending,
 		Text:         strings.Join(head, "\n\n"),
 		Questions:    items,
 		AllowDecline: true,
@@ -261,7 +271,7 @@ func (s *session) formField(name string, p acp.ElicitationPropertySchema, requir
 		v := p.Boolean
 		setText(v.Title, v.Description)
 		fd.kind = fieldBool
-		it.Options = []event.PermissionOption{{OptionID: "true", Name: "Yes"}, {OptionID: "false", Name: "No"}}
+		it.Options = []event.PermissionOption{{OptionID: boolOptionTrue, Name: "Yes"}, {OptionID: boolOptionFalse, Name: "No"}}
 		if v.Default != nil {
 			it.Default = []string{strconv.FormatBool(*v.Default)}
 		}
@@ -285,7 +295,7 @@ func (s *session) formField(name string, p acp.ElicitationPropertySchema, requir
 		it.MinItems, it.MaxItems = countBound(v.MinItems), countBound(v.MaxItems)
 		it.Default = v.Default
 	default:
-		kind := "unknown"
+		kind := elicitationKindUnknown
 		if p.Other != nil && p.Other.Type != "" {
 			kind = p.Other.Type
 		}

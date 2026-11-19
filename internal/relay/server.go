@@ -216,7 +216,7 @@ func listenHostIsLoopback(addr string) bool {
 		host = addr
 	}
 	host = strings.Trim(host, "[]")
-	if host == "" || host == "0.0.0.0" || host == "::" || host == "*" {
+	if host == "" || host == wildcardHost || host == "::" || host == "*" {
 		return false
 	}
 	if strings.EqualFold(host, "localhost") {

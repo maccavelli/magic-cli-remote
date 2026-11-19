@@ -140,7 +140,7 @@ func (s *session) applySetting(ctx context.Context, gen int, threadID string, ex
 	if fr == nil {
 		return fmt.Errorf("engine not running")
 	}
-	params := map[string]any{"threadId": threadID}
+	params := map[string]any{fieldThreadID: threadID}
 	fill(params)
 	if _, err := fr.sendRequest(ctx, "thread/settings/update", params); err != nil {
 		var rpc *rpcErrorBody
@@ -206,12 +206,12 @@ func applySettingsServiceFields(s *session, raw json.RawMessage) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(parsed.ThreadSettings.ServiceTier) > 0 && string(parsed.ThreadSettings.ServiceTier) != "null" {
+	if len(parsed.ThreadSettings.ServiceTier) > 0 && string(parsed.ThreadSettings.ServiceTier) != jsonNull {
 		var id string
 		if json.Unmarshal(parsed.ThreadSettings.ServiceTier, &id) == nil {
 			s.serviceTier = normalizeServiceTier(id)
 		}
-	} else if string(parsed.ThreadSettings.ServiceTier) == "null" {
+	} else if string(parsed.ThreadSettings.ServiceTier) == jsonNull {
 		s.serviceTier = ""
 	}
 	if parsed.ThreadSettings.Personality != nil {

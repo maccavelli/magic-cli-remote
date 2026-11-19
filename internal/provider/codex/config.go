@@ -12,6 +12,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// goosWindows: runtime.GOOS name.
+	goosWindows = "windows"
+)
+
 // TransportMode selects the daemon-owned Codex app-server transport.
 type TransportMode string
 
@@ -95,7 +101,7 @@ func (c Config) validated() (Config, error) {
 			return Config{}, fmt.Errorf("stdio transport rejects listen/auth fields")
 		}
 	case TransportUnixWS:
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == goosWindows {
 			return Config{}, fmt.Errorf("unix_ws is unavailable on Windows")
 		}
 		if c.WSAuthMode != "" {
@@ -117,7 +123,7 @@ func (c Config) validated() (Config, error) {
 			return Config{}, fmt.Errorf("unknown WebSocket auth mode %q", c.WSAuthMode)
 		}
 	case TransportManagedDaemonProxy:
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == goosWindows {
 			// Not a platform limit any more. Codex's app-server daemon supported
 			// only Unix at 0.149.1 — its own README said so — and supports
 			// Windows from 0.155.1 (MADR 0163 F20/D12). What we lack is live

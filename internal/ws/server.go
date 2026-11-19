@@ -30,6 +30,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// devDeviceID: the device id of a client on a server that requires no token.
+	devDeviceID = "dev"
+)
+
 // Server hosts WebSocket clients and HTTP health endpoints.
 type Server struct {
 	// now is the clock the auth-rejection log throttles by; tests replace it
@@ -624,7 +630,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		// event broadcasts reach it — otherwise session ops succeed but zero
 		// events ever arrive.
 		c.authed = true
-		c.deviceID = "dev"
+		c.deviceID = devDeviceID
 	}
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
@@ -1421,10 +1427,10 @@ var (
 
 func (s *Server) authenticate(c *client, token string) (auth.Device, error) {
 	if !s.requireDeviceToken {
-		if err := s.setAuthed(c, "dev"); err != nil {
+		if err := s.setAuthed(c, devDeviceID); err != nil {
 			return auth.Device{}, err
 		}
-		return auth.Device{ID: "dev", Name: "dev"}, nil
+		return auth.Device{ID: devDeviceID, Name: "dev"}, nil
 	}
 	dev, err := s.store.Validate(token)
 	if err != nil {

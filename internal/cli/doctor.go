@@ -17,6 +17,7 @@ import (
 
 	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
@@ -45,7 +46,7 @@ func newDoctorCmd() *cobra.Command {
 			"ID, start and finish times, exit code and error (MADR 0210 D5).",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
-			renderServiceDoctor(w, service.ProbeStatus("mcremote"))
+			renderServiceDoctor(w, service.ProbeStatus(appdirs.ProductMcremote.Name))
 			fmt.Fprintln(w)
 			renderDoctor(w, runtime.GOOS, tcc.Probe())
 			fmt.Fprintln(w)

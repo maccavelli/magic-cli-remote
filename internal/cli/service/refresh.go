@@ -12,6 +12,33 @@ import (
 	"strings"
 
 	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// plistElemDict: the plist XML element that holds a dictionary.
+	plistElemDict = "dict"
+)
+
+// Names this package repeats (MADR 0131, P4).
+const (
+	// flagConfig: a flag of the serve command line the unit carries.
+	flagConfig = "--config"
+	// flagDataDir: a flag of the serve command line the unit carries.
+	flagDataDir = "--data-dir"
+	// flagListenHost: a flag of the serve command line the unit carries.
+	flagListenHost = "--listen-host"
+	// flagListenPort: a flag of the serve command line the unit carries.
+	flagListenPort = "--listen-port"
+	// flagLogFormat: a flag of the serve command line the unit carries.
+	flagLogFormat = "--log-format"
+	// flagLogLevel: a flag of the serve command line the unit carries.
+	flagLogLevel = "--log-level"
+	// plistKindArray: a plist node kind.
+	plistKindArray = "array"
+	// plistKindDict: a plist node kind.
+	plistKindDict = "dict"
 )
 
 // Refresh verdicts. Every one of them is a successful outcome: a refresh that
@@ -61,15 +88,15 @@ type RefreshResult struct {
 // managedEnvKeys are the environment keys the templates emit themselves. Every
 // other Environment= entry came from --env and is carried over as-is.
 var managedEnvKeys = map[string]bool{
-	"HOME":            true,
-	"USER":            true,
-	"LOGNAME":         true,
-	"PATH":            true,
-	"XDG_CONFIG_HOME": true,
-	"XDG_DATA_HOME":   true,
-	"XDG_STATE_HOME":  true,
-	"XDG_CACHE_HOME":  true,
-	"XDG_RUNTIME_DIR": true,
+	envHome:          true,
+	envUser:          true,
+	envLogname:       true,
+	envPath:          true,
+	envXDGConfigHome: true,
+	envXDGDataHome:   true,
+	envXDGStateHome:  true,
+	envXDGCacheHome:  true,
+	envXDGRuntimeDir: true,
 }
 
 // handEditedDirectives are directives setup-service never writes. One of them
@@ -102,10 +129,10 @@ type recovery struct {
 func RefreshUnit(opts Options, ro RefreshOptions) (RefreshResult, error) {
 	res := RefreshResult{Verdict: VerdictNone}
 	if opts.Product == "" {
-		opts.Product = "mcremote"
+		opts.Product = appdirs.ProductMcremote.Name
 	}
 	switch opts.Product {
-	case "mcremote", "mcrelay":
+	case appdirs.ProductMcremote.Name, appdirs.ProductMcrelay.Name:
 	default:
 		return res, fmt.Errorf("product must be mcremote or mcrelay (got %q)", opts.Product)
 	}
@@ -126,7 +153,7 @@ func RefreshUnit(opts Options, ro RefreshOptions) (RefreshResult, error) {
 		osName = runtime.GOOS
 	}
 	switch osName {
-	case "linux":
+	case osLinux:
 		kind, err := ResolveBackend(opts.Product)
 		if err != nil {
 			return res, err
@@ -135,9 +162,9 @@ func RefreshUnit(opts Options, ro RefreshOptions) (RefreshResult, error) {
 			return refreshScript(kind, opts, ro)
 		}
 		return refreshSystemd(opts, ro)
-	case "darwin":
+	case osDarwin:
 		return refreshLaunchd(opts, ro)
-	case "windows":
+	case osWindows:
 		// MADR 0159 D1: without this arm every managed `update` on Windows
 		// failed reconciliation and rolled back (F1).
 		return refreshSchtasks(opts, ro)
@@ -167,7 +194,7 @@ func RestoreUnitBackup(path, backup string) error {
 	}
 	// Only a systemd unit has a manager to reload; a runit, s6 or OpenRC
 	// script is read on its next start.
-	if osName == "linux" && strings.HasSuffix(path, ".service") {
+	if osName == osLinux && strings.HasSuffix(path, ".service") {
 		if err := runSystemctl("--user", "daemon-reload"); err != nil {
 			return fmt.Errorf("restored %s, but systemctl daemon-reload failed: %w", path, err)
 		}
@@ -449,7 +476,7 @@ func applyServeArgv(opts *Options, toks []string, what string) (string, bool) {
 		return "has an " + what + " too short to be ours", false
 	}
 	opts.Binary = toks[0]
-	if toks[1] != "serve" {
+	if toks[1] != subcommandServe {
 		return fmt.Sprintf("has an %s that does not run `serve` (found %q)", what, toks[1]), false
 	}
 	for i := 2; i < len(toks); i++ {
@@ -460,21 +487,21 @@ func applyServeArgv(opts *Options, toks []string, what string) (string, bool) {
 		v := toks[i+1]
 		i++
 		switch flag {
-		case "--config":
+		case flagConfig:
 			opts.ConfigPath = v
-		case "--data-dir":
+		case flagDataDir:
 			opts.DataDir = v
-		case "--listen-host":
+		case flagListenHost:
 			opts.ListenHost = v
-		case "--listen-port":
+		case flagListenPort:
 			n, err := strconv.Atoi(v)
 			if err != nil || n <= 0 {
 				return fmt.Sprintf("has an %s --listen-port %q that is not a port", what, v), false
 			}
 			opts.ListenPort = n
-		case "--log-level":
+		case flagLogLevel:
 			opts.LogLevel = v
-		case "--log-format":
+		case flagLogFormat:
 			opts.LogFormat = v
 		default:
 			return fmt.Sprintf("has an unrecognised %s argument %q", what, flag), false
@@ -486,25 +513,25 @@ func applyServeArgv(opts *Options, toks []string, what string) (string, bool) {
 // assignManagedEnv pins one template-emitted environment value.
 func assignManagedEnv(env *renderEnv, key, val string) {
 	switch key {
-	case "HOME":
+	case envHome:
 		env.Home = val
-	case "USER":
+	case envUser:
 		env.User = val
-	case "LOGNAME":
+	case envLogname:
 		if env.User == "" {
 			env.User = val
 		}
-	case "PATH":
+	case envPath:
 		env.Path = val
-	case "XDG_CONFIG_HOME":
+	case envXDGConfigHome:
 		env.XDGConfigHome = val
-	case "XDG_DATA_HOME":
+	case envXDGDataHome:
 		env.XDGDataHome = val
-	case "XDG_STATE_HOME":
+	case envXDGStateHome:
 		env.XDGStateHome = val
-	case "XDG_CACHE_HOME":
+	case envXDGCacheHome:
 		env.XDGCacheHome = val
-	case "XDG_RUNTIME_DIR":
+	case envXDGRuntimeDir:
 		// %t is the template's own default, systemd's runtime-directory
 		// specifier, not a path the installer had. Read it back as "none",
 		// which re-renders as %t; kept as a value it would be escaped to a
@@ -523,8 +550,8 @@ func assignManagedEnv(env *renderEnv, key, val string) {
 func fillMissingEnv(product string, env *renderEnv, seen map[string]bool) []string {
 	cur := currentRenderEnv(product)
 	var missing []string
-	for _, k := range []string{"HOME", "USER", "PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
-		if seen[k] || (k == "USER" && env.User != "") {
+	for _, k := range []string{envHome, envUser, envPath, envXDGConfigHome, envXDGDataHome, envXDGStateHome, envXDGCacheHome} {
+		if seen[k] || (k == envUser && env.User != "") {
 			continue
 		}
 		assignManagedEnv(env, k, envValue(cur, k))
@@ -539,21 +566,21 @@ func fillMissingEnv(product string, env *renderEnv, seen map[string]bool) []stri
 
 func envValue(env renderEnv, key string) string {
 	switch key {
-	case "HOME":
+	case envHome:
 		return env.Home
-	case "USER", "LOGNAME":
+	case envUser, envLogname:
 		return env.User
-	case "PATH":
+	case envPath:
 		return env.Path
-	case "XDG_CONFIG_HOME":
+	case envXDGConfigHome:
 		return env.XDGConfigHome
-	case "XDG_DATA_HOME":
+	case envXDGDataHome:
 		return env.XDGDataHome
-	case "XDG_STATE_HOME":
+	case envXDGStateHome:
 		return env.XDGStateHome
-	case "XDG_CACHE_HOME":
+	case envXDGCacheHome:
 		return env.XDGCacheHome
-	case "XDG_RUNTIME_DIR":
+	case envXDGRuntimeDir:
 		return env.XDGRuntimeDir
 	}
 	return ""
@@ -686,7 +713,7 @@ func recoverPlistOptions(product, unitName, label, body string) (recovery, strin
 		return rec, "has Label " + got + ", not " + label, false
 	}
 	args := top["ProgramArguments"]
-	if args.kind != "array" {
+	if args.kind != plistKindArray {
 		return rec, "has no ProgramArguments array", false
 	}
 	argv := make([]string, 0, len(args.array))
@@ -700,7 +727,7 @@ func recoverPlistOptions(product, unitName, label, body string) (recovery, strin
 
 	seen := map[string]bool{}
 	envNode := top["EnvironmentVariables"]
-	if envNode.kind == "dict" {
+	if envNode.kind == plistKindDict {
 		for _, k := range envNode.order {
 			v := envNode.dict[k].str
 			if managedEnvKeys[k] {
@@ -721,7 +748,7 @@ func applyProgramArguments(opts *Options, argv []string) (string, bool) {
 		return "has ProgramArguments too short to be ours", false
 	}
 	opts.Binary = argv[0]
-	if argv[1] != "serve" {
+	if argv[1] != subcommandServe {
 		return fmt.Sprintf("has ProgramArguments that do not run `serve` (found %q)", argv[1]), false
 	}
 	for i := 2; i < len(argv); i++ {
@@ -732,21 +759,21 @@ func applyProgramArguments(opts *Options, argv []string) (string, bool) {
 		v := argv[i+1]
 		i++
 		switch flag {
-		case "--config":
+		case flagConfig:
 			opts.ConfigPath = v
-		case "--data-dir":
+		case flagDataDir:
 			opts.DataDir = v
-		case "--listen-host":
+		case flagListenHost:
 			opts.ListenHost = v
-		case "--listen-port":
+		case flagListenPort:
 			n, err := strconv.Atoi(v)
 			if err != nil || n <= 0 {
 				return fmt.Sprintf("has a ProgramArguments --listen-port %q that is not a port", v), false
 			}
 			opts.ListenPort = n
-		case "--log-level":
+		case flagLogLevel:
 			opts.LogLevel = v
-		case "--log-format":
+		case flagLogFormat:
 			opts.LogFormat = v
 		default:
 			return fmt.Sprintf("has an unrecognised ProgramArguments entry %q", flag), false
@@ -772,7 +799,7 @@ func parsePlist(body string) (map[string]plistNode, error) {
 		if err != nil {
 			return nil, fmt.Errorf("no top-level dict: %w", err)
 		}
-		if se, ok := tok.(xml.StartElement); ok && se.Name.Local == "dict" {
+		if se, ok := tok.(xml.StartElement); ok && se.Name.Local == plistElemDict {
 			node, err := readPlistDict(dec)
 			if err != nil {
 				return nil, err
@@ -783,7 +810,7 @@ func parsePlist(body string) (map[string]plistNode, error) {
 }
 
 func readPlistDict(dec *xml.Decoder) (plistNode, error) {
-	out := plistNode{kind: "dict", dict: map[string]plistNode{}}
+	out := plistNode{kind: plistKindDict, dict: map[string]plistNode{}}
 	key := ""
 	haveKey := false
 	for {
@@ -813,7 +840,7 @@ func readPlistDict(dec *xml.Decoder) (plistNode, error) {
 				haveKey = false
 			}
 		case xml.EndElement:
-			if t.Name.Local == "dict" {
+			if t.Name.Local == plistElemDict {
 				return out, nil
 			}
 		}
@@ -825,8 +852,8 @@ func readPlistNode(dec *xml.Decoder, start xml.StartElement) (plistNode, error) 
 	case "string":
 		s, err := readPlistText(dec, start)
 		return plistNode{kind: "string", str: s}, err
-	case "array":
-		out := plistNode{kind: "array"}
+	case plistKindArray:
+		out := plistNode{kind: plistKindArray}
 		for {
 			tok, err := dec.Token()
 			if err != nil {
@@ -840,12 +867,12 @@ func readPlistNode(dec *xml.Decoder, start xml.StartElement) (plistNode, error) 
 				}
 				out.array = append(out.array, n)
 			case xml.EndElement:
-				if t.Name.Local == "array" {
+				if t.Name.Local == plistKindArray {
 					return out, nil
 				}
 			}
 		}
-	case "dict":
+	case plistElemDict:
 		return readPlistDict(dec)
 	default:
 		// integer / true / false / data: present but not needed for recovery.

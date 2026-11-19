@@ -30,6 +30,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
 
+// Names this package repeats (MADR 0131, P4).
+const (
+	// clientNameMcremote: the client name this daemon sends in initialize.
+	clientNameMcremote = "mcremote"
+)
+
 type engine struct {
 	cmd             *exec.Cmd
 	conn            *conn
@@ -154,7 +160,7 @@ func NewCoordinated(cfg Config, log *slog.Logger, coord *providerauth.Coordinato
 // NewWithLogger creates a Provider from config with a custom logger.
 func NewWithLogger(cfg Config, log *slog.Logger) *Provider {
 	if cfg.Bin == "" {
-		cfg.Bin = "codex"
+		cfg.Bin = defaultBin
 	}
 	l := slog.Default()
 	if log != nil {
@@ -667,7 +673,7 @@ func (p *Provider) launchEngineProcess(ctx context.Context, identity BinaryIdent
 	}
 	registryLease, regErr := procutil.RegisterEngine("", procutil.EngineRecord{
 		ID:       engineID,
-		Provider: "codex",
+		Provider: string(provider.IDCodex),
 		PID:      cmd.Process.Pid,
 		PGID:     cmd.Process.Pid,
 		Owner:    procutil.OwnerToken(),
@@ -822,9 +828,9 @@ func initializeParamsWithProfile(experimental bool, profile MCPClientExtensionPr
 	}
 	return map[string]any{
 		"clientInfo": map[string]string{
-			"name":    "mcremote",
-			"title":   "magic-cli-remote",
-			"version": "dev",
+			fieldName:  clientNameMcremote,
+			fieldTitle: "magic-cli-remote",
+			"version":  "dev",
 		},
 		"capabilities": map[string]any{
 			"experimentalApi":           experimental,
@@ -838,9 +844,9 @@ func initializeParamsWithProfile(experimental bool, profile MCPClientExtensionPr
 func initializeParamsWithLegacyForm(experimental bool) map[string]any {
 	return map[string]any{
 		"clientInfo": map[string]string{
-			"name":    "mcremote",
-			"title":   "magic-cli-remote",
-			"version": "dev",
+			fieldName:  clientNameMcremote,
+			fieldTitle: "magic-cli-remote",
+			"version":  "dev",
 		},
 		"capabilities": map[string]any{
 			"experimentalApi":                experimental,
@@ -861,7 +867,7 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	if identityErr != nil {
 		return nil, identityErr
 	}
-	if identity.Version != "" && identity.Version != "unknown" && identity.Version != "test-helper" {
+	if identity.Version != "" && identity.Version != versionUnknown && identity.Version != "test-helper" {
 		p.version = identity.Version
 	}
 	att, err := p.launchEngineProcess(ctx, identity)
@@ -1169,7 +1175,7 @@ func resolveBinaryIdentity(ctx context.Context, bin, versionHint string) (Binary
 		}
 	}
 	if version == "" {
-		version = "unknown"
+		version = versionUnknown
 	}
 	return BinaryIdentity{Path: path, Version: version, SHA256: fmt.Sprintf("%x", hash.Sum(nil))}, nil
 }
@@ -1455,7 +1461,7 @@ func (w *lineRing) tail() string {
 // subcommand, and the only record of applied denies is
 // $CODEX_HOME\.sandbox\deny_read_acl_state.json (MADR 0163 D11/F28/F30).
 func withResolvedUserName(env []string) []string {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != goosWindows {
 		return env
 	}
 	// Find an existing entry rather than assuming there is none. An empty
